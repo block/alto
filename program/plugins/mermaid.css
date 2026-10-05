@@ -1,0 +1,105 @@
+.cordis-mermaid {
+  --mermaid-max-height: 520px;
+  margin: 14px 0 16px;
+  overflow: hidden;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-solid) 88%, white);
+}
+
+.cordis-mermaid figcaption {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 9px 3px;
+  color: var(--muted);
+  font: 500 11px/1.2 var(--sans);
+}
+
+.cordis-mermaid figcaption button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  border: 0;
+  border-radius: 7px;
+  outline: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cordis-mermaid figcaption button:hover,
+.cordis-mermaid figcaption button:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, white 62%, transparent);
+}
+
+.cordis-mermaid figcaption button:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.cordis-mermaid-stage {
+  min-height: 116px;
+  max-height: var(--mermaid-max-height);
+  display: grid;
+  overflow: auto;
+  padding: 14px 18px 20px;
+  place-items: center;
+}
+
+.cordis-mermaid-svg {
+  width: 100%;
+  min-width: min-content;
+  transition: opacity 140ms ease;
+}
+
+.cordis-mermaid.is-updating .cordis-mermaid-svg { opacity: 0.7; }
+
+.cordis-mermaid-svg > svg {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: calc(var(--mermaid-max-height) - 72px);
+  display: block;
+  margin: 0 auto;
+}
+
+.cordis-mermaid-loading {
+  color: var(--muted-light);
+  font: 500 12px/1.4 var(--sans);
+}
+
+.cordis-mermaid-error {
+  padding: 12px 14px 16px;
+  color: var(--muted);
+  font: 500 12px/1.45 var(--sans);
+}
+
+.cordis-mermaid-error details { margin-top: 8px; }
+.cordis-mermaid-error summary { cursor: pointer; }
+
+.activity-markdown .cordis-mermaid-error pre {
+  max-height: 220px;
+  margin: 10px 0 0;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-soft) 78%, transparent);
+}
+
+.activity-markdown .cordis-mermaid-error code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: 500 12px/1.55 var(--mono);
+  white-space: pre;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cordis-mermaid-svg { transition: none; }
+}

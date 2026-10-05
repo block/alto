@@ -1,0 +1,57 @@
+# Contributing to Alto
+
+Use [GitHub issues](https://github.com/block/alto/issues) to report bugs, ask
+questions, or discuss a proposed change. Include steps to reproduce a bug and
+the Alto version or commit you are running.
+
+## Development setup
+
+Install Node.js 22.19 or newer and authenticate the Codex CLI before running
+Alto. The optional Nix development shell provides Node 22 and the command-line
+build tools.
+
+```bash
+git clone https://github.com/block/alto.git
+cd alto
+nix develop # Optional if Node.js is already installed.
+npm ci
+npm run dev
+```
+
+Open the complete URL printed by the server to establish your local browser
+session. To run the Electron app during development, use `npm run desktop:dev`.
+Building the native Ghostty terminal also requires
+macOS and a full Xcode installation; see the
+[native terminal instructions](native/ghostty/README.md).
+
+The [README](README.md) covers app installation, and
+[Agent providers](docs/agent-providers.md) covers Claude, Gemini, and Pi setup.
+
+## Making a change
+
+Create a branch for your change. Read the [architecture](docs/architecture.md)
+and [plugin authoring guide](docs/plugin-authoring.md) before changing plugin
+behavior. Visible features belong in the Cordis program; the kernel handles
+transport, plugin loading, native integration, and recovery.
+
+Run the checks before opening a pull request:
+
+```bash
+npm run check
+```
+
+This runs the design-system audit, TypeScript checks, tests, and production
+build. Use `npm test -- tests/example.test.ts` to run a specific test file.
+[GitHub Actions](https://github.com/block/alto/actions/workflows/ci.yml) runs
+the same checks on pushes to `main` and on pull requests.
+
+In the pull request, explain what behavior changes, why it changes, and how
+you tested it. Include screenshots for visible changes. Keep unrelated
+changes in separate pull requests.
+
+## Project governance and license
+
+[CODEOWNERS](CODEOWNERS) lists the default reviewer. Alto follows
+[Block's open source governance](GOVERNANCE.md) and uses the
+[Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) for the original
+license notice retained with the imported source.

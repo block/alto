@@ -1,0 +1,150 @@
+.git-thread-menu-details {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-soft);
+}
+
+.git-thread-menu-details > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-compact);
+  font-size: var(--type-supporting);
+}
+
+.git-thread-menu-details > div span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-thread-menu-details svg {
+  color: var(--muted);
+  stroke-width: 1.5;
+}
+
+.git-thread-menu-details .is-passing { color: var(--success); }
+.git-thread-menu-details .is-pending { color: var(--accent); }
+.git-thread-menu-details .is-failing { color: var(--danger); }
+
+.git-pane-control {
+  min-width: 0;
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 1px;
+}
+.git-pane-button {
+  height: 24px;
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  color: var(--muted);
+  border: 0;
+  border-radius: var(--radius-xs, 6px);
+  background: transparent;
+  cursor: pointer;
+  font: 500 10.5px/1 var(--sans);
+  white-space: nowrap;
+}
+.git-pane-button:hover,
+.git-pane-button[aria-expanded='true'] {
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel-soft) 64%, transparent);
+}
+.git-pane-button.is-passing svg { color: var(--success); }
+.git-pane-button.is-pending svg { color: var(--accent); }
+.git-pane-button.is-failing svg { color: var(--danger); }
+.git-pane-button svg { flex: 0 0 auto; stroke-width: 1.55; }
+.git-pane-diff-button {
+  width: 24px;
+  flex: 0 0 24px;
+  justify-content: center;
+  padding: 0;
+}
+
+.git-pane-popover {
+  width: 320px;
+  max-height: min(430px, calc(100vh - 20px));
+  padding: 8px;
+  overflow: auto;
+  border-radius: var(--radius-md, 18px);
+}
+.git-pane-popover > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 5px 8px;
+}
+.git-pane-popover > header strong { color: var(--text-strong); font-size: 11.5px; font-weight: 590; }
+.git-pane-popover > header button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  padding: 0;
+  place-items: center;
+  color: var(--muted);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+.git-pane-popover > header button:hover { color: var(--text); background: var(--panel-soft); }
+.git-pane-summary,
+.git-pane-files {
+  display: grid;
+  gap: 2px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border-soft);
+}
+.git-pane-summary > div,
+.git-pane-summary > a,
+.git-pane-files > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px;
+  color: var(--muted);
+  border-radius: var(--radius-sm, 12px);
+  font-size: 10.5px;
+  text-decoration: none;
+}
+.git-pane-summary > a:hover { color: var(--accent); background: var(--panel-soft); }
+.git-pane-summary span,
+.git-pane-files > div > span { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-pane-summary small,
+.git-pane-files code { flex: 0 0 auto; color: var(--muted-soft); font-size: 9px; }
+.git-pane-summary svg { flex: 0 0 auto; color: var(--muted-soft); stroke-width: 1.5; }
+.git-pane-summary .is-passing { color: var(--success); }
+.git-pane-summary .is-pending { color: var(--accent); }
+.git-pane-summary .is-failing { color: var(--danger); }
+.git-pane-sync { padding-left: 26px !important; }
+.git-pane-files h4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 2px 6px 3px;
+  color: var(--muted-soft);
+  font-size: 9px;
+  font-weight: 560;
+  text-transform: uppercase;
+  letter-spacing: .035em;
+}
+.git-pane-files h4 span { font-variant-numeric: tabular-nums; }
+.git-pane-files > small { padding: 2px 6px; color: var(--muted-soft); font-size: 9px; }
+.git-pane-clean { padding: 9px 6px 5px; color: var(--muted-soft); border-top: 1px solid var(--border-soft); font-size: 10px; }
+
+[data-theme='dark'] .git-pane-popover {
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-popover);
+}
