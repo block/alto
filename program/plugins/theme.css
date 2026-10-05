@@ -120,15 +120,6 @@ html[data-alto-theme='dark'] .composer-inline-code-block {
   background: rgba(42, 45, 55, 0.78);
 }
 
-html[data-alto-theme='dark'] .composer {
-  background: rgba(36, 39, 48, 0.95);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 12px 30px rgba(0, 0, 0, 0.2);
-}
-
-html[data-alto-theme='dark'] .composer-editor:empty::before {
-  color: var(--dim);
-}
-
 html[data-alto-theme='dark'] :is(
   .composer-workspace-picker,
   .composer-permission-picker,

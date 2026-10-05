@@ -1988,27 +1988,44 @@ details pre {
 }
 
 .composer {
+  --composer-surface: light-dark(#f8f9fc, #262931);
+  --composer-placeholder-ink: light-dark(#b5bac7, #808797);
+  --composer-outline: light-dark(#e2e4ec, #363a46);
+  --composer-focus-outline: light-dark(#d9caf8, #63527d);
+  --composer-shadow-tint: light-dark(#33354916, #00000042);
+  --composer-elevation: 0 3px 6px var(--composer-shadow-tint), 0 10px 24px var(--composer-shadow-tint);
+  --composer-resting-shadow: 0 0 0 1px var(--composer-outline), var(--composer-elevation);
+  --composer-editing-shadow: 0 0 0 1.5px var(--composer-focus-outline), var(--composer-elevation);
+  --type-composer: 15px;
+  -webkit-font-smoothing: auto;
+  font-feature-settings: normal;
+  text-rendering: auto;
+  --composer-action-size: 48px;
+  --composer-action-inset: 10px;
+  --composer-action-ink: light-dark(var(--accent), #b59af9);
+  --composer-action-fill: light-dark(#ede5ff, #3a3053);
+  --composer-action-hover-fill: light-dark(#e6dafb, #473665);
   position: absolute;
   z-index: 4;
   right: max(24px, calc((100% - 860px) / 2));
   bottom: 16px;
   left: max(24px, calc((100% - 860px) / 2));
-  min-height: 90px;
-  padding: 17px 58px 49px 20px;
+  min-height: 98px;
+  padding: 18px 70px 49px 20px;
   border: 1px solid var(--border);
   border-radius: 27px;
-  background: rgba(248, 249, 252, 0.94);
-  box-shadow: 0 1px 3px rgba(28, 32, 44, 0.035), 0 12px 30px rgba(28, 32, 44, 0.06);
-  -webkit-backdrop-filter: blur(20px) saturate(112%);
-  backdrop-filter: blur(20px) saturate(112%);
+  background: var(--composer-surface);
+  box-shadow: var(--composer-resting-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   transition: min-height 0.22s ease, padding-bottom 0.22s ease, border-color 0.15s, box-shadow 0.2s;
 }
 
 .composer.composer-focus-continuity { transition: none; }
 
 .composer.is-editing {
-  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 5%, transparent), 0 14px 34px rgba(28, 32, 44, 0.075);
+  border-color: transparent;
+  box-shadow: var(--composer-editing-shadow);
 }
 
 .composer.is-expanded {
@@ -2018,22 +2035,26 @@ details pre {
 .composer-body { position: relative; min-width: 0; }
 
 .composer-editor {
+  position: relative;
   min-height: 31px;
   height: var(--composer-editor-height, 31px);
   max-height: var(--composer-max-height, 180px);
-  width: 100%;
+  /* Put the scrollbar in the right inset while keeping the text column unchanged. */
+  width: calc(100% + var(--composer-action-size));
   display: block;
   overflow-y: hidden;
   overflow-wrap: anywhere;
-  scrollbar-color: color-mix(in srgb, var(--muted) 42%, transparent) transparent;
-  scrollbar-width: none;
-  padding: 2px 6px 2px 0;
-  color: var(--text-strong);
+  scrollbar-color: auto;
+  scrollbar-width: auto;
+  scrollbar-gutter: stable;
+  padding: 2px calc(var(--composer-action-size) - var(--space-2)) 2px 0;
+  color: var(--text);
   border: 0;
   outline: 0;
   background: transparent;
   font-size: var(--type-composer);
   line-height: 1.5;
+  letter-spacing: normal;
   white-space: pre-wrap;
   transition: none;
 }
@@ -2043,35 +2064,38 @@ details pre {
   inset: 0 0 auto;
   height: auto;
   max-height: none;
-  overflow: visible;
+  overflow: hidden;
   visibility: hidden;
   pointer-events: none;
   transition: none;
 }
 
-.composer-editor::-webkit-scrollbar { width: 0; }
+.composer-editor::-webkit-scrollbar { width: var(--space-2); }
 .composer.is-overflowing .composer-editor:not(.composer-editor-measure) {
   overflow-y: auto;
-  scrollbar-width: thin;
 }
-.composer.is-overflowing .composer-editor:not(.composer-editor-measure)::-webkit-scrollbar { width: 7px; }
-.composer-editor::-webkit-scrollbar-track { background: transparent; }
+.composer-editor::-webkit-scrollbar-track {
+  margin-block: var(--space-2) var(--space-3);
+  background: transparent;
+}
 .composer-editor::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  background: color-mix(in srgb, var(--muted) 24%, transparent);
   background-clip: padding-box;
 }
 .composer-editor::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--muted) 62%, transparent);
+  background: color-mix(in srgb, var(--muted) 48%, transparent);
   background-clip: padding-box;
 }
 
-.composer-editor:empty::before {
+.composer-editor[data-empty="true"]::before {
   content: attr(data-placeholder);
-  color: color-mix(in srgb, var(--dim) 72%, white);
+  position: absolute;
+  inset: 2px 0 auto;
+  color: var(--composer-placeholder-ink);
   font-weight: 400;
-  letter-spacing: -0.012em;
+  letter-spacing: normal;
   pointer-events: none;
 }
 
@@ -2127,30 +2151,31 @@ details pre {
 
 .composer-attach {
   position: absolute;
-  bottom: 14px;
+  bottom: 16px;
   left: 14px;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   color: var(--muted);
   border: 0;
   border-radius: 50%;
   outline: 0;
   background: transparent;
+  font: 400 var(--type-label)/normal var(--sans);
   cursor: pointer;
   transition: color 0.15s, background 0.15s;
 }
 
-.composer-attach:hover { color: var(--accent); background: var(--accent-soft); }
+.composer-attach:hover { color: var(--text); background: var(--composer-action-fill); }
 .composer-attach:disabled { opacity: 0.3; cursor: not-allowed; }
 .composer-file-input { display: none; }
 
 .composer-context-controls {
   position: absolute;
   bottom: 16px;
-  left: 52px;
+  left: 47px;
   height: 30px;
   display: flex;
   min-width: 0;
@@ -2177,17 +2202,17 @@ details pre {
   gap: 5px;
   padding: 0 7px;
   overflow: hidden;
-  color: var(--dim);
+  color: var(--muted);
   border: 0;
   border-radius: 8px;
   outline: 0;
   background: transparent;
-  font: 500 12px/1.25 var(--sans);
+  font: 400 var(--type-label)/normal var(--sans);
   cursor: pointer;
 }
 
 button.composer-workspace-trigger:hover,
-button.composer-workspace-trigger:focus-visible { color: var(--text); background: var(--panel-soft); }
+button.composer-workspace-trigger:focus-visible { color: var(--text); background: var(--composer-action-fill); }
 .composer-workspace-trigger:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring); }
 .composer-workspace-trigger:disabled { opacity: 0.45; cursor: not-allowed; }
 .composer-workspace-trigger.is-readonly { cursor: default; }
@@ -2246,21 +2271,22 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   height: 30px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 8px;
+  gap: 5px;
+  padding: 0 7px;
   color: var(--muted);
   border: 0;
   border-radius: 8px;
   outline: 0;
   background: transparent;
-  font: 500 12.5px/1.25 var(--sans);
+  font: 400 var(--type-label)/normal var(--sans);
   cursor: pointer;
+  opacity: 0.68;
 }
 
 .composer-permission-trigger:hover,
-.composer-permission-trigger:focus-visible { background: var(--panel-soft); }
+.composer-permission-trigger:focus-visible { color: var(--text); background: var(--composer-action-fill); }
 .composer-permission-trigger:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring); }
-.composer-permission-trigger:disabled { opacity: 0.45; cursor: not-allowed; }
+.composer-permission-trigger:disabled { opacity: 0.68; cursor: not-allowed; }
 .composer-permission-trigger.mode-auto { color: var(--accent); }
 
 .composer-permission-picker {
@@ -2455,29 +2481,30 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 
 .composer-model-control {
   position: absolute;
-  right: 57px;
-  bottom: 15px;
+  right: calc(var(--composer-action-size) + 2 * var(--composer-action-inset));
+  bottom: 16px;
   height: 30px;
 }
 
 .composer-model-trigger {
-  max-width: 210px;
+  max-width: 160px;
   height: 30px;
-  padding: 0 8px;
+  padding: 0 7px;
   overflow: hidden;
   color: var(--muted);
   border: 0;
   border-radius: 8px;
   outline: 0;
   background: transparent;
-  font: 500 12.5px/1.25 var(--sans);
+  font: 400 var(--type-label)/normal var(--sans);
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
 }
 
 .composer-model-trigger:hover,
-.composer-model-trigger:focus-visible { color: var(--text); background: var(--panel-soft); }
+.composer-model-trigger:focus-visible { color: var(--text); background: var(--composer-action-fill); }
 .composer-model-trigger:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring); }
 .composer-model-trigger:disabled { opacity: 0.45; cursor: not-allowed; }
 
@@ -2573,27 +2600,29 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 
 .send-button {
   position: absolute;
-  right: 16px;
-  bottom: 15px;
+  right: var(--composer-action-inset);
+  bottom: var(--composer-action-inset);
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  color: var(--accent-text);
+  width: var(--composer-action-size);
+  height: var(--composer-action-size);
+  padding: 0;
+  color: var(--composer-action-ink);
   border: 0;
-  border-radius: 50%;
-  background: #565972;
-  box-shadow: 0 2px 7px rgba(51, 53, 75, 0.18);
+  /* The outside curve follows the composer at the same inset on both edges. */
+  border-radius: var(--radius-row) var(--radius-dense) calc(var(--radius-composer) - var(--composer-action-inset)) var(--radius-dense);
+  background: var(--composer-action-fill);
+  box-shadow: none;
   cursor: pointer;
-  transition: background 0.15s, transform 0.15s;
+  transition: background 140ms ease;
 }
 
-.send-button:hover:not(:disabled) { background: #4c4f69; transform: translateY(-1px); }
-.send-button:disabled { opacity: 0.28; box-shadow: none; cursor: not-allowed; }
-.send-button.stop { box-shadow: 0 2px 7px rgba(51, 53, 75, 0.14); }
+.send-button:hover:not(:disabled) { background: var(--composer-action-hover-fill); }
+.send-button:disabled { opacity: 0.32; cursor: not-allowed; }
+.send-button > :is(svg, .stop-glyph) { transform: translate(-3px, -3px); }
 .stop-glyph {
-  width: 8px;
-  height: 8px;
+  width: 12px;
+  height: 12px;
   border-radius: 2px;
   background: currentColor;
 }
@@ -3188,17 +3217,12 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   .composer {
     right: 14px;
     left: 14px;
-    padding-right: 52px;
-    padding-left: 17px;
   }
-  .composer-permission-trigger { padding-inline: 7px; }
-  .composer-permission-trigger span { display: none; }
   .composer-context-controls { max-width: calc(100% - 230px); }
   .composer-workspace-picker {
     left: -40px;
     width: min(270px, calc(100cqw - 28px));
   }
-  .composer-model-trigger { max-width: 108px; font-size: 11.5px; }
   .composer-permission-picker,
   .composer-model-picker { width: min(300px, calc(100cqw - 28px)); }
   .activity-user { margin-left: 7%; }
@@ -3210,15 +3234,8 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   .composer {
     right: 10px;
     left: 10px;
-    padding-right: 47px;
-    padding-left: 15px;
     border-radius: 23px;
   }
-  .composer-attach { left: 9px; }
-  .composer-context-controls { left: 43px; }
-  .composer-workspace-trigger > span { display: none; }
-  .composer-model-control { right: 49px; }
-  .composer-model-trigger { max-width: 96px; padding-inline: 5px; }
 }
 
 @media (max-width: 1180px) {
@@ -3279,7 +3296,6 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   .activity-agent { margin-right: 0; }
   .ui-row .ui-action { flex: 1; }
   .shell-slot-inline .ui-action { flex: 0 0 auto; }
-  .composer-model-trigger { max-width: 90px; }
   .composer-permission-picker { width: min(310px, calc(100vw - 48px)); }
 }
 
@@ -3408,12 +3424,12 @@ samp,
   left: max(var(--composer-content-gutter), calc((100% - var(--composer-content-width)) / 2));
   border: 0;
   border-radius: var(--radius-composer, 40px);
-  corner-shape: var(--corner-shape-pill, round);
-  background: rgba(248, 249, 252, 0.94);
-  box-shadow: var(--shadow-chat);
+  corner-shape: round;
+  background: var(--composer-surface);
+  box-shadow: var(--composer-resting-shadow);
   font-family: var(--composer-font, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI Variable Text", "Segoe UI", sans-serif);
-  -webkit-backdrop-filter: blur(18px) saturate(180%) brightness(1.04);
-  backdrop-filter: blur(18px) saturate(180%) brightness(1.04);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .composer :is(.composer-editor, button, input, textarea, select) {
@@ -3422,25 +3438,22 @@ samp,
 
 .composer.is-editing {
   border-color: transparent;
-  box-shadow: var(--composer-focus-shadow), var(--shadow-chat);
+  box-shadow: var(--composer-editing-shadow);
 }
 
-.composer-editor:empty::before {
-  color: color-mix(in srgb, var(--dim) 72%, white);
+.composer-editor[data-empty="true"]::before {
+  color: var(--composer-placeholder-ink);
   font-weight: 400;
-  letter-spacing: -0.012em;
+  letter-spacing: normal;
 }
 
-.composer-attach {
-  width: 32px;
-  height: 32px;
-  color: var(--muted);
-  background: transparent;
-}
-
-.composer-attach:hover {
-  color: var(--accent);
-  background: var(--accent-soft);
+.composer-attach > svg,
+.composer-context-controls :is(.composer-workspace-trigger, .composer-permission-trigger) > svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.5;
+  scale: none;
+  opacity: 1;
 }
 
 .composer-workspace-trigger,
@@ -3448,14 +3461,6 @@ samp,
 .composer-model-trigger {
   border-radius: 999px;
   font-weight: 400;
-}
-
-.send-button,
-.send-button:hover:not(:disabled) {
-  color: var(--accent-text);
-  background: var(--accent);
-  box-shadow: none;
-  transform: none;
 }
 
 :is(
@@ -3538,15 +3543,6 @@ html[data-alto-theme='dark'] .activity-user {
   background: #272a33;
 }
 
-html[data-alto-theme='dark'] .composer-editor:empty::before {
-  color: var(--dim);
-}
-
-html[data-alto-theme='dark'] .composer-attach {
-  color: var(--muted);
-  background: transparent;
-}
-
 html[data-alto-theme='dark'] .program-modal-backdrop {
   background: rgba(47, 50, 64, 0.2);
   -webkit-backdrop-filter: none;
@@ -3555,4 +3551,20 @@ html[data-alto-theme='dark'] .program-modal-backdrop {
 
 @container conversation-column (max-width: 360px) {
   .composer { border-radius: var(--radius-composer, 40px); }
+}
+
+/* These breakpoints include the composer's two 24px outer gutters. */
+@container conversation-column (max-width: 618px) {
+  .composer-permission-trigger span { display: none; }
+  .composer-model-trigger { max-width: 120px; }
+}
+
+@container conversation-column (max-width: 443px) {
+  .composer-attach { left: 10px; }
+  .composer-context-controls { left: 43px; }
+  .composer-workspace-trigger > span { display: none; }
+  .composer-model-control {
+    max-width: calc(100% - var(--composer-action-size) - 2 * var(--composer-action-inset) - 142px);
+  }
+  .composer-model-trigger { max-width: min(105px, 100%); }
 }

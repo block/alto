@@ -35,7 +35,7 @@
     "program/plugins/thread-status.css": { "rawGeometry": 6 },
     "program/plugins/turn-progress.css": { "rawFontSize": 3, "rawFontWeight": 1, "rawRadius": 1, "rawSpacing": 10, "rawGeometry": 10, "rawShadow": 2 },
     "program/plugins/ui/composer.tsx": { "inlineStyle": 1 },
-    "program/plugins/ui/default.css": { "rawFontSize": 81, "rawFontWeight": 40, "rawRadius": 66, "rawSpacing": 323, "rawGeometry": 170, "rawColor": 86, "rawShadow": 32, "negativeTracking": 10 },
+    "program/plugins/ui/default.css": { "rawFontSize": 80, "rawFontWeight": 40, "rawRadius": 66, "rawSpacing": 313, "rawGeometry": 167, "rawColor": 84, "rawShadow": 28, "negativeTracking": 8 },
     "program/plugins/ui/markdown.tsx": { "inlineStyle": 2 },
     "program/plugins/work-targets.client.tsx": { "inlineStyle": 1 },
     "program/plugins/work-targets.css": { "rawFontSize": 11, "rawFontWeight": 8, "rawRadius": 1, "rawSpacing": 26, "rawGeometry": 11, "rawColor": 1, "rawShadow": 1 },

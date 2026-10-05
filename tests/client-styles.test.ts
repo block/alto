@@ -266,14 +266,14 @@ describe('client style contract', () => {
       readFile(workspaceLayoutCssUrl, 'utf8'),
     ])
 
-    expect(defaultUiCss).toMatch(/\.composer-editor\s*{[^}]*overflow-y: hidden;[^}]*scrollbar-width: none;/s)
+    expect(defaultUiCss).toMatch(/\.composer-editor\s*{[^}]*overflow-y: hidden;[^}]*scrollbar-gutter: stable;/s)
     expect(defaultUiCss).toMatch(/\.composer-editor\s*{[^}]*transition: none;/s)
-    expect(defaultUiCss).toMatch(/\.composer\.is-overflowing \.composer-editor:not\(\.composer-editor-measure\)\s*{[^}]*overflow-y: auto;[^}]*scrollbar-width: thin;/s)
-    expect(defaultUiCss).toMatch(/\.composer\.is-overflowing \.composer-editor:not\(\.composer-editor-measure\)::-webkit-scrollbar\s*{\s*width: 7px;/s)
+    expect(defaultUiCss).toMatch(/\.composer\.is-overflowing \.composer-editor:not\(\.composer-editor-measure\)\s*{[^}]*overflow-y: auto;/s)
+    expect(defaultUiCss).toMatch(/\.composer-editor-measure\s*{[^}]*overflow: hidden;/s)
     expect(workspaceLayoutCss).toMatch(/\.workspace-chat-pane \.conversation-feed::-webkit-scrollbar\s*{\s*display: none;/s)
   })
 
-  it('shares a strongly rounded continuous curve across signature pill surfaces', async () => {
+  it('uses a circular composer curve and continuous progress pills', async () => {
     const [clientCss, defaultUiCss, turnProgressCss] = await Promise.all([
       readFile(clientCssUrl, 'utf8'),
       readFile(defaultUiCssUrl, 'utf8'),
@@ -282,7 +282,7 @@ describe('client style contract', () => {
 
     expect(clientCss).toContain('--radius-composer: 48px;')
     expect(clientCss).toContain('--corner-shape-pill: superellipse(1.05);')
-    expect(defaultUiCss).toContain('corner-shape: var(--corner-shape-pill, round);')
+    expect(defaultUiCss).toMatch(/\.composer\s*\{[^}]*corner-shape: round;/s)
     expect(turnProgressCss).toContain('corner-shape: var(--corner-shape-pill, round);')
   })
 

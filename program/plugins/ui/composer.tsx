@@ -368,13 +368,14 @@ function serializeNode(node: Node): string {
 
 function serializeEditor(root: HTMLElement): string {
   const children = [...root.childNodes]
-  // Chromium leaves one filler BR after the user deletes all content. It is
-  // not a draft newline; deliberate trailing newlines include our marker BR.
+  // After deletion, Chromium can wrap its filler BR in empty block elements.
+  // Follow a single-child chain so intentional blank lines keep their siblings.
+  let filler: Node = root
+  while (filler.childNodes.length === 1) filler = filler.childNodes[0]!
   if (
-    children.length === 1
-    && children[0] instanceof HTMLElement
-    && children[0].tagName === 'BR'
-    && !children[0].hasAttribute('data-composer-trailing-break')
+    filler instanceof HTMLElement
+    && filler.tagName === 'BR'
+    && !filler.hasAttribute('data-composer-trailing-break')
   ) return ''
   return children.map(serializeNode).join('')
 }
@@ -1216,6 +1217,7 @@ export function Composer({
             contentEditable={readOnly ? false : 'plaintext-only'}
             suppressContentEditableWarning
             data-placeholder={placeholder}
+            data-empty={!hasMessage}
             aria-label={placeholder}
             aria-placeholder={placeholder}
             aria-disabled={readOnly}
@@ -1312,7 +1314,7 @@ export function Composer({
               disabled={disabled}
               onClick={() => fileInput.current?.click()}
             >
-              <Plus size={20} strokeWidth={1.7} />
+              <Plus size={16} strokeWidth={1.5} />
             </button>
             <input
               ref={fileInput}
@@ -1664,7 +1666,7 @@ export function Composer({
             disabled={disabled || !canSend || sending}
             onClick={() => submit()}
           >
-            <ArrowUp size={17} strokeWidth={1.9} />
+            <ArrowUp size={16} strokeWidth={1.8} />
           </button>
         )}
       </div>
