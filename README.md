@@ -4,9 +4,11 @@
 
 ![Alto with an agent conversation and a native terminal side by side](assets/alto-workspace.png)
 
-Bring Codex, Claude Code, Gemini, and Pi into one workspace with terminals,
-browsers, and code review. Run tasks side by side in separate checkouts. When
-you need a new tool or a different workflow, ask your agent to build it into Alto.
+Bring your coding agents into one workspace with terminals, browsers, and code
+review. Connect agents over Agent Client Protocol (ACP), or use Codex through
+App Server for richer interactions. Run tasks side by side in separate
+checkouts. When you need a new tool or a different workflow, ask your agent to
+build it into Alto.
 
 Add a dashboard beside your chat. Build a custom review panel. Change how the
 interface works. Alto applies those changes while you work, without rebuilding
@@ -56,8 +58,8 @@ your chats; Canvas provides full-page space for tools you or the agent build.
   command-line build tools if you prefer the pinned development environment.
 - **An agent of your choice**, installed and authenticated through its own CLI.
   [Codex CLI](https://developers.openai.com/codex/cli/) is only required for
-  Codex. See [agent setup](docs/agent-providers.md#local-setup) for Claude,
-  Gemini, and Pi.
+  Codex. See [agent setup](docs/agent-providers.md#local-setup) for runtime and
+  adapter configuration.
 - **macOS and a full Xcode installation** for the desktop app's native Ghostty
   terminal. The Command Line Tools alone are insufficient for that build.
 
@@ -143,16 +145,16 @@ check information.
 
 ## Agent support
 
-Alto uses each agent's own runtime and authentication. Codex connects through
-App Server; the other local agents connect through Agent Client Protocol (ACP).
-The default plugin profile configures these providers:
+Alto connects to any agent that speaks **Agent Client Protocol (ACP)**,
+natively or through an adapter. Configure its command and arguments in
+`program/cordis.json`. Each agent keeps its own runtime and authentication.
+Alto provides the shared chat interface, workspace context, and tools for
+working with and changing the application.
 
-| Agent | How it runs | Current behavior |
-| --- | --- | --- |
-| **Codex** | Local `codex app-server` | Default provider, with native history, approvals, queueing, steering, and subagent inspection. |
-| **Claude Code** | Pinned `@agentclientprotocol/claude-agent-acp` adapter, launched through `npx` | Model and reasoning controls, approvals, queueing, negotiated steering, and subagent events. Local integration has been exercised with the real adapter. |
-| **Gemini** | Local `gemini --acp` | Uses the CLI-configured model. Session resumption has not been verified with the tested CLI version. |
-| **Pi** | Pinned `pi-acp` adapter, launched through `npx` | Requires a local `pi` executable with a compatible RPC setup. End-to-end validation is still pending. |
+**Codex uses App Server for richer interactions with its runtime**, including
+native history, approvals, queued messages, steering, and subagent inspection.
+Alto starts `codex app-server` on demand, so Codex CLI is only needed when you
+use Codex features.
 
 An agent is fixed after a chat's first message. Model choices, attachments,
 steering, and session resumption follow the capabilities the provider exposes.
@@ -293,9 +295,8 @@ a workflow while you're using the application.
 
 ### Does Alto own the agent loop?
 
-Alto uses your existing coding agents. Codex connects through App Server;
-Claude Code, Gemini, and Pi connect through Agent Client Protocol (ACP)
-integrations. Each agent owns its cycle of model requests and tool calls.
+Alto uses your existing coding agents through ACP or Codex App Server.
+Each agent owns its cycle of model requests and tool calls.
 Alto adds the graphical workspace, context about that workspace, and tools for
 working with and changing the application. It does not implement a replacement
 agent loop.
@@ -310,8 +311,8 @@ and custom tools.
 | Project | What it provides | Where Alto differs |
 | --- | --- | --- |
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md) | A Cordis-based harness with a replaceable agent loop, model adapters, tools, and UI. It also supports live extensions. | Alto also uses Cordis for live customization, but connects to existing agent runtimes through App Server or ACP. The agents keep their own loops; Alto provides the workspace around them. |
-| [Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md) | An extensible coding agent with a terminal interface, RPC mode, and a TypeScript SDK for building applications around it. | Alto is a GUI with split chats, native terminals, browsers, worktrees, and code review. A Pi ACP adapter is configured; end-to-end validation is still pending. |
-| [Claude Mods](https://code.claude.com/docs/en/plugins/mods/overview) | JavaScript or TypeScript hooks inside Claude Code that can change tool behavior and draw or restyle UI in supported Claude interfaces. | Alto plugins change a separate application shared by several agent providers. You can change its chat views, panes, shortcuts, and workflows while continuing to use Claude Code or another agent underneath. |
+| [Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md) | An extensible coding agent with a terminal interface, RPC mode, and a TypeScript SDK for building applications around it. | Alto is a GUI with split chats, native terminals, browsers, worktrees, and code review around your choice of agent. |
+| [Claude Mods](https://code.claude.com/docs/en/plugins/mods/overview) | JavaScript or TypeScript hooks inside Claude Code that can change tool behavior and draw or restyle UI in supported Claude interfaces. | Alto plugins change a separate application shared by several agent providers. You can change its chat views, panes, shortcuts, and workflows while continuing to use your preferred agent underneath. |
 | [Codex Plugins](https://developers.openai.com/plugins/concepts/plugins) | Installable bundles of skills, MCP tools, integrations, and lifecycle hooks, with optional UI on supported surfaces. | Alto's Cordis plugins implement the running workspace itself: chat, panes, commands, and application tools. They let you change the workspace around Codex and other agents. |
 | [Zellij](https://zellij.dev/documentation/creating-a-layout.html) | A terminal workspace with split panes, tabs, reusable layouts, and plugins. | Alto applies a similar pane model to graphical agent conversations, native terminals, browser pages, and custom React views in the same workspace. |
 | [Herdr](https://herdr.dev/docs/concepts/) | A terminal workspace for multiple coding agents, with split panes, agent status, and persistent sessions. Each agent runs in its own terminal. | Alto shares the idea of keeping several agents in view. It renders conversations and approvals through App Server or ACP alongside browsers, code review, and native terminals. |
