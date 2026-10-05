@@ -42,6 +42,7 @@ const chatHistory: HarnessPlugin = (ctx) => {
   ctx.clientExtensions.registerMethod(ctx, CHAT_HISTORY_LIST, async (payload) => {
     const { cursor } = z.object({ cursor: z.string().min(1).max(8192).optional() }).parse(payload ?? {})
     if (!active || !access.client) throw new Error('Chat history is unavailable.')
+    await ctx.codex.start()
     const page = await readChatHistoryPage(access.client, async (threads) => {
       if (!active) throw new Error('Chat history was closed.')
       return ctx.projects.classifyThreads(threads)

@@ -1228,9 +1228,8 @@ export function restoreWorkspacePaneSession(
     if (initialized) return
     const state = session.snapshot()
     if (!state.connected) return
-    // Saved ACP conversations only need the Alto transport, not Codex.
-    const isAcp = pane.thread && isAgentChatId(pane.thread.id)
-    if (!isAcp && state.harness?.codex.status !== 'ready') return
+    // Opening a saved Codex thread starts its runtime; ACP panes and empty
+    // panes only need the Alto connection.
     initialized = true
     if (pane.thread) void session.openThread(pane.thread)
     else if (!pane.unscoped) {

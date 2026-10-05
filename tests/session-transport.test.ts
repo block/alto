@@ -87,6 +87,50 @@ class ControllableHost implements ClientHostService {
 }
 
 describe('session transport projection', () => {
+  it('leaves Codex stopped until its models or a Codex message are requested', async () => {
+    const snapshot = harness([], 'stopped')
+    snapshot.extensions['agent-chats'] = { providers: [{ id: 'claude', agentId: 'claude', label: 'Claude', capabilities: {} }], threads: [] }
+    const host = new ControllableHost(snapshot)
+    const native = new SessionService(host, { restoreActiveThread: false })
+    const session = new AgentSessionService(native, host)
+    try {
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(session.snapshot().harness?.codex.models).toEqual([])
+      expect(host.call).not.toHaveBeenCalled()
+      expect(host.command).not.toHaveBeenCalled()
+      session.setProvider('claude')
+      await session.loadModels()
+      expect(host.call).not.toHaveBeenCalled()
+
+      session.setProvider('codex')
+      await session.loadModels()
+      expect(host.call).toHaveBeenCalledExactlyOnceWith('session.codex.start', {})
+      host.command.mockImplementation(async (type: string) => {
+        if (type === 'thread.new') return { thread: { id: 'new-codex-chat' } }
+        if (type === 'chat.send') return { threadId: 'new-codex-chat' }
+        return []
+      })
+      await session.send({ text: 'Hello', images: [], attachments: [], skills: [] })
+      expect(host.command).toHaveBeenCalledWith('thread.new', expect.anything())
+      expect(host.command).toHaveBeenCalledWith('chat.send', expect.objectContaining({ text: 'Hello' }))
+    } finally { session.dispose(); native.dispose() }
+  })
+
+  it('allows a failed cold Codex send to be retried', async () => {
+    const host = new ControllableHost(harness([], 'stopped'))
+    const session = new SessionService(host, { restoreActiveThread: false })
+    const draft = { text: 'Hello', images: [], attachments: [], skills: [] }
+    try {
+      host.command.mockRejectedValueOnce(new Error('Codex CLI is not installed'))
+      await expect(session.send(draft)).rejects.toThrow('Codex CLI is not installed')
+      expect(session.snapshot().turn.tag).toBe('idle')
+      host.command.mockImplementation(async (type: string) => type === 'thread.new'
+        ? { thread: { id: 'new-codex-chat' } } : { threadId: 'new-codex-chat' })
+      await session.send(draft)
+      expect(session.snapshot().threadId).toBe('new-codex-chat')
+    } finally { session.dispose() }
+  })
+
   it('lets a remote Codex draft choose a model from the real native session before starting', async () => {
     const snapshot = harness([], 'ready')
     snapshot.codex.models = [
@@ -173,6 +217,20 @@ describe('session transport projection', () => {
     } finally {
       session.dispose()
     }
+  })
+
+  it('preserves preferences chosen before Codex defaults arrive', () => {
+    const host = new ControllableHost(harness([], 'stopped'))
+    const session = new SessionService(host)
+    try {
+      session.setModel('chosen-model')
+      session.setEffort('high')
+      session.setPermissionMode('ask')
+      const ready = harness([], 'ready')
+      ready.codex.defaults = { model: 'default-model', effort: 'low', permissionMode: 'full' }
+      host.reconnect(ready)
+      expect(session.snapshot().session).toMatchObject({ model: 'chosen-model', effort: 'high', permissionMode: 'ask' })
+    } finally { session.dispose() }
   })
 
   it('renames a chat through the canonical session extension', async () => {

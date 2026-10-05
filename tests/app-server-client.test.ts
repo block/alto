@@ -1,6 +1,6 @@
 import { EventEmitter, once } from 'node:events'
 import { PassThrough } from 'node:stream'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   AppServerClient,
   type AppServerClientOptions,
@@ -34,6 +34,53 @@ function jsonLines(stream: PassThrough, callback: (value: Record<string, unknown
 }
 
 describe('AppServerClient', () => {
+  it('reports a missing Codex executable only when requested', async () => {
+    const client = new AppServerClient({ command: '/alto-test-missing/bin/codex' })
+    expect(client.status).toBe('stopped')
+    await expect(client.request('model/list')).rejects.toThrow('Codex CLI is not installed or is not on PATH')
+    expect(client.status).toBe('failed')
+    await client.stop()
+  })
+
+  it('retries a failed spawn, shares concurrent startup, and ignores the old process exiting', async () => {
+    const failed = new MockProcess()
+    const ready = new MockProcess()
+    jsonLines(ready.stdin, (message) => {
+      if (message.id !== undefined) ready.stdout.write(`${JSON.stringify({ id: message.id, result: {} })}\n`)
+    })
+    const createProcess = vi.fn().mockReturnValueOnce(failed).mockReturnValue(ready)
+    const client = new AppServerClient({ createProcess })
+    const first = client.start()
+    expect(client.start()).toBe(first)
+    failed.emit('error', Object.assign(new Error('spawn codex ENOENT'), { code: 'ENOENT' }))
+    await expect(first).rejects.toThrow('choose another agent')
+
+    const retry = client.start()
+    expect(client.start()).toBe(retry)
+    await retry
+    failed.emit('exit', 1, null)
+    expect(client.status).toBe('ready')
+    await expect(client.request('model/list')).resolves.toEqual({})
+    expect(createProcess).toHaveBeenCalledTimes(2)
+    await client.stop()
+  })
+
+  it('can stop during initialization and start a new process', async () => {
+    const first = new MockProcess()
+    const second = new MockProcess()
+    jsonLines(second.stdin, (message) => {
+      if (message.method === 'initialize') second.stdout.write(`${JSON.stringify({ id: message.id, result: {} })}\n`)
+    })
+    const client = new AppServerClient({ createProcess: vi.fn().mockReturnValueOnce(first).mockReturnValue(second) })
+    const starting = expect(client.start()).rejects.toThrow('stopped')
+    await client.stop()
+    const restarted = client.start()
+    await starting
+    await restarted
+    expect(client.status).toBe('ready')
+    await client.stop()
+  })
+
   it('initializes JSON-RPC and handles requests in both directions', async () => {
     const child = new MockProcess()
     const outbound: Record<string, unknown>[] = []

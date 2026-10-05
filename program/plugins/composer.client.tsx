@@ -340,6 +340,9 @@ export function ComposerSurface({
       providerId={state.providerId}
       providerLocked={Boolean(state.threadId && state.activities.length) || state.turn.tag !== 'idle'}
       onProviderChange={(id) => session.setProvider?.(id)}
+      {...((!state.providerId || state.providerId === 'codex') && session.loadModels
+        ? { onModelsRequest: async () => { await session.loadModels?.() } }
+        : {})}
       model={state.session.model}
       effort={state.session.effort}
       permissionMode={state.session.permissionMode}
@@ -356,7 +359,7 @@ export function ComposerSurface({
       workspaceLocked={workspaceLocked}
       remoteWorkspace={Boolean(state.remoteLocation)}
       capabilities={(surface.capabilities ?? []).filter((capability) => capability !== 'images' || state.acceptsImages !== false)}
-      placeholder={state.providerId && state.providerId !== 'codex' || state.harness?.codex.status === 'ready' ? surface.placeholder ?? DEFAULT_COMPOSER_PLACEHOLDER : 'Connecting…'}
+      placeholder={state.connected ? surface.placeholder ?? DEFAULT_COMPOSER_PLACEHOLDER : 'Connecting…'}
       focusHeight={surface.focusHeight ?? 156}
       maxHeight={surface.maxHeight ?? 180}
       autoExpand={preference.autoExpand}
@@ -366,7 +369,6 @@ export function ComposerSurface({
       readOnly={state.turn.tag === 'idle' && state.canAcceptDirectInput === false}
       disabled={
         !state.connected
-        || ((!state.providerId || state.providerId === 'codex') && state.harness?.codex.status !== 'ready')
         || (state.turn.tag === 'idle' && state.canAcceptDirectInput === false)
       }
       sending={state.turn.tag === 'sending'}

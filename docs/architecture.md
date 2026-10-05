@@ -37,7 +37,7 @@ The root Cordis context owns eight services:
 4. `clientExtensions` is one generic server-to-browser state and method channel. State and methods are owned effects, so unloading a plugin removes both without adding feature-specific cases to the gateway.
 5. `projects` persists named local projects, their primary and attached folders, and classifies task working directories. Direct descendants use longest-root matching; Git worktrees match through their common Git directory.
 6. `program` loads the declarative profile, compiles modules, and owns only the dynamic plugin fibers.
-7. `codex` owns the child process and JSON-RPC state. It routes app-server tool requests to `tools` and forwards approval requests to the browser.
+7. `codex` owns the child process and JSON-RPC state. It starts App Server on the first Codex operation; mounting the service and opening ACP chats do not require Codex CLI. It routes app-server tool requests to `tools` and forwards approval requests to the browser.
 8. The web gateway serves the React build and broadcasts state over a local WebSocket.
 
 The Codex bridge and web gateway are outside the reloadable subtree. Reloading the program therefore does not interrupt the app-server process, active Codex threads, connected browsers, or pending approvals.

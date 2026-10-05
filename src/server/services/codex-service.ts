@@ -402,6 +402,8 @@ function toolCall(request: RpcRequest): DynamicToolCall | undefined {
 
 export class CodexService extends EventEmitter {
   private readonly client: AppServerClient
+  private startup: Promise<void> | undefined
+  private generation = 0
   private readonly pending = new Map<RpcId, PendingServerRequest>()
   private readonly activeTurns = new Map<string, ActiveTurn>()
   private readonly threadSummaries = new Map<string, ThreadSummary>()
@@ -433,6 +435,9 @@ export class CodexService extends EventEmitter {
 
   private attachClient(): void {
     this.client.on('status', (event: AppServerStatusEvent) => {
+      // The transport handshake finishes before models, defaults, and projects
+      // are loaded. Publish readiness only after the whole startup completes.
+      if (event.status === 'ready') return
       if (event.status === 'stopped' || event.status === 'failed') {
         this.activeTurns.clear()
         for (const [threadId, state] of this.threadStates) {
@@ -462,18 +467,38 @@ export class CodexService extends EventEmitter {
     })
   }
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    if (this.state.status === 'ready') return Promise.resolve()
+    if (!this.startup) {
+      const attempt = this.startInternal().finally(() => {
+        if (this.startup === attempt) this.startup = undefined
+      })
+      this.startup = attempt
+    }
+    return this.startup
+  }
+
+  private async startInternal(): Promise<void> {
+    const generation = this.generation
+    const checkRunning = (): void => {
+      if (generation !== this.generation || this.client.status !== 'ready') {
+        throw new Error('Codex startup was interrupted')
+      }
+    }
     try {
       await this.client.start()
+      checkRunning()
       const [version, models, config] = await Promise.all([
         this.readVersion(),
         this.loadModels(),
         this.readConfig(),
       ])
+      checkRunning()
       // Import App Server's canonical projects before advertising readiness.
       // Otherwise the first thread/list can race project discovery and pin a
       // task to whichever local checkout happens to contain its cwd.
       await this.refreshProjects().catch(() => undefined)
+      checkRunning()
       const { error: _previousError, ...previous } = this.state
       this.state = {
         ...previous,
@@ -484,13 +509,21 @@ export class CodexService extends EventEmitter {
       }
       this.emit('status', this.snapshot())
     } catch (error) {
-      this.state = {
-        ...this.state,
-        status: 'failed',
-        error: errorMessage(error),
+      if (generation === this.generation) {
+        this.state = {
+          ...this.state,
+          status: 'failed',
+          error: errorMessage(error),
+        }
+        this.emit('status', this.snapshot())
       }
-      this.emit('status', this.snapshot())
+      throw error
     }
+  }
+
+  private async request<T = unknown>(method: string, params: unknown = {}): Promise<T> {
+    await this.start()
+    return this.client.request<T>(method, params)
   }
 
   private async readVersion(): Promise<string | undefined> {
@@ -742,7 +775,7 @@ export class CodexService extends EventEmitter {
 
   async startThread(options: SessionOptions): Promise<ThreadStartResponse> {
     const permissions = permissionSettings(options.permissionMode, options.workspace)
-    const response = await this.client.request<ThreadStartResponse>('thread/start', {
+    const response = await this.request<ThreadStartResponse>('thread/start', {
       cwd: options.workspace,
       model: options.model ?? null,
       sandbox: permissions.sandbox,
@@ -762,7 +795,7 @@ export class CodexService extends EventEmitter {
   /** Runs one non-persistent, read-only model turn and returns its final text. */
   async generateText(request: CodexTextGenerationRequest): Promise<string> {
     const timeoutMs = Math.min(10 * 60_000, Math.max(30_000, request.timeoutMs ?? 5 * 60_000))
-    const started = await this.client.request<ThreadStartResponse>('thread/start', {
+    const started = await this.request<ThreadStartResponse>('thread/start', {
       cwd: request.workspace,
       model: request.model,
       sandbox: 'read-only',
@@ -805,7 +838,7 @@ export class CodexService extends EventEmitter {
     this.client.on('notification', onNotification)
 
     try {
-      const response = await this.client.request<TurnStartResponse>('turn/start', {
+      const response = await this.request<TurnStartResponse>('turn/start', {
         threadId,
         input: [{ type: 'text', text: request.prompt }],
         model: request.model,
@@ -847,7 +880,7 @@ export class CodexService extends EventEmitter {
       return text
     } catch (error) {
       if (!completed && turnId) {
-        await this.client.request('turn/interrupt', { threadId, turnId }).catch(() => undefined)
+        await this.request('turn/interrupt', { threadId, turnId }).catch(() => undefined)
       }
       throw error
     } finally {
@@ -866,7 +899,7 @@ export class CodexService extends EventEmitter {
     const cached = this.threadSummaries.get(threadId)
     if (cached) return structuredClone(cached)
 
-    const response = await this.client.request<ThreadReadResponse>('thread/read', {
+    const response = await this.request<ThreadReadResponse>('thread/read', {
       threadId,
       includeTurns: false,
     })
@@ -877,7 +910,7 @@ export class CodexService extends EventEmitter {
   }
 
   async setThreadName(threadId: string, name: string): Promise<void> {
-    await this.client.request('thread/name/set', { threadId, name })
+    await this.request('thread/name/set', { threadId, name })
   }
 
   async listThreads(limit = 200): Promise<ThreadSummary[]> {
@@ -885,7 +918,7 @@ export class CodexService extends EventEmitter {
     let cursor: string | undefined
 
     while (threads.length < limit) {
-      const response = await this.client.request<ThreadListResponse>('thread/list', {
+      const response = await this.request<ThreadListResponse>('thread/list', {
         ...(cursor ? { cursor } : {}),
         limit: Math.min(100, limit - threads.length),
         sortKey: 'recency_at',
@@ -912,7 +945,7 @@ export class CodexService extends EventEmitter {
   }
 
   async listSkills(workspace: string): Promise<SkillOption[]> {
-    const response = await this.client.request<SkillsListResponse>('skills/list', {
+    const response = await this.request<SkillsListResponse>('skills/list', {
       cwds: [workspace],
     })
     const entry = (response.data ?? []).find((value) => (
@@ -936,12 +969,12 @@ export class CodexService extends EventEmitter {
     // incomplete instead of inferring its branch from the current checkout.
     const metadataPromise = known?.gitInfo
       ? Promise.resolve(known)
-      : this.client.request<ThreadReadResponse>('thread/read', {
+      : this.request<ThreadReadResponse>('thread/read', {
           threadId,
           includeTurns: false,
         }).then(({ thread }) => readThreadSummary(thread)).catch(() => known)
     const [response, metadata] = await Promise.all([
-      this.client.request<ThreadResumeResponse>('thread/resume', {
+      this.request<ThreadResumeResponse>('thread/resume', {
         threadId,
         excludeTurns: true,
         initialTurnsPage: {
@@ -1000,7 +1033,7 @@ export class CodexService extends EventEmitter {
     cursor?: string,
     limit = INITIAL_THREAD_TURN_LIMIT,
   ): Promise<ThreadHistoryPage> {
-    const response = await this.client.request<ThreadTurnsListResponse>('thread/turns/list', {
+    const response = await this.request<ThreadTurnsListResponse>('thread/turns/list', {
       threadId,
       ...(cursor ? { cursor } : {}),
       limit: Math.max(1, Math.min(100, Math.floor(limit))),
@@ -1036,7 +1069,7 @@ export class CodexService extends EventEmitter {
     // to another local worktree). Keep the sandbox rooted at the directory
     // the turn will actually use instead of the composer's original folder.
     const permissions = permissionSettings(permissionMode, prepared.cwd ?? options.workspace)
-    const response = await this.client.request<TurnStartResponse>('turn/start', {
+    const response = await this.request<TurnStartResponse>('turn/start', {
       threadId: prepared.threadId,
       input: prepared.input,
       model: prepared.model ?? null,
@@ -1074,14 +1107,14 @@ export class CodexService extends EventEmitter {
   async interrupt(threadId: string): Promise<void> {
     const active = this.activeTurns.get(threadId)
     if (!active) throw new Error(`thread ${threadId} has no active turn`)
-    await this.client.request('turn/interrupt', { threadId, turnId: active.turnId })
+    await this.request('turn/interrupt', { threadId, turnId: active.turnId })
   }
 
   async steer(threadId: string, input: TurnInput[]): Promise<{ turnId: string }> {
     const active = this.activeTurns.get(threadId)
     if (!active) throw new Error(`thread ${threadId} has no active turn`)
     const expectedTurnId = active.turnId
-    const response = await this.client.request<TurnSteerResponse>('turn/steer', {
+    const response = await this.request<TurnSteerResponse>('turn/steer', {
       threadId,
       input,
       expectedTurnId,
@@ -1096,7 +1129,7 @@ export class CodexService extends EventEmitter {
     const submissions: unknown[] = []
     let cursor: string | undefined
     do {
-      const response = await this.client.request<ThreadQueueListResponse>('thread/queue/list', {
+      const response = await this.request<ThreadQueueListResponse>('thread/queue/list', {
         threadId,
         ...(cursor ? { cursor } : {}),
         limit: 100,
@@ -1114,7 +1147,7 @@ export class CodexService extends EventEmitter {
     input: TurnInput[],
     clientUserMessageId: string,
   ): Promise<unknown> {
-    const response = await this.client.request<ThreadQueueAddResponse>('thread/queue/add', {
+    const response = await this.request<ThreadQueueAddResponse>('thread/queue/add', {
       threadId,
       input,
       clientUserMessageId,
@@ -1127,7 +1160,7 @@ export class CodexService extends EventEmitter {
     queuedSubmissionId: string,
     input: TurnInput[],
   ): Promise<unknown> {
-    const response = await this.client.request<ThreadQueueUpdateResponse>('thread/queue/update', {
+    const response = await this.request<ThreadQueueUpdateResponse>('thread/queue/update', {
       threadId,
       queuedSubmissionId,
       input,
@@ -1136,18 +1169,18 @@ export class CodexService extends EventEmitter {
   }
 
   async deleteQueuedSubmission(threadId: string, queuedSubmissionId: string): Promise<void> {
-    await this.client.request('thread/queue/delete', { threadId, queuedSubmissionId })
+    await this.request('thread/queue/delete', { threadId, queuedSubmissionId })
   }
 
   async reorderQueuedSubmissions(threadId: string, queuedSubmissionIds: string[]): Promise<void> {
-    await this.client.request('thread/queue/reorder', { threadId, queuedSubmissionIds })
+    await this.request('thread/queue/reorder', { threadId, queuedSubmissionIds })
   }
 
   async startQueuedSubmission(
     threadId: string,
     queuedSubmissionId?: string,
   ): Promise<ThreadQueueStartResponse> {
-    const response = await this.client.request<ThreadQueueStartResponse>('thread/queue/start', {
+    const response = await this.request<ThreadQueueStartResponse>('thread/queue/start', {
       threadId,
       ...(queuedSubmissionId ? { queuedSubmissionId } : {}),
     })
@@ -1204,6 +1237,8 @@ export class CodexService extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    this.generation++
+    this.startup = undefined
     await this.client.stop()
     this.pending.clear()
     this.activeTurns.clear()
@@ -1259,7 +1294,6 @@ export const codexServicePlugin: Plugin<CodexServiceOptions> = (
 ) => {
   const service = new CodexService(ctx, options)
   ctx.provide('codex', service)
-  void service.start()
   return () => service.stop()
 }
 

@@ -14,7 +14,7 @@ describe('native agent plugin boundaries', () => {
       get: (name: string) => name === 'agentChats' ? ctx.agentChats : undefined,
       inject: (_services: string[], apply: (child: unknown) => () => void) => { disposers.push(apply(ctx)) },
       agentChats: { tasks: () => [] },
-      codex: { client: { request }, on: vi.fn(), off: vi.fn(), snapshot: () => ({ status: 'ready' }) },
+      codex: { client: { request }, start: vi.fn(async () => {}), on: vi.fn(), off: vi.fn(), snapshot: () => ({ status: 'ready' }) },
       ui: { register: vi.fn() },
       tools: { register: registerTool },
       clientExtensions: {

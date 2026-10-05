@@ -226,6 +226,9 @@ export class AgentSessionService implements ClientSessionService {
     this.sync()
   }
   hasSurface(id: string): boolean { return this.native.hasSurface(id) }
+  async loadModels(): Promise<void> {
+    if (this.providerId === 'codex') await this.native.loadModels?.()
+  }
   setModel(model: string | undefined): void {
     if (this.providerId === 'codex') this.native.setModel(model)
     else { const option = this.configuration.find((option) => option.category === 'model'); if (option && model) this.setAgentConfig(option.id, model) }

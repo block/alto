@@ -58,14 +58,14 @@ it('restores a Claude pane on connection even when Codex has failed, without reo
   expect(f.listeners.size).toBe(0)
 })
 
-it('waits for Codex before restoring a native thread', () => {
+it('opens a saved native thread on connection so it can start Codex on demand', () => {
   const f = fixture()
   const thread = { id: 'native-thread', cwd: '/repo', title: 'Native', preview: '', createdAt: 1, updatedAt: 1 }
   const stop = restoreWorkspacePaneSession(f.session, { ...f.pane, thread })
   try {
     f.state.connected = true
     f.changed()
-    expect(f.openThread).not.toHaveBeenCalled()
+    expect(f.openThread).toHaveBeenCalledExactlyOnceWith(thread)
     f.harness.codex.status = 'ready'
     f.changed()
     f.changed()
@@ -77,7 +77,6 @@ it('waits for Codex before restoring a native thread', () => {
 it('restores an empty pane project and leaves explicitly unscoped panes alone', () => {
   const f = fixture()
   f.state.connected = true
-  f.harness.codex.status = 'ready'
   const stop = restoreWorkspacePaneSession(f.session, f.pane)
   expect(f.selectProject).toHaveBeenCalledExactlyOnceWith(f.project)
   stop()

@@ -54,9 +54,10 @@ your chats; Canvas provides full-page space for tools you or the agent build.
 
 - **Node.js 22.19 or newer** and Git. `nix develop` provides Node 22 and the
   command-line build tools if you prefer the pinned development environment.
-- **[Codex CLI](https://developers.openai.com/codex/cli/)** on your `PATH`.
-  Alto currently starts Codex App Server at launch, including when you use
-  another agent. Authenticate the providers you use through their own CLIs.
+- **An agent of your choice**, installed and authenticated through its own CLI.
+  [Codex CLI](https://developers.openai.com/codex/cli/) is only required for
+  Codex. See [agent setup](docs/agent-providers.md#local-setup) for Claude,
+  Gemini, and Pi.
 - **macOS and a full Xcode installation** for the desktop app's native Ghostty
   terminal. The Command Line Tools alone are insufficient for that build.
 
@@ -66,11 +67,11 @@ Clone the repository and install its dependencies:
 git clone https://github.com/block/alto.git
 cd alto
 npm ci
-codex login
 ```
 
-If using Nix, enter `nix develop` after `cd alto` and before `npm ci`. Codex and
-Xcode are installed separately.
+If using Nix, enter `nix develop` after `cd alto` and before `npm ci`. Agent CLIs
+and Xcode are installed separately. For Codex, run `codex login` before your
+first Codex chat; Alto starts App Server when you use a Codex feature.
 
 ### Run the desktop app
 

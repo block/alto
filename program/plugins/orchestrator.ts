@@ -32,13 +32,14 @@ const orchestrator: HarnessPlugin = (ctx) => {
     return () => { agentChats = undefined; publish() }
   })
   const monitor = new NativeAgentMonitor({
-    request: (method, params) => {
-      if (!access.client) return Promise.reject(new Error('Native subagent history is unavailable in this runtime.'))
+    request: async (method, params) => {
+      if (!access.client) throw new Error('Native subagent history is unavailable in this runtime.')
+      await ctx.codex.start()
       return access.client.request(method, params)
     },
   }, (value) => { nativeSnapshot = value; publish() })
   ctx.effect(() => {
-    void monitor.refresh()
+    if (ctx.codex.snapshot().status === 'ready') void monitor.refresh()
     const refresh = setInterval(() => { if (ctx.codex.snapshot().status === 'ready') void monitor.refresh() }, 30_000)
     return () => { active = false; clearInterval(refresh); monitor.dispose() }
   }, 'orchestrator.monitor')
@@ -57,7 +58,9 @@ const orchestrator: HarnessPlugin = (ctx) => {
   }, 'orchestrator.connection')
   ctx.clientExtensions.registerMethod(ctx, ORCHESTRATOR_REFRESH, async (payload) => {
     const input = z.object({ parentThreadId: z.string().min(1).optional() }).parse(payload ?? {})
-    if (!input.parentThreadId || !isAgentChatId(input.parentThreadId)) await monitor.refresh(input.parentThreadId)
+    if (input.parentThreadId ? !isAgentChatId(input.parentThreadId) : ctx.codex.snapshot().status === 'ready') {
+      await monitor.refresh(input.parentThreadId)
+    }
     publish()
     return json(snapshot())
   })

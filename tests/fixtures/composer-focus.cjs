@@ -52,7 +52,18 @@ async function check() {
         const listeners = new Set();
         const session = {snapshot:()=>state, subscribe:listener=>{
           listeners.add(listener); return ()=>listeners.delete(listener);
+        }, setProvider:providerId=>window.updateSession({providerId}), loadModels:async()=>{
+          window.modelRequests++;
+          if(window.modelRequests===1) throw new Error('Codex CLI is not installed');
+          window.updateSession({harness:{codex:{status:'ready',models:[{id:'test',displayName:'Test model'}]}}});
         }};
+        window.modelRequests=0;
+        window.clickPicker = label => flushSync(()=>{
+          const button = [...document.querySelectorAll('.composer-model-picker button')]
+            .find(button=>button.textContent.trim()===label || button.firstElementChild?.textContent===label);
+          if(!button) throw new Error('Missing picker button: '+label);
+          button.click();
+        });
         const cleanup = [];
         composerClient({
           clientSession:session,
@@ -218,6 +229,27 @@ async function check() {
       assert.equal((await run('focusState()')).focused, true)
       assert.equal((await run('focusState()')).offset, 2)
     }
+
+    // Opening the agent menu must work before Codex starts. Only opening its
+    // model list requests the CLI, and a failed request remains retryable.
+    await run(`updateSession({providerId:'codex',providers:[
+      {id:'codex',label:'Codex'},{id:'claude',label:'Claude'}
+    ],harness:{codex:{status:'stopped',models:[]}}})`)
+    assert.equal((await run('focusState()')).sendDisabled, false)
+    await run("document.querySelector('.composer-model-trigger').click()")
+    await run("clickPicker('Agent')")
+    assert.equal(await run('modelRequests'), 0)
+    await run("clickPicker('Claude')")
+    assert.equal(await run('modelRequests'), 0)
+    assert.equal((await run('focusState()')).sendDisabled, false)
+    await run("updateSession({providerId:'codex'}); document.querySelector('.composer-model-trigger').click()")
+    await run("clickPicker('Model')")
+    assert.equal(await run('modelRequests'), 1)
+    assert.equal(await run("document.querySelector('[role=alert]')?.textContent"), 'Codex CLI is not installed')
+    await run("clickPicker('Retry')")
+    assert.equal(await run('modelRequests'), 2)
+    assert.equal(await run("document.querySelector('[role=alert]')?.textContent"), undefined)
+    assert.match(await run("document.querySelector('.composer-picker-options').textContent"), /Test model/)
     await run('updateSession({canAcceptDirectInput:false})')
     assert.equal((await run('focusState()')).editable, 'false')
     assert.equal((await run('focusState()')).sendDisabled, true)

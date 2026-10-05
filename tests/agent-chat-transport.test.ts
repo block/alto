@@ -1,4 +1,4 @@
-import { EventEmitter, once } from 'node:events'
+import { once } from 'node:events'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -11,6 +11,7 @@ import orchestratorPlugin from '../program/plugins/orchestrator.js'
 import type { OrchestratorSnapshot } from '../program/plugins/orchestrator-api.js'
 import type { AgentProvider } from '../src/server/services/agent-registry.js'
 import { agentRegistryPlugin } from '../src/server/services/agent-registry.js'
+import { CodexService } from '../src/server/services/codex-service.js'
 import { clientExtensionRegistryPlugin } from '../src/server/services/client-extension-registry.js'
 import { WebGateway } from '../src/server/services/web-gateway.js'
 import { turnProgramPlugin } from '../src/server/services/turn-program.js'
@@ -35,9 +36,15 @@ async function fixture() {
   } as unknown as Context['program'])
   ctx.provide('projects', { snapshot: () => ({ projects: [] }) } as unknown as Context['projects'])
   ctx.provide('ui', { snapshot: () => ({}), register: () => ({}) } as unknown as Context['ui'])
-  ctx.provide('codex', Object.assign(new EventEmitter(), {
-    snapshot: () => ({ status: 'ready', activeThreadIds: [], models: [] }), pendingRequests: () => [],
-  }) as unknown as Context['codex'])
+  const createCodexProcess = vi.fn(() => {
+    throw Object.assign(new Error('spawn codex ENOENT'), { code: 'ENOENT' })
+  })
+  const codex = new CodexService(ctx, { projectRoot: root, createProcess: createCodexProcess })
+  ctx.provide('codex', codex)
+  cleanup.push(async () => {
+    await codex.stop()
+    expect(createCodexProcess, 'ACP conversations must not start Codex').not.toHaveBeenCalled()
+  })
   ctx.provide('tools', {} as Context['tools'])
   const steer = vi.fn(async () => 'injected' as const)
   const provider: AgentProvider = {

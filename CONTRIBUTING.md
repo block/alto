@@ -6,9 +6,9 @@ the Alto version or commit you are running.
 
 ## Development setup
 
-Install Node.js 22.19 or newer and authenticate the Codex CLI before running
-Alto. The optional Nix development shell provides Node 22 and the command-line
-build tools.
+Install Node.js 22.19 or newer. Install and authenticate the agent you want to
+use; Codex CLI is only required for Codex features. The optional Nix development
+shell provides Node 22 and the command-line build tools.
 
 ```bash
 git clone https://github.com/block/alto.git

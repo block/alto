@@ -63,7 +63,13 @@ export class AppServerClient extends EventEmitter {
   }
 
   start(): Promise<void> {
-    this.startPromise ??= this.startInternal()
+    if (!this.startPromise) {
+      const attempt = this.startInternal().catch((error: unknown) => {
+        if (this.startPromise === attempt) this.startPromise = undefined
+        throw error
+      })
+      this.startPromise = attempt
+    }
     return this.startPromise
   }
 
@@ -72,13 +78,15 @@ export class AppServerClient extends EventEmitter {
     const command = this.options.command ?? 'codex'
     const args = this.options.args ?? ['app-server', '--stdio']
 
+    let child: AppServerProcess | undefined
     try {
-      this.process = this.options.createProcess?.() ?? spawn(command, args, {
+      child = this.options.createProcess?.() ?? spawn(command, args, {
         cwd: this.options.cwd,
         env: process.env,
         stdio: ['pipe', 'pipe', 'pipe'],
       })
-      this.attachProcess(this.process)
+      this.process = child
+      this.attachProcess(child)
 
       await this.rawRequest('initialize', {
         clientInfo: {
@@ -90,29 +98,47 @@ export class AppServerClient extends EventEmitter {
           experimentalApi: true,
         },
       })
+      if (this.process !== child) throw new Error('Codex startup was interrupted')
       this.notify('initialized', {})
       this.setStatus('ready')
     } catch (error) {
-      this.setStatus('failed', errorMessage(error))
-      this.rejectPending(error)
-      throw error
+      const failure = this.startupError(error)
+      if (this.process === child) {
+        this.process = undefined
+        child?.kill('SIGTERM')
+        this.rejectPending(failure)
+        this.setStatus('failed', failure.message)
+      }
+      throw failure
     }
+  }
+
+  private startupError(error: unknown): Error {
+    if (isRecord(error) && error.code === 'ENOENT') {
+      return new Error('Codex CLI is not installed or is not on PATH. Install and authenticate it to use Codex, or choose another agent.')
+    }
+    return error instanceof Error ? error : new Error(errorMessage(error))
   }
 
   private attachProcess(child: AppServerProcess): void {
     const lines = createInterface({ input: child.stdout })
-    lines.on('line', (line) => this.handleLine(line))
+    lines.on('line', (line) => {
+      if (this.process === child) this.handleLine(line)
+    })
 
     child.stderr.on('data', (chunk: Buffer | string) => {
       this.emit('stderr', chunk.toString())
     })
 
     child.once('error', (error) => {
-      this.setStatus('failed', error.message)
-      this.rejectPending(error)
+      if (this.process !== child) return
+      const failure = this.startupError(error)
+      this.setStatus('failed', failure.message)
+      this.rejectPending(failure)
     })
 
     child.once('exit', (code, signal) => {
+      if (this.process !== child) return
       const reason = `codex app-server exited (${signal ?? code ?? 'unknown'})`
       if (this.currentStatus !== 'stopped') {
         this.setStatus(code === 0 ? 'stopped' : 'failed', code === 0 ? undefined : reason)
@@ -241,6 +267,7 @@ export class AppServerClient extends EventEmitter {
     const child = this.process
     this.process = undefined
     this.startPromise = undefined
+    this.rejectPending(new Error('Codex app-server stopped'))
     this.setStatus('stopped')
     if (!child) return
     child.stdin.end()

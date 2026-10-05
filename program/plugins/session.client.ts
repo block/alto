@@ -14,7 +14,7 @@ import type {
   ClientDraft,
   ClientHostService,
 } from '../../src/client/plugin-api.js'
-import { SESSION_THREAD_RENAME } from './session-api.js'
+import { SESSION_CODEX_START, SESSION_THREAD_RENAME } from './session-api.js'
 import { configuredDefaults } from './session-defaults.js'
 import { AgentSessionService } from './agent-session.client.js'
 import { isAgentChatId } from './agent-chats-api.js'
@@ -74,7 +74,7 @@ const ASTRA_MODEL: ModelOption = {
 }
 
 function withAstraModel(harness: HarnessSnapshot | undefined): HarnessSnapshot | undefined {
-  if (!harness || harness.codex.models.some((model) => model.id === ASTRA_MODEL.id)) return harness
+  if (!harness || harness.codex.status !== 'ready' || harness.codex.models.some((model) => model.id === ASTRA_MODEL.id)) return harness
   return {
     ...harness,
     codex: {
@@ -376,6 +376,7 @@ export class SessionService implements ClientSessionService {
   private defaultsApplied = false
   private modelSelectionChanged = false
   private effortSelectionChanged = false
+  private permissionSelectionChanged = false
   private projectSelection: string | null | undefined
   private notificationFrame?: number
   private notificationFrameUsesTimeout = false
@@ -432,6 +433,10 @@ export class SessionService implements ClientSessionService {
     return this.state.harness?.ui.surfaces.some((surface) => surface.id === id) ?? false
   }
 
+  async loadModels(): Promise<void> {
+    await this.host.call(SESSION_CODEX_START, {})
+  }
+
   setModel(model: string | undefined): void {
     const session = withModel(this.state.session, model)
     const selected = this.state.harness?.codex.models.find((candidate) => candidate.id === model)
@@ -449,6 +454,7 @@ export class SessionService implements ClientSessionService {
   }
 
   setPermissionMode(permissionMode: PermissionMode): void {
+    this.permissionSelectionChanged = true
     this.set({ session: { ...this.state.session, permissionMode } })
   }
 
@@ -927,7 +933,13 @@ export class SessionService implements ClientSessionService {
     if (harness) {
       const workspace = session.workspace || harness.server.projectRoot
       if (!this.defaultsApplied && configuredDefaults(harness)) {
+        const previous = session
         session = sessionDefaults(harness, workspace)
+        if (this.modelSelectionChanged) session = withModel(session, previous.model)
+        if (this.effortSelectionChanged) session = withEffort(session, previous.effort)
+        if (this.permissionSelectionChanged || this.state.turn.tag !== 'idle') {
+          session.permissionMode = previous.permissionMode
+        }
         this.defaultsApplied = true
       } else {
         const model = session.model
@@ -1406,6 +1418,7 @@ export class RoutedSessionService implements ClientSessionService, ClientSession
   }
 
   hasSurface(id: string): boolean { return this.activeSession().hasSurface(id) }
+  async loadModels(): Promise<void> { await this.activeSession().loadModels?.() }
   setAgentConfig(id: string, value: string): void { this.activeSession().setAgentConfig?.(id, value) }
   setProvider(id: string): void { this.activeSession().setProvider?.(id) }
   setModel(model: string | undefined): void { this.activeSession().setModel(model) }

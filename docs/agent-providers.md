@@ -10,6 +10,13 @@ Cordis changes can use `files[].sourcePath` instead of inline `content`. The pat
 
 ## Local setup
 
+Codex CLI is optional. Alto starts `codex app-server` when you send a Codex
+message, open a saved Codex chat or its history, request the Codex model list,
+or use a Codex feature such as Code Tour generation or a local scheduled task.
+Selecting another agent and chatting with it does not start Codex. To use
+Codex, install its CLI on your `PATH` and run `codex login`. If startup fails,
+you can fix the installation and retry without restarting Alto.
+
 The default profile runs `npx --yes @agentclientprotocol/claude-agent-acp@0.81.0` for Claude and `npx --yes pi-acp@0.0.33` for Pi. These versions are pinned: an older Claude adapter can advertise models that its bundled Claude runtime cannot use. The first selection may download the adapter. Subsequent launches use npm's cache. No ACP provider starts just because Alto is open.
 
 Authenticate the local agent using its own CLI before selecting it in Alto. Pi additionally requires a local `pi` executable; the adapter starts it in RPC mode. Configure another ACP executable with a separate `plugins/acp-provider.ts` entry in `program/cordis.json`, using a unique `config.id`, label, command, and optional args, cwd, or env.

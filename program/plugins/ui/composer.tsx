@@ -675,6 +675,7 @@ export function Composer({
   onAttachmentsChange,
   onAttachFile,
   onModelChange,
+  onModelsRequest,
   onEffortChange,
   onPermissionModeChange,
   onWorkspaceChange,
@@ -719,6 +720,7 @@ export function Composer({
   onAttachmentsChange: (attachments: ChatAttachment[]) => void
   onAttachFile: (file: File) => Promise<ChatAttachment>
   onModelChange: (model: string | undefined) => void
+  onModelsRequest?: () => Promise<void>
   onEffortChange: (effort: string | undefined) => void
   onPermissionModeChange: (mode: PermissionMode) => void
   onWorkspaceChange: (id: string) => void
@@ -749,10 +751,25 @@ export function Composer({
   const [instantFocus, setInstantFocus] = useState(false)
   const [attachmentError, setAttachmentError] = useState<string>()
   const [modelPickerPage, setModelPickerPage] = useState<string>()
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState<string>()
   const [permissionPickerOpen, setPermissionPickerOpen] = useState(false)
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
   const selection = agentSelection(providers, providerId)
+
+  const requestModels = async (): Promise<void> => {
+    if (!onModelsRequest || modelsLoading) return
+    setModelsLoading(true)
+    setModelsError(undefined)
+    try {
+      await onModelsRequest()
+    } catch (error) {
+      setModelsError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setModelsLoading(false)
+    }
+  }
 
   const updateLiveValue = (nextValue: string): void => {
     const hadMessage = Boolean(liveValue.current.trim())
@@ -1497,7 +1514,7 @@ export function Composer({
             aria-label={`Model and reasoning: ${modelSummary}`}
             aria-haspopup="menu"
             aria-expanded={modelPickerPage !== undefined}
-            disabled={(disabled && (providerLocked || providers.length < 2)) || (models.length === 0 && providers.length === 0)}
+            disabled={(disabled && (providerLocked || providers.length < 2)) || (models.length === 0 && providers.length === 0 && !onModelsRequest)}
             onClick={() => {
               setModelPickerPage((page) => page ? undefined : 'root')
               setLocationPickerOpen(false)
@@ -1519,7 +1536,10 @@ export function Composer({
                     <span>{selection.label}</span>
                     <ChevronRight size={16} />
                   </button>}
-                  <button className="composer-picker-row" type="button" disabled={models.length === 0} onClick={() => setModelPickerPage('model')}>
+                  <button className="composer-picker-row" type="button" disabled={models.length === 0 && !onModelsRequest} onClick={() => {
+                    setModelPickerPage('model')
+                    void requestModels()
+                  }}>
                     <span>Model</span>
                     <span>{selectedModel?.displayName ?? 'Agent default'}</span>
                     <ChevronRight size={16} />
@@ -1590,6 +1610,11 @@ export function Composer({
                     <strong>Model</strong>
                   </header>
                   <div className="composer-picker-options">
+                    {onModelsRequest && modelsLoading && <p role="status">Loading models…</p>}
+                    {onModelsRequest && modelsError && <>
+                      <p role="alert">{modelsError}</p>
+                      <button type="button" disabled={modelsLoading} onClick={() => { void requestModels() }}>Retry</button>
+                    </>}
                     {models.map((option) => {
                       const selected = option.id === selectedModel?.id
                       return (

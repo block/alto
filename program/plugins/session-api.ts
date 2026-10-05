@@ -15,6 +15,7 @@ import type { HistoryState } from './ui/history.js'
 import type { AgentStatus, TurnState } from './ui/machines.js'
 
 export const SESSION_THREAD_RENAME = 'session.thread.rename'
+export const SESSION_CODEX_START = 'session.codex.start'
 
 export interface ClientSessionSnapshot {
   revision: number
@@ -50,6 +51,7 @@ export interface ClientSessionSnapshot {
 }
 
 export interface ClientSessionService {
+  loadModels?(): Promise<void>
   setProvider?(id: string): void
   setAgentConfig?(id: string, value: string): void
   subscribe(listener: () => void): () => void
@@ -116,6 +118,7 @@ export interface ClientApprovalsService {
 }
 
 export interface ClientPreferencesService {
+  loadModels?(): Promise<void>
   setProvider?(id: string): void
   setAgentConfig?(id: string, value: string): void
   subscribe(listener: () => void): () => void
