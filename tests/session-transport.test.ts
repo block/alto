@@ -18,7 +18,7 @@ function harness(activeThreadIds: string[] = [], status: HarnessSnapshot['codex'
     program: { revision: 0, profileText: '', plugins: [], files: [], tools: [], proposals: [] },
     projects: { revision: 0, projects: [] },
     ui: { regions: [], surfaces: [], contributions: [] },
-    extensions: {},
+    extensions: { 'session.workspace': '/tmp/alto-scratch' },
     pendingRequests: [],
     server: { port: 4317, host: '127.0.0.1', projectRoot: '/tmp/project' },
   }
@@ -96,6 +96,7 @@ describe('session transport projection', () => {
     try {
       await vi.advanceTimersByTimeAsync(1_000)
       expect(session.snapshot().harness?.codex.models).toEqual([])
+      expect(session.snapshot().projectScope).toBe('unscoped')
       expect(host.call).not.toHaveBeenCalled()
       expect(host.command).not.toHaveBeenCalled()
       session.setProvider('claude')
@@ -111,8 +112,9 @@ describe('session transport projection', () => {
         return []
       })
       await session.send({ text: 'Hello', images: [], attachments: [], skills: [] })
-      expect(host.command).toHaveBeenCalledWith('thread.new', expect.anything())
-      expect(host.command).toHaveBeenCalledWith('chat.send', expect.objectContaining({ text: 'Hello' }))
+      expect(host.command).toHaveBeenCalledWith('thread.new', expect.objectContaining({ workspace: '/tmp/alto-scratch' }))
+      expect(host.command).toHaveBeenCalledWith('chat.send', expect.objectContaining({ text: 'Hello', workspace: '/tmp/alto-scratch' }))
+      expect(host.call).toHaveBeenCalledWith('workspace-layout.unassign-thread', { threadId: 'new-codex-chat' })
     } finally { session.dispose(); native.dispose() }
   })
 
@@ -176,6 +178,80 @@ describe('session transport projection', () => {
     vi.unstubAllGlobals()
   })
 
+  it('waits for a scratch workspace without falling back to the Alto runtime', async () => {
+    const unavailable = harness([], 'stopped')
+    delete unavailable.extensions['session.workspace']
+    const host = new ControllableHost(unavailable)
+    const session = new SessionService(host, { restoreActiveThread: false })
+    try {
+      expect(session.snapshot().session.workspace).toBe('')
+      await expect(session.send({ text: 'Hello', images: [], attachments: [], skills: [] }))
+        .rejects.toThrow('scratch workspace')
+      await expect(session.ensureThread()).rejects.toThrow('scratch workspace')
+      expect(host.command).not.toHaveBeenCalled()
+
+      host.reconnect(harness([], 'stopped'))
+      expect(session.snapshot().session.workspace).toBe('/tmp/alto-scratch')
+      host.reconnect(harness([], 'stopped'))
+      expect(session.snapshot().session.workspace).toBe('/tmp/alto-scratch')
+    } finally { session.dispose() }
+  })
+
+  it('preserves an explicitly selected directory when scratch defaults arrive or reconnect', () => {
+    const unavailable = harness([], 'stopped')
+    delete unavailable.extensions['session.workspace']
+    const host = new ControllableHost(unavailable)
+    const session = new SessionService(host, { initialWorkspace: '/work/selected', restoreActiveThread: false })
+    try {
+      host.reconnect(harness([], 'stopped'))
+      expect(session.snapshot().session.workspace).toBe('/work/selected')
+      host.reconnect(harness([], 'stopped'))
+      expect(session.snapshot().session.workspace).toBe('/work/selected')
+
+      session.newThread(null)
+      expect(session.snapshot().session.workspace).toBe('/tmp/alto-scratch')
+    } finally { session.dispose() }
+  })
+
+  it('keeps the working directory of an existing projectless conversation', async () => {
+    const host = new ControllableHost(harness([], 'stopped'))
+    host.command.mockResolvedValue(view([]))
+    const session = new SessionService(host, { restoreActiveThread: false })
+    try {
+      await session.openThread(summary())
+      expect(session.snapshot().session.workspace).toBe('/tmp/project')
+      host.reconnect(harness([], 'stopped'))
+      expect(session.snapshot().session.workspace).toBe('/tmp/project')
+
+      session.newThread(null)
+      expect(session.snapshot().session.workspace).toBe('/tmp/alto-scratch')
+    } finally { session.dispose() }
+  })
+
+  it('starts projectless ACP chats in scratch without starting Codex', async () => {
+    const snapshot = harness([], 'stopped')
+    snapshot.extensions['agent-chats'] = { providers: [{ id: 'claude', label: 'Claude', capabilities: {} }], threads: [] }
+    const host = new ControllableHost(snapshot)
+    const native = new SessionService(host, { restoreActiveThread: false })
+    const session = new AgentSessionService(native, host)
+    host.call.mockImplementation(async (method: string) => {
+      if (method === 'agent-chats.create') return {
+        summary: { ...summary('acp-11111111-1111-1111-1111-111111111111'), cwd: '/tmp/alto-scratch', providerId: 'claude', providerSessionId: 'claude-session' },
+        permissionMode: 'ask', turn: 'idle', activities: [], requests: [],
+      }
+      return null
+    })
+    try {
+      session.setProvider('claude')
+      await session.ensureThread()
+      expect(host.call).toHaveBeenCalledWith('agent-chats.create', {
+        providerId: 'claude', cwd: '/tmp/alto-scratch', permissionMode: 'ask',
+      })
+      expect(host.command).not.toHaveBeenCalled()
+      expect(host.call).not.toHaveBeenCalledWith('session.codex.start', expect.anything())
+    } finally { session.dispose(); native.dispose() }
+  })
+
   it('adopts effective Codex defaults once they become available', () => {
     const host = new ControllableHost(harness([], 'starting'))
     const session = new SessionService(host)
@@ -202,7 +278,7 @@ describe('session transport projection', () => {
       host.reconnect(ready)
 
       expect(session.snapshot().session).toEqual({
-        workspace: '/tmp/project',
+        workspace: '/tmp/alto-scratch',
         model: 'gpt-5.6-sol',
         effort: 'max',
         permissionMode: 'full',
@@ -380,7 +456,7 @@ describe('session transport projection', () => {
       expect(session.snapshot().activities.map((activity) => activity.content)).toEqual(['Start'])
 
       finishCreate?.({ thread: { id: 'thread-new' } })
-      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
       expect(host.command).toHaveBeenCalledWith('chat.send', expect.objectContaining({
         threadId: 'thread-new',
         text: 'Start',
@@ -406,7 +482,7 @@ describe('session transport projection', () => {
         id: 'thread-new',
         title: 'New chat',
         preview: 'Start',
-        cwd: '/tmp/project',
+        cwd: '/tmp/alto-scratch',
       })
       expect(session.snapshot().threads[0]?.id).toBe('thread-new')
     } finally {
@@ -461,7 +537,7 @@ describe('session transport projection', () => {
 
     try {
       const sent = session.send({ text: 'Inspect the pane lifecycle', images: [], attachments: [], skills: [] })
-      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
       host.emit({
         type: 'codex.notification',
         payload: { method: 'turn/started', params: { threadId: 'thread-new' } },

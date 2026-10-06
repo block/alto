@@ -1,5 +1,6 @@
 import { isAgentChatId } from './agent-chats-api.js'
 import { requireAgentChats } from './agent-chats-access.js'
+import { ensureScratchWorkspace } from './session-workspace.js'
 import { randomUUID } from 'node:crypto'
 import {
   mkdir,
@@ -309,7 +310,7 @@ const workspaceLayout: HarnessPlugin = async (ctx) => {
     const anchor = agentChat?.summary ?? await ctx.codex.threadSummary(call.threadId)
     let thread: ThreadSummary | undefined
     if (kind === 'chat') {
-      const workspace = anchor?.cwd || ctx.program.projectRoot
+      const workspace = anchor?.cwd || await ensureScratchWorkspace()
       const permissionMode = ctx.codex.permissionModeForTurn(call.threadId, call.turnId) ?? call.permissionMode ?? 'ask'
       if (chats && agentChat) {
         thread = (await chats.create(agentChat.summary.providerId, workspace, permissionMode)).summary

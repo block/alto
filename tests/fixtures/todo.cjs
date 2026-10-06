@@ -25,7 +25,7 @@ async function check() {
       const listeners=new Set(); let hostState={connectionEpoch:1,snapshot:{extensions:{todo:doc}}};
       let fail=false, revision=0, surface, registry, modal, root, overlays=new Set();
       const surfaces=new Map(), paneRenamers=new Set();
-      const state={connected:true,session:{workspace:'/repo',permissionMode:'full'},projects:[],threads:[thread],skills:[],turn:{tag:'idle'},activities:[],history:{tag:'ready',entries:[]},harness:{server:{projectRoot:'/repo'},codex:{status:'ready',models:[]},ui:{surfaces:[{id:'todo-button',kind:'todo-button',data:{slot:'header-end'}}],contributions:[],regions:[]}}};
+      const state={connected:true,session:{workspace:'/repo',permissionMode:'full'},projects:[],threads:[thread],skills:[],turn:{tag:'idle'},activities:[],history:{tag:'ready',entries:[]},harness:{extensions:{'session.workspace':'/tmp/alto-scratch'},server:{projectRoot:'/repo'},codex:{status:'ready',models:[]},ui:{surfaces:[{id:'todo-button',kind:'todo-button',data:{slot:'header-end'}}],contributions:[],regions:[]}}};
       const host={subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},snapshot:()=>hostState,call:async(method,payload)=>{
         if(method==='todo.apply') { if(fail)throw new Error('Disk unavailable'); doc=applyTodo(doc,payload,()=> 'id-'+ ++serial); if(payload.type==='renameChat'){const title=findTodoChat(doc,payload.threadId).chat.thread.title;for(const rename of paneRenamers)rename(payload.threadId,title)} hostState={...hostState,snapshot:{extensions:{todo:doc}}};for(const fn of listeners)fn();return doc; }
         if(method.endsWith('.read'))return structuredClone(saved);

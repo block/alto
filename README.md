@@ -196,6 +196,11 @@ For source builds, the program lives in your checkout. Saved application state
 uses the ignored `.codex-cordis/` directory and browser storage. Keep program
 changes you want to share under version control.
 
+New chats without a selected project work in `~/.alto/scratch`. Alto creates
+this directory automatically and keeps its files between launches, separate
+from the executable program. Selecting a project uses that project's directory;
+reopening an existing conversation keeps its saved working directory.
+
 ### External plugins and remote work
 
 Additional plugins can live outside the Alto repository. Each directory has an

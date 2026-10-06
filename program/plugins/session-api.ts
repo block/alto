@@ -16,6 +16,7 @@ import type { AgentStatus, TurnState } from './ui/machines.js'
 
 export const SESSION_THREAD_RENAME = 'session.thread.rename'
 export const SESSION_CODEX_START = 'session.codex.start'
+export const SESSION_WORKSPACE_STATE = 'session.workspace'
 
 export interface ClientSessionSnapshot {
   revision: number

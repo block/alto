@@ -65,7 +65,7 @@ function readyHost(command: ReturnType<typeof vi.fn>): ClientHostService {
         },
         projects: { revision: 0, projects: [] },
         ui: { regions: [], surfaces: [], contributions: [] },
-        extensions: {},
+        extensions: { 'session.workspace': '/tmp/alto-scratch' },
         pendingRequests: [],
         server: { port: 4317, host: '127.0.0.1', projectRoot: '/tmp/project' },
       },
@@ -216,7 +216,8 @@ describe('session thread cache', () => {
   })
 
   it('starts a blank chat in the explicitly selected workspace', () => {
-    const session = new SessionService(host(vi.fn()))
+    vi.stubGlobal('window', { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout })
+    const session = new SessionService(readyHost(vi.fn()))
 
     try {
       session.newThread({
@@ -233,11 +234,12 @@ describe('session thread cache', () => {
 
       session.newThread()
 
-      expect(session.snapshot().session.workspace).toBe('/work/atlas')
+      expect(session.snapshot().session.workspace).toBe('/tmp/alto-scratch')
       expect(session.snapshot().projectScope).toBe('unscoped')
       expect(session.snapshot().activeProjectId).toBeUndefined()
     } finally {
       session.dispose()
+      vi.unstubAllGlobals()
     }
   })
 

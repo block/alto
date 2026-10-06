@@ -1,6 +1,7 @@
 import type { HarnessPlugin } from '../../src/server/plugin-api.js'
 import { isRecord } from '../../src/shared/protocol.js'
-import { SESSION_CODEX_START, SESSION_THREAD_RENAME } from './session-api.js'
+import { SESSION_CODEX_START, SESSION_THREAD_RENAME, SESSION_WORKSPACE_STATE } from './session-api.js'
+import { ensureScratchWorkspace } from './session-workspace.js'
 
 interface CodexConfigAccess {
   setThreadName?: (threadId: string, name: string) => Promise<void>
@@ -19,7 +20,9 @@ async function setThreadName(codex: unknown, threadId: string, name: string): Pr
   await access.client.request('thread/name/set', { threadId, name })
 }
 
-const session: HarnessPlugin = (ctx) => {
+const session: HarnessPlugin = async (ctx) => {
+  const workspace = await ensureScratchWorkspace()
+  ctx.clientExtensions.registerState(ctx, SESSION_WORKSPACE_STATE, workspace)
   const codex = ctx.codex
   const initialDefaults = codex.snapshot().defaults
   const defaults = ctx.clientExtensions.registerState(

@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import os from 'node:os'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { PassThrough } from 'node:stream'
@@ -15,7 +16,7 @@ import { uiRegistryPlugin } from '../src/server/services/ui-registry.js'
 import sessionPlugin from '../program/plugins/session.js'
 import orchestratorPlugin from '../program/plugins/orchestrator.js'
 import { ORCHESTRATOR_REFRESH } from '../program/plugins/orchestrator-api.js'
-import { SESSION_CODEX_START } from '../program/plugins/session-api.js'
+import { SESSION_CODEX_START, SESSION_WORKSPACE_STATE } from '../program/plugins/session-api.js'
 
 class MockProcess extends EventEmitter {
   readonly stdin = new PassThrough()
@@ -48,10 +49,14 @@ class MockProcess extends EventEmitter {
 }
 
 const cleanup: Array<() => Promise<unknown>> = []
-afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
+afterEach(async () => {
+  for (const close of cleanup.splice(0).reverse()) await close()
+  vi.restoreAllMocks()
+})
 
 async function fixture(createProcess = vi.fn(() => new MockProcess())) {
   const projectRoot = await mkdtemp(path.join(tmpdir(), 'alto-codex-startup-'))
+  vi.spyOn(os, 'homedir').mockReturnValue(projectRoot)
   cleanup.push(() => rm(projectRoot, { recursive: true, force: true }))
   const ctx = new Context()
   const fibers: Fiber[] = []
@@ -69,12 +74,15 @@ async function fixture(createProcess = vi.fn(() => new MockProcess())) {
 
 describe('on-demand Codex startup', () => {
   it('mounts the session and task plugins and opens ACP tasks without spawning Codex', async () => {
-    const { ctx, createProcess } = await fixture()
+    const { ctx, createProcess, projectRoot } = await fixture()
     await ctx.clientExtensions.call(ORCHESTRATOR_REFRESH, {})
     await ctx.clientExtensions.call(ORCHESTRATOR_REFRESH, { parentThreadId: 'acp-11111111-1111-1111-1111-111111111111' })
     expect(createProcess).not.toHaveBeenCalled()
     expect(ctx.codex.snapshot()).toMatchObject({ status: 'stopped', models: [] })
     expect(ctx.clientExtensions.snapshot()['session.defaults']).toBeNull()
+    const workspace = ctx.clientExtensions.snapshot()[SESSION_WORKSPACE_STATE] as string
+    expect(workspace).toBe(path.join(await realpath(projectRoot), '.alto', 'scratch'))
+    expect((await stat(workspace)).isDirectory()).toBe(true)
   })
 
   it('starts once on the first Codex action and loads defaults before publishing readiness', async () => {

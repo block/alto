@@ -15,7 +15,7 @@ import type {
   ClientHostService,
 } from '../../src/client/plugin-api.js'
 import { SESSION_CODEX_START, SESSION_THREAD_RENAME } from './session-api.js'
-import { configuredDefaults } from './session-defaults.js'
+import { configuredDefaults, defaultWorkspace } from './session-defaults.js'
 import { AgentSessionService } from './agent-session.client.js'
 import { isAgentChatId } from './agent-chats-api.js'
 import type {
@@ -110,7 +110,7 @@ function sessionDefaults(
   const effort = defaults?.effort ?? selected?.defaultReasoningEffort
 
   return {
-    workspace: (workspace || harness?.server.projectRoot) ?? '',
+    workspace: workspace || defaultWorkspace(harness),
     permissionMode: defaults?.permissionMode ?? 'ask',
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {}),
@@ -395,7 +395,8 @@ export class SessionService implements ClientSessionService {
     const codexState = harness?.codex.status ?? 'starting'
     this.link = hostState.connected ? { tag: 'online' } : initialLink
     const session = sessionDefaults(harness, options.initialWorkspace)
-    this.projectSelection = options.initialProjectId
+    this.projectSelection = options.initialProjectId === undefined && !options.initialWorkspace
+      ? null : options.initialProjectId
     this.pendingRestoreThreadId = options.restoreActiveThread === false
       ? undefined
       : readActiveThreadId()
@@ -411,7 +412,7 @@ export class SessionService implements ClientSessionService {
       activities: [],
       hasEarlierActivities: false,
       loadingEarlierActivities: false,
-      projectScope: options.initialProjectId === null ? 'unscoped' : 'workspace',
+      projectScope: this.projectSelection === null ? 'unscoped' : 'workspace',
       history: { tag: 'ready', entries: [] },
       threads: [],
       projects: harness?.projects.projects ?? [],
@@ -467,6 +468,7 @@ export class SessionService implements ClientSessionService {
       || !this.state.connected
       || this.state.canAcceptDirectInput === false
     ) return
+    if (!this.state.session.workspace) throw new Error('Choose a project or wait for the scratch workspace to become available')
     const selectionGeneration = this.threadOpenGeneration
     const submittedSession = { ...this.state.session }
     const submittedWithoutWorkspace = this.projectSelection === null
@@ -579,6 +581,7 @@ export class SessionService implements ClientSessionService {
     const create = async (): Promise<string> => {
       if (this.state.turn.tag !== 'idle') throw new Error('the chat is already starting a turn')
       if (!this.state.connected) throw new Error('Alto is not connected to Codex')
+      if (!workspace) throw new Error('Choose a project or wait for the scratch workspace to become available')
       const generation = this.threadOpenGeneration
       const session = { ...this.state.session, workspace }
       const response = await this.host.command('thread.new', session)
@@ -609,9 +612,10 @@ export class SessionService implements ClientSessionService {
   newThread(project?: LocalProject | null): void {
     const active = project ?? null
     this.projectSelection = active?.id ?? null
-    const session = active && this.state.session.workspace !== active.primaryRoot
-      ? { ...this.state.session, workspace: active.primaryRoot }
-      : this.state.session
+    const session = {
+      ...this.state.session,
+      workspace: active?.primaryRoot ?? defaultWorkspace(this.state.harness),
+    }
     this.clearThread(session)
     this.scheduleResources()
   }
@@ -931,7 +935,7 @@ export class SessionService implements ClientSessionService {
 
     let session = this.state.session
     if (harness) {
-      const workspace = session.workspace || harness.server.projectRoot
+      const workspace = session.workspace || defaultWorkspace(harness)
       if (!this.defaultsApplied && configuredDefaults(harness)) {
         const previous = session
         session = sessionDefaults(harness, workspace)

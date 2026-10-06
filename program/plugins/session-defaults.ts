@@ -1,4 +1,10 @@
 import { isRecord, type CodexSessionDefaults, type HarnessSnapshot, type PermissionMode } from '../../src/shared/protocol.js'
+import { SESSION_WORKSPACE_STATE } from './session-api.js'
+
+export function defaultWorkspace(harness: HarnessSnapshot | undefined): string {
+  const workspace = harness?.extensions[SESSION_WORKSPACE_STATE]
+  return typeof workspace === 'string' ? workspace : ''
+}
 
 export function configuredDefaults(
   harness: HarnessSnapshot | undefined,

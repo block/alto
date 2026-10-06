@@ -85,6 +85,7 @@ import type {
 } from './workspace-commands-api.js'
 import { useStoreSelector } from './ui/store-selector.js'
 import { isAgentChatId } from './agent-chats-api.js'
+import { defaultWorkspace } from './session-defaults.js'
 import {
   adjacentWorkspacePane,
   canNavigateWorkspacePane,
@@ -1293,7 +1294,9 @@ function WorkspacePane({
   useEffect(() => {
     const initial = initialPane.current
     const next = factory.create({
-      initialWorkspace: initial.workspace,
+      // Empty projectless panes should adopt the current default, including
+      // panes saved when that default was the Alto checkout.
+      ...(!initial.unscoped || initial.thread ? { initialWorkspace: initial.workspace } : {}),
       ...(initial.unscoped
         ? { initialProjectId: null }
         : initial.projectId ? { initialProjectId: initial.projectId } : {}),
@@ -2595,9 +2598,7 @@ function WorkspaceLayout({
     const focusedSession = sessions.current.get(activeView.focusedPaneId)
     const state = focusedSession?.snapshot() ?? globalSession.snapshot()
     const project = requestedProject ?? undefined
-    const workspace = project?.primaryRoot
-      ?? state.harness?.server.projectRoot
-      ?? state.session.workspace
+    const workspace = project?.primaryRoot ?? defaultWorkspace(state.harness)
     const pane = paneFromSession({
       ...state,
       threadId: undefined,
