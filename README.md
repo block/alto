@@ -4,18 +4,19 @@
 
 ![Alto with an agent conversation and a native terminal side by side](assets/alto-workspace.png)
 
-Bring your coding agents into one workspace with terminals, browsers, and code
-review. Connect agents over Agent Client Protocol (ACP), or use Codex through
-App Server for richer interactions. Run tasks side by side in separate
-checkouts. When you need a new tool or a different workflow, ask your agent to
-build it into Alto.
+Alto brings your coding agents and tools into one workspace you can change while it’s running. 
 
-Add a dashboard beside your chat. Build a custom review panel. Change how the
-interface works. Alto applies those changes while you work, without rebuilding
-or restarting the app.
+- **Change Alto while it’s running.** Ask your agent to add a panel, register a tool, or change the UI. Alto compiles and reloads the affected plugins. Failed activation rolls back.
+- **Use your existing agent harnesses.** Connect through ACP, or use Codex App Server for native history, approvals, queueing, steering, and subagent inspection.
+- **Run parallel work in separate checkouts.** Give chats their own worktrees and working directories. Arrange them in tabs and split panes, and reopen saved conversations from history.
+- **Keep terminals, browsers, and diffs beside your chats.** Run commands in native libghostty terminals, inspect changes, and open browser panes. Switching tabs preserves running sessions and drafts.
 
-Alto is under active development. The full desktop experience currently targets
-macOS and builds from source. A browser mode is also available for development.
+Alto uses [Cordis](https://arxiv.org/pdf/2608.25512) to manage plugin dependencies, lifecycle, and hot reloading. DeepSeek Harness uses the same foundation, but implements its own agent loop. Alto connects to existing harnesses and leaves that loop to them.
+
+Like DeepSeek Harness, Alto is built on [Cordis](https://arxiv.org/pdf/2608.25512). Unlike DeepSeek Harness, Alto leaves the agent loop to the harnesses you already use. They handle model requests and tool calls; Alto provides the workspace around them—and lets your agents change that workspace while it’s running.
+
+Alto is under active development and is pre-alpha. 
+At Block, Alto is a small tool: for Block's other agentic tools, check out [Buzz](https://github.com/block/buzz) and [Berd](https://github.com/block/berd/)
 
 [Get started](#get-started) · [Agent support](#agent-support) ·
 [Customize Alto](#make-alto-your-own) · [Development](#development) · [FAQ](#faq)
