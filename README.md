@@ -18,8 +18,10 @@ worktrees and run alongside native terminals, browsers, and code review in
 split panes.
 
 Alto is pre-alpha and under active development. The desktop app currently
-targets macOS; browser mode supports chat and plugin development. Other agent
-tools from Block include [Buzz](https://github.com/block/buzz) and
+targets macOS; browser mode supports chat and plugin development.
+
+Alto is a side project at Block. For agent tools developed by dedicated teams
+at Block, see [Buzz](https://github.com/block/buzz) and
 [Berd](https://github.com/block/berd/).
 
 [Get started](#get-started) · [Agent support](#agent-support) ·
