@@ -1,55 +1,58 @@
 # Alto
 
-**A programmable workspace for your coding agents.**
-
 ![Alto with an agent conversation and a native terminal side by side](assets/alto-workspace.png)
 
-Alto brings your coding agents and tools into one workspace you can change while it’s running. 
+Alto is a workspace for coding agents. Its chat views, pane layouts, commands,
+and application tools are implemented as TypeScript and React plugins. An agent
+can modify these plugins from an Alto conversation and apply the changes while
+the application is running.
 
-- **Change Alto while it’s running.** Ask your agent to add a panel, register a tool, or change the UI. Alto compiles and reloads the affected plugins. Failed activation rolls back.
-- **Use your existing agent harnesses.** Connect through ACP, or use Codex App Server for native history, approvals, queueing, steering, and subagent inspection.
-- **Run parallel work in separate checkouts.** Give chats their own worktrees and working directories. Arrange them in tabs and split panes, and reopen saved conversations from history.
-- **Keep terminals, browsers, and diffs beside your chats.** Run commands in native libghostty terminals, inspect changes, and open browser panes. Switching tabs preserves running sessions and drafts.
+[Cordis](https://arxiv.org/pdf/2608.25512) manages plugin dependencies and
+lifetime. Alto compiles and reloads the affected plugins when a change is
+applied. If compilation or activation fails, it restores the previous program.
 
-Alto uses [Cordis](https://arxiv.org/pdf/2608.25512) to manage plugin dependencies, lifecycle, and hot reloading. DeepSeek Harness uses the same foundation, but implements its own agent loop. Alto connects to existing harnesses and leaves that loop to them.
+Agents connect through Agent Client Protocol (ACP) or Codex App Server. Each
+agent runs its own cycle of model requests and tool calls; Alto provides the
+interface, workspace context, and application tools. Chats can use separate
+worktrees and run alongside native terminals, browsers, and code review in
+split panes.
 
-Like DeepSeek Harness, Alto is built on [Cordis](https://arxiv.org/pdf/2608.25512). Unlike DeepSeek Harness, Alto leaves the agent loop to the harnesses you already use. They handle model requests and tool calls; Alto provides the workspace around them—and lets your agents change that workspace while it’s running.
-
-Alto is under active development and is pre-alpha. 
-At Block, Alto is a small tool: for Block's other agentic tools, check out [Buzz](https://github.com/block/buzz) and [Berd](https://github.com/block/berd/)
+Alto is pre-alpha and under active development. The desktop app currently
+targets macOS; browser mode supports chat and plugin development. Other agent
+tools from Block include [Buzz](https://github.com/block/buzz) and
+[Berd](https://github.com/block/berd/).
 
 [Get started](#get-started) · [Agent support](#agent-support) ·
-[Customize Alto](#make-alto-your-own) · [Development](#development) · [FAQ](#faq)
+[Runtime customization](#runtime-customization) · [Development](#development) · [FAQ](#faq)
 
-## A workspace for the whole task
+## Workspace features
 
-**Keep several pieces of work in view.** Arrange Chat, Terminal, Browser, and
-Canvas panes in resizable splits. Group workspace tabs, switch between recent
-chats, and pin frequently used conversations. Switching tabs keeps inactive
-panes mounted, including their drafts, shells, and browser sessions.
+Chat, Terminal, Browser, and Canvas panes can be arranged in resizable splits
+and grouped into workspace tabs. Conversations can be pinned or reopened from
+history. Inactive panes remain mounted when you switch tabs, preserving drafts,
+shells, and browser sessions.
 
-**Give each chat the right working directory.** Register project folders,
-select existing branches and worktrees, or ask the agent to create a branch and
-open an independent chat for it. A chat's execution target follows its selected
-checkout. Remote targets become available through backend plugins.
+Each chat has a working directory. You can select a project folder or an
+existing worktree, or ask the agent to create a branch and open a separate chat
+for it. This lets several chats work in independent checkouts. Backend plugins
+can also provide remote execution targets.
 
-**Stay involved while agents work.** Inspect tool calls, respond to approvals,
-queue follow-up messages, and steer an active turn when the provider supports
-it. The Agents panel exposes subagent progress and transcripts. Tasks organizes
-work by project and lets you file chat tabs under individual tasks. Scheduled
-runs recurring Codex tasks while Alto is running, or through an external
-scheduling provider.
+The chat interface shows tool calls and approval requests. Depending on the
+provider, it also supports queued messages, steering during an active turn,
+and subagent progress and transcripts in the Agents panel. The Tasks panel
+groups work by project and associates chats with individual tasks. The Scheduled
+panel configures recurring Codex tasks, which run locally while Alto is running
+or through an external scheduling provider.
 
-**Review changes where the conversation happens.** Open source files and diffs,
-leave inline comments to send back to chat, and generate Code Tours that pair
-an explanation with the relevant changes. GitHub integration shows pull
-requests, checks, and review status. The Editor action opens the current local
-checkout in Cursor, VS Code, or Zed.
+You can open source files and diffs, and send inline review comments back to
+chat. Code Tours pair explanations with the relevant changes. GitHub integration
+shows pull requests, checks, and review status, and the Editor action opens
+the current local checkout in Cursor, VS Code, or Zed.
 
-**Keep supporting material close.** Conversations render Markdown, highlighted
-code, Mermaid diagrams, and mathematics. Linked source, Markdown, and PDF files
-open in viewers. Native Ghostty terminals and embedded browser tabs sit beside
-your chats; Canvas provides full-page space for tools you or the agent build.
+Conversations render Markdown, highlighted code, Mermaid diagrams, and
+mathematics. Linked source, Markdown, and PDF files open in viewers. Native
+terminals use libghostty, and embedded browser panes open web pages within the
+workspace. Plugins can use Canvas pages for custom tools and views.
 
 ## Get started
 
@@ -121,9 +124,14 @@ application.
 
 ### Start working
 
-Choose a project folder, open a chat, and select the agent before sending the
-first message. Use the split controls to place another chat or a supporting
-pane beside it. For example, you can ask:
+Open a chat and select the agent before sending the first message. Selecting
+a project sets the chat's working directory. New chats without a selected
+project use `~/.alto/scratch`, which Alto creates automatically and preserves
+between launches, separate from the application's program files. Reopening an
+existing conversation keeps its saved working directory.
+
+Use the split controls to place another chat or a supporting pane beside it.
+Agents can also manage the workspace. For example, you can ask:
 
 > Create a branch called docs-cleanup from origin/main and open it in a new
 > chat pane to the right.
@@ -146,61 +154,52 @@ check information.
 
 ## Agent support
 
-Alto connects to any agent that speaks **Agent Client Protocol (ACP)**,
-natively or through an adapter. Configure its command and arguments in
-`program/cordis.json`. Each agent keeps its own runtime and authentication.
-Alto provides the shared chat interface, workspace context, and tools for
-working with and changing the application.
+ACP agents can connect natively or through an adapter. Configure the agent's
+command and arguments in `program/cordis.json`. Each agent uses its own runtime
+and authentication; Alto provides a shared chat interface, workspace context,
+and application tools.
 
-**Codex uses App Server for richer interactions with its runtime**, including
-native history, approvals, queued messages, steering, and subagent inspection.
-Alto starts `codex app-server` on demand, so Codex CLI is only needed when you
-use Codex features.
+Codex connects through App Server, which gives Alto access to native history,
+approvals, queued messages, steering, and subagent inspection. Alto starts
+`codex app-server` on demand, so Codex CLI is only needed for Codex features.
 
-An agent is fixed after a chat's first message. Model choices, attachments,
-steering, and session resumption follow the capabilities the provider exposes.
-Code Tour generation and local scheduled tasks currently use Codex.
+The agent cannot be changed after a chat's first message. Available models,
+attachments, steering, and session resumption depend on the provider's
+capabilities. Code Tour generation and local scheduled tasks currently use
+Codex.
 
 Permission controls also follow the provider. ACP approval handling does not
 add Codex's sandbox to another agent. See [agent providers](docs/agent-providers.md)
 for authentication, adapter versions, capability differences, and known limits.
 
-## Make Alto your own
+## Runtime customization
 
-Ask a local agent to change Alto as part of your normal conversation. Example
-requests that create or modify plugins:
+An agent can inspect the running program, discover its tools and UI, and submit
+source changes through Alto's reprogramming tools. These changes affect the
+application's own plugins under `program/`. For example, you can ask a local
+agent to implement a project-specific view:
 
 > Add a Canvas page for this project with a checklist that persists between
 > sessions.
 
-> Add a composer action that opens this project's documentation in a Browser
-> pane.
-
-> Add a keyboard shortcut that focuses the terminal beside this chat.
-
-These changes live in ordinary source files under `program/`. The agent can
-inspect the running program, discover its tools and UI, and submit a change
-through Alto's reprogramming tools. Alto compiles and activates the affected
-plugins in place. If compilation or activation fails, it rolls back the change.
+The same mechanism can add a composer action that opens project documentation,
+change a chat view, or register a keyboard shortcut. Alto compiles and activates
+the affected plugins in place, restoring the previous program if compilation
+or activation fails.
 
 A change made from a turn that started with **Full access** applies immediately.
 **Ask** and **Auto** turns produce a proposal for approval. You can also explicitly
 ask to review a change before it is applied.
 
-Open Plugins to inspect, configure, enable, or disable entries. A plugin owns
-its tools, UI, styles, and registrations;
-[Cordis](https://github.com/cordiverse/cordis) manages their lifetime and removes
-them when that plugin unloads. The fixed host keeps transport, native integration,
-and recovery available while the program changes.
+The Plugins panel lists entries and their configuration, with controls to
+enable or disable them. Each plugin owns its tools, UI, styles, and
+registrations. [Cordis](https://github.com/cordiverse/cordis) removes these when
+the plugin unloads. Transport, native integration, and recovery remain in a
+fixed host so they are available while the program changes.
 
 For source builds, the program lives in your checkout. Saved application state
 uses the ignored `.codex-cordis/` directory and browser storage. Keep program
 changes you want to share under version control.
-
-New chats without a selected project work in `~/.alto/scratch`. Alto creates
-this directory automatically and keeps its files between launches, separate
-from the executable program. Selecting a project uses that project's directory;
-reopening an existing conversation keeps its saved working directory.
 
 ### External plugins and remote work
 
@@ -263,10 +262,10 @@ Useful commands, after `npm ci`:
 with the pinned toolchain. GitHub Actions runs checks on pushes to `main` and
 on pull requests. Version tags trigger the macOS Apple Silicon release workflow.
 
-Unlike a development installation, a portable release bundles its dependencies
-and application assets. On first launch, it copies the mutable program into the
-user's Application Support directory, so live customization can persist there.
-Release builds are currently ad-hoc signed and are not notarized.
+A portable release bundles its dependencies and application assets. On first
+launch, it copies the mutable program into the user's Application Support
+directory, so live customization can persist there. Release builds are
+currently ad-hoc signed and are not notarized.
 
 Read the [architecture](docs/architecture.md) for the runtime boundaries and
 [plugin authoring guide](docs/plugin-authoring.md) for server and browser APIs,
@@ -289,39 +288,38 @@ source.
 
 ## FAQ
 
-### Why is it called Alto?
+### Name and design background
 
-The name is a nod to the [Xerox Alto](https://en.wikipedia.org/wiki/Xerox_Alto),
+The name refers to the [Xerox Alto](https://en.wikipedia.org/wiki/Xerox_Alto),
 the computer introduced at Xerox PARC in 1973 that helped pioneer graphical
 personal computing and hosted early Smalltalk environments.
 
-That is the idea behind this Alto: the environment you work in should be
-something you can change. Your agent can add a tool, build a panel, or reshape
-a workflow while you're using the application.
+Alto takes inspiration from the ability to modify a computing environment
+while using it. Here, that means changing the application's interface and
+tools through reloadable plugins.
 
-### Does Alto own the agent loop?
+### Agent execution
 
-Alto uses your existing coding agents through ACP or Codex App Server.
-Each agent owns its cycle of model requests and tool calls.
-Alto adds the graphical workspace, context about that workspace, and tools for
-working with and changing the application. It does not implement a replacement
-agent loop.
+The agent loop is the cycle of requesting model output, executing tool calls,
+and returning their results to the model. Each connected agent harness runs
+this loop. Alto communicates with it through ACP or Codex App Server and
+provides workspace context and application tools. Alto does not implement an
+agent loop of its own.
 
-### How does Alto compare with other tools?
+### Comparison with other tools
 
 Alto's pane splitting and tabbed workspace draw inspiration from
-[Zellij](https://zellij.dev/) and [Herdr](https://herdr.dev/). Alto brings those
-ideas to a layout that combines graphical agent chats, terminals, browsers,
-and custom tools.
+[Zellij](https://zellij.dev/) and [Herdr](https://herdr.dev/). Its panes contain
+graphical agent conversations, terminals, browsers, and custom plugin views.
 
 | Project | What it provides | Where Alto differs |
 | --- | --- | --- |
-| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md) | A Cordis-based harness with a replaceable agent loop, model adapters, tools, and UI. It also supports live extensions. | Alto also uses Cordis for live customization, but connects to existing agent runtimes through App Server or ACP. The agents keep their own loops; Alto provides the workspace around them. |
-| [Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md) | An extensible coding agent with a terminal interface, RPC mode, and a TypeScript SDK for building applications around it. | Alto is a GUI with split chats, native terminals, browsers, worktrees, and code review around your choice of agent. |
-| [Claude Mods](https://code.claude.com/docs/en/plugins/mods/overview) | JavaScript or TypeScript hooks inside Claude Code that can change tool behavior and draw or restyle UI in supported Claude interfaces. | Alto plugins change a separate application shared by several agent providers. You can change its chat views, panes, shortcuts, and workflows while continuing to use your preferred agent underneath. |
-| [Codex Plugins](https://developers.openai.com/plugins/concepts/plugins) | Installable bundles of skills, MCP tools, integrations, and lifecycle hooks, with optional UI on supported surfaces. | Alto's Cordis plugins implement the running workspace itself: chat, panes, commands, and application tools. They let you change the workspace around Codex and other agents. |
-| [Zellij](https://zellij.dev/documentation/creating-a-layout.html) | A terminal workspace with split panes, tabs, reusable layouts, and plugins. | Alto applies a similar pane model to graphical agent conversations, native terminals, browser pages, and custom React views in the same workspace. |
-| [Herdr](https://herdr.dev/docs/concepts/) | A terminal workspace for multiple coding agents, with split panes, agent status, and persistent sessions. Each agent runs in its own terminal. | Alto shares the idea of keeping several agents in view. It renders conversations and approvals through App Server or ACP alongside browsers, code review, and native terminals. |
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md) | A Cordis-based harness with a replaceable agent loop, model adapters, tools, UI, and live extensions. | Alto uses Cordis for its workspace and connects to existing agent harnesses through ACP or App Server. Those harnesses run the agent loop. |
+| [Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md) | An extensible coding agent with a terminal interface, RPC mode, and a TypeScript SDK. | Alto provides a graphical interface for connected agents, with split chats, native terminals, browsers, worktrees, and code review. |
+| [Claude Mods](https://code.claude.com/docs/en/plugins/mods/overview) | JavaScript or TypeScript hooks inside Claude Code that can change tool behavior and draw or restyle UI in supported Claude interfaces. | Alto plugins implement a separate workspace used across agent providers, including its chat views, panes, shortcuts, and application tools. |
+| [Codex Plugins](https://developers.openai.com/plugins/concepts/plugins) | Installable bundles of skills, MCP tools, integrations, and lifecycle hooks, with optional UI on supported surfaces. | Alto's Cordis plugins implement and modify the workspace application itself, including its chat interface and pane layout. |
+| [Zellij](https://zellij.dev/documentation/creating-a-layout.html) | A terminal workspace with split panes, tabs, reusable layouts, and plugins. | Alto uses a similar pane model for graphical agent conversations, native terminals, browser pages, and React views. |
+| [Herdr](https://herdr.dev/docs/concepts/) | A terminal workspace for multiple coding agents, with split panes, agent status, and persistent sessions. Each agent runs in its own terminal. | Alto renders structured conversations and approvals through ACP or App Server, alongside browsers, code review, and native terminals. |
 
 Provider capabilities and current integration limits are listed under
 [Agent support](#agent-support).
