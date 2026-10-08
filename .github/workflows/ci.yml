@@ -24,3 +24,20 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+
+  macos-nix:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: nix develop --command npm ci
+      - run: nix develop --command npm run build:mac-release
+      - name: Load the native terminal in the packaged Electron runtime
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+        run: >-
+          dist/mac/Alto.app/Contents/MacOS/Electron -e
+          'require("./dist/mac/Alto.app/Contents/Resources/app/native/ghostty/build/ghostty-terminal.node")'

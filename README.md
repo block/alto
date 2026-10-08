@@ -101,6 +101,19 @@ npm run install:mac-app
 open ~/Applications/Alto.app
 ```
 
+From a fresh checkout, the Nix path is:
+
+```bash
+nix develop
+npm ci
+npm run install:mac-app
+```
+
+The build downloads Electron's app bundle automatically if it is missing.
+Nix supplies the command-line toolchain; full Xcode must be installed and
+selected separately for the native terminal build. Network access is required
+for npm packages, Electron, and the pinned Ghostty and Zig sources.
+
 This development installation links back to your checkout, so keep the checkout
 in place. Closing the macOS window keeps the workspace running; **Cmd–Q** quits
 Alto and stops ordinary terminal processes.

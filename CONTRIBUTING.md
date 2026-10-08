@@ -27,6 +27,11 @@ macOS and a full Xcode installation; see the
 The [README](README.md) covers app installation, and
 [Agent providers](docs/agent-providers.md) covers Claude, Gemini, and Pi setup.
 
+On macOS, `nix develop --command npm run build:mac-release` builds a portable app
+after `npm ci`. The packager downloads Electron's binary when needed; starting
+the development app first is not required. Full Xcode is still required for
+the native terminal. CI also runs this build from a fresh Nix environment.
+
 ## Making a change
 
 Create a branch for your change. Read the [architecture](docs/architecture.md)

@@ -66,14 +66,31 @@ perl -0pi -e 's/@"clipboard-write": ClipboardAccess = \.allow,/@"clipboard-write
 # current SDK headers/frameworks with Zig's bundled, parseable libSystem stub.
 sdk=$(cd "$(xcrun --sdk macosx --show-sdk-path)" && pwd -P)
 sdk_overlay="$build_root/sdk-overlay"
-mkdir -p "$sdk_overlay/usr/lib"
+mkdir -p "$sdk_overlay/usr/lib" "$sdk_overlay/usr/include"
 find "$sdk" -mindepth 1 -maxdepth 1 ! -name usr -exec ln -s {} "$sdk_overlay/" \;
-find "$sdk/usr" -mindepth 1 -maxdepth 1 ! -name lib -exec ln -s {} "$sdk_overlay/usr/" \;
+find "$sdk/usr" -mindepth 1 -maxdepth 1 ! -name lib ! -name include \
+  -exec ln -s {} "$sdk_overlay/usr/" \;
+find "$sdk/usr/include" -mindepth 1 -maxdepth 1 ! -name math.h \
+  -exec ln -s {} "$sdk_overlay/usr/include/" \;
 find "$sdk/usr/lib" -mindepth 1 -maxdepth 1 \
   ! -name libSystem.tbd ! -name libSystem.B.tbd \
   -exec ln -s {} "$sdk_overlay/usr/lib/" \;
 cp "$zig_root/lib/libc/darwin/libSystem.tbd" "$sdk_overlay/usr/lib/libSystem.B.tbd"
 ln -s libSystem.B.tbd "$sdk_overlay/usr/lib/libSystem.tbd"
+
+# Xcode 27 delegates these macros to newer Clang resource headers than the
+# pinned Zig provides. Supply the missing definitions in our temporary SDK
+# overlay, following Ghostty's upstream apple-sdk compatibility header.
+cat > "$sdk_overlay/usr/include/math.h" <<EOF
+#pragma once
+#include "$sdk/usr/include/math.h"
+#ifndef INFINITY
+#define INFINITY (__builtin_inff())
+#endif
+#ifndef NAN
+#define NAN (__builtin_nanf(""))
+#endif
+EOF
 
 perl -0pi -e 's/pub fn getSdk\(allocator: Allocator, target: \*const Target\) \?\[\]const u8 \{/pub fn getSdk(allocator: Allocator, target: *const Target) ?[]const u8 {\n    if (std.process.getEnvVarOwned(allocator, "SDKROOT")) |sdk_root| {\n        return sdk_root;\n    } else |_| {}\n/' \
   "$zig_root/lib/std/zig/system/darwin.zig"
@@ -150,6 +167,21 @@ for name in "${dependency_names[@]}"; do
   cp "$candidate" "$vendor_root/lib/$name"
 done
 
+# Apple's current linker requires 8-byte-aligned Mach-O archive members.
+# Repack the extracted objects: passing the original archives to libtool can
+# silently discard misaligned members. Zig also archives objects with mode 000.
+for archive in "$vendor_root/libghostty-core.a" "$vendor_root"/lib/*.a; do
+  members_root="$build_root/archive-members/$(basename "$archive")"
+  mkdir -p "$members_root"
+  (
+    cd "$members_root"
+    xcrun ar -x "$archive"
+    chmod 644 ./*.o
+    xcrun libtool -static -o "$archive.repacked" ./*.o
+  )
+  mv "$archive.repacked" "$archive"
+done
+
 ghostty_dependencies=(
   "$vendor_root/lib/libfreetype.a"
   "$vendor_root/lib/libpng.a"
@@ -171,15 +203,11 @@ ghostty_dependencies=(
   "$vendor_root/lib/libfreetype.a"
 )
 
-# Zig 0.15 archives are not padded to the alignment required by Xcode 26's
-# new linker. The classic linker reads them correctly; remove this once the
-# pinned Ghostty/Zig toolchain produces aligned Darwin archives.
 xcrun clang++ \
   -std=c++20 \
   -fobjc-arc \
   -bundle \
   -undefined dynamic_lookup \
-  -Wl,-ld_classic \
   -DNODE_GYP_MODULE_NAME=ghostty_terminal \
   -I"$node_headers" \
   -I"$ghostty_headers" \

@@ -9,9 +9,12 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+if (process.platform !== 'darwin') throw new Error('macOS app bundles must be built on macOS')
 
 const APP_NAME = 'Alto'
 const BUNDLE_ID = 'com.jm.alto'
@@ -23,7 +26,10 @@ if (install && portable) throw new Error('--install and --portable cannot be use
 const outputRoot = install
   ? path.join(os.homedir(), 'Applications')
   : path.join(projectRoot, 'dist', 'mac')
-const sourceApp = path.join(projectRoot, 'node_modules', 'electron', 'dist', 'Electron.app')
+// Electron downloads its binary on first use. Resolve it through the package
+// loader so packaging also works immediately after a clean npm ci.
+const electronExecutable = createRequire(import.meta.url)('electron')
+const sourceApp = path.resolve(electronExecutable, '../../..')
 const icon = path.join(projectRoot, 'assets', 'Alto.icns')
 const finalApp = path.join(outputRoot, `${APP_NAME}.app`)
 const stagingApp = path.join(outputRoot, `.${APP_NAME}.app.staging-${process.pid}`)
@@ -51,8 +57,8 @@ function plist(plistPath, command, optional = false) {
 }
 
 await Promise.all([
-  exists(sourceApp).then((found) => {
-    if (!found) throw new Error('Electron.app is missing; run npm install first')
+  exists(path.join(sourceApp, 'Contents', 'Info.plist')).then((found) => {
+    if (!found) throw new Error(`Electron app bundle is missing at ${sourceApp}`)
   }),
   exists(icon).then((found) => {
     if (!found) throw new Error('assets/Alto.icns is missing; run npm run build:mac-icon first')
