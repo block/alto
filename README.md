@@ -19,6 +19,9 @@ split panes.
 
 Alto is pre-alpha and under active development. The desktop app currently
 targets macOS; browser mode supports chat and plugin development.
+Tagged releases publish a portable macOS app for Apple Silicon on
+[GitHub Releases](https://github.com/block/alto/releases). See the
+[release process](CONTRIBUTING.md#releases) for build and signing details.
 
 Alto is a side project at Block. For agent tools developed by dedicated teams
 at Block, see [Buzz](https://github.com/block/buzz) and

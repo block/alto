@@ -54,6 +54,38 @@ In the pull request, explain what behavior changes, why it changes, and how
 you tested it. Include screenshots for visible changes. Keep unrelated
 changes in separate pull requests.
 
+## Releases
+
+The [release workflow](.github/workflows/release.yml) publishes a portable
+macOS app for Apple Silicon to [GitHub Releases](https://github.com/block/alto/releases).
+It uses the same Nix build, native module check, and ZIP packaging that run on
+pull requests. Only the final publishing job has permission to write releases.
+
+Set the next version with `npm version 0.2.0 --no-git-tag-version`, then commit
+both `package.json` and `package-lock.json` and merge that change through a PR.
+From the merged commit on `main`, create and push the matching tag:
+
+```bash
+git switch main
+git pull --ff-only
+git tag -a v0.2.0 -m "Alto v0.2.0"
+git push origin v0.2.0
+```
+
+Use the actual version in place of `0.2.0`. CI checks out the tag and rejects a
+tag that does not match the package version. After the build passes, it creates
+a release with generated notes, `Alto-v0.2.0-macOS-arm64.zip`, and a matching
+`.zip.sha256` file. Tags with a version suffix, such as `v0.2.0-rc.1`, create
+GitHub prereleases. Published assets are not overwritten on reruns.
+
+To retry a failed release, rerun its workflow or run **Release** from the Actions
+tab with the existing tag. The manual trigger builds that tag, regardless of the
+branch selected in the Actions UI. If an upload failed and left a draft release,
+remove the incomplete draft before retrying.
+
+These builds are ad-hoc signed, without an Apple Developer ID or notarization.
+The workflow uses GitHub's built-in token and requires no additional secrets.
+
 ## Project governance and license
 
 [CODEOWNERS](CODEOWNERS) lists the default reviewer. Alto follows
