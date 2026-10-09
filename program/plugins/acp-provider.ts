@@ -21,7 +21,7 @@ import type {
   AgentTurn,
   HarnessPlugin,
 } from '../../src/server/plugin-api.js'
-import type { AgentConfigOption, AgentPromptOptions } from '../../src/server/services/agent-registry.js'
+import type { AgentConfigOption, AgentPromptOptions, AgentSessionPage } from '../../src/server/services/agent-registry.js'
 import {
   isRecord,
   errorMessage,
@@ -143,6 +143,7 @@ export class AcpProcessProvider implements AgentProvider {
     sessionModes: false,
   }
   private sessions = new Map<string, AcpSessionRecord>()
+  private readonly replayUpdates = new Map<string, acp.SessionNotification[]>()
   private children = new Map<string, { root: string; parent: string; canStop: boolean; kind: 'subagent' | 'background'; terminal: boolean; permissionMode: PermissionMode; turnId?: string }>()
   private activeTurns = new Map<string, string>()
   private completions = new Map<string, Promise<void>>()
@@ -524,6 +525,7 @@ export class AcpProcessProvider implements AgentProvider {
       sessionHistory: advertised?.loadSession === true
         || advertised?.sessionCapabilities?.list !== undefined
         || advertised?.sessionCapabilities?.resume !== undefined,
+      sessionList: advertised?.sessionCapabilities?.list !== undefined,
       sessionModes: false,
       steering: isRecord(initialized._meta?.steering) && initialized._meta.steering.supported === true,
       subagents: supportsChildren(initialized._meta),
@@ -687,6 +689,22 @@ export class AcpProcessProvider implements AgentProvider {
     return error
   }
 
+  async listSessions(options: { cwd?: string; cursor?: string } = {}): Promise<AgentSessionPage> {
+    if (options.cwd && !path.isAbsolute(options.cwd)) throw new Error('ACP history cwd must be absolute')
+    await this.ensureStarted()
+    if (!this.initializeCapabilities()?.sessionCapabilities?.list) {
+      throw new Error(`${this.options.label} does not support listing saved sessions`)
+    }
+    const lifecycle = this.lifecycle
+    const response = await this.connection().agent.request<acp.ListSessionsResponse>(acp.methods.agent.session.list, options)
+    if (lifecycle !== this.lifecycle || this.stopping) throw new Error('ACP provider stopped while listing sessions')
+    return {
+      sessions: response.sessions.map((session) => ({ id: session.sessionId, cwd: session.cwd,
+        ...(session.title ? { title: session.title } : {}), ...(session.updatedAt ? { updatedAt: session.updatedAt } : {}) })),
+      ...(response.nextCursor ? { nextCursor: response.nextCursor } : {}),
+    }
+  }
+
   async loadSession(sessionId: string, options: AgentSessionOptions): Promise<AgentSession> {
     if (!path.isAbsolute(options.cwd)) throw new Error('ACP session cwd must be absolute')
     await this.ensureStarted()
@@ -694,22 +712,38 @@ export class AcpProcessProvider implements AgentProvider {
     if (!this.initializeCapabilities()?.loadSession) {
       throw new Error(`${this.options.label} cannot resume saved sessions. Start a new chat to continue.`)
     }
+    if (this.activeTurns.has(sessionId) || this.replayUpdates.has(sessionId)) throw new Error('ACP session is busy')
     const context = this.options.id === 'claude' ? claudeSystemContext(options.additionalContext) : {}
-    const response = await this.connection().agent.request(acp.methods.agent.session.load, {
-      ...(Object.keys(context).length ? { _meta: claudeContextMeta(context) } : {}),
-      sessionId, cwd: options.cwd, mcpServers: (options.mcpServers ?? []).map(mcpServer),
-    }).catch((error: unknown) => { throw this.sessionError(error) })
-    if (lifecycle !== this.lifecycle || this.stopping) throw new Error('ACP provider stopped while loading the session')
-    // A resumed Claude session may retain its original system prompt. Send the
-    // current context once with the next prompt even when append was supplied.
-    const session: AcpSessionRecord = { context: {}, id: sessionId, providerId: this.options.id, cwd: options.cwd,
-      createdAt: now(), options: structuredClone(options), configOptions: configOptions(response) }
-    this.sessions.set(sessionId, session)
-    this.emit({ type: 'session.created', providerId: this.options.id, sessionId, cwd: options.cwd, occurredAt: now() })
-    return structuredClone(session)
+    // session/load emits its transcript before its response. Buffer it until
+    // loading succeeds so a failed load cannot erase Alto's saved transcript.
+    const updates: acp.SessionNotification[] = []
+    this.replayUpdates.set(sessionId, updates)
+    try {
+      const response = await this.connection().agent.request(acp.methods.agent.session.load, {
+        ...(Object.keys(context).length ? { _meta: claudeContextMeta(context) } : {}),
+        sessionId, cwd: options.cwd, mcpServers: (options.mcpServers ?? []).map(mcpServer),
+      }).catch((error: unknown) => { throw this.sessionError(error) })
+      if (lifecycle !== this.lifecycle || this.stopping) throw new Error('ACP provider stopped while loading the session')
+      // A resumed Claude session may retain its original system prompt. Send
+      // current context once with the next prompt even when append was supplied.
+      const session: AcpSessionRecord = { context: {}, id: sessionId, providerId: this.options.id, cwd: options.cwd,
+        createdAt: now(), options: structuredClone(options), configOptions: configOptions(response) }
+      this.sessions.set(sessionId, session)
+      this.replayUpdates.delete(sessionId)
+      const base = { providerId: this.options.id, sessionId, occurredAt: now() }
+      this.emit({ ...base, type: 'session.replay', phase: 'started' })
+      for (const update of updates) this.acceptUpdate(update)
+      this.emit({ ...base, type: 'session.replay', phase: 'finished' })
+      this.emit({ ...base, type: 'session.created', cwd: options.cwd })
+      return structuredClone(session)
+    } finally {
+      this.replayUpdates.delete(sessionId)
+    }
   }
 
   private acceptUpdate(notification: acp.SessionNotification): void {
+    const replay = this.replayUpdates.get(notification.sessionId)
+    if (replay) { replay.push(notification); return }
     if (!this.sessions.has(this.rootSession(notification.sessionId)) || this.children.get(notification.sessionId)?.terminal) return
     const update = notification.update
     const turnId = this.children.get(notification.sessionId)?.turnId ?? this.activeTurns.get(notification.sessionId)

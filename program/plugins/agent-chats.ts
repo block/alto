@@ -6,10 +6,10 @@ import { taskActive, type AgentTask } from './orchestrator-api.js'
 import type { ThreadHistoryPage } from '../../src/shared/protocol.js'
 import { turnInputsFor } from '../../src/server/services/turn-input.js'
 import type { ClientDraft } from '../../src/client/plugin-api.js'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { AgentEvent, AgentPromptOptions, AgentPromptPart, AgentRegistry } from '../../src/server/services/agent-registry.js'
-import type { HarnessPlugin } from '../../src/server/plugin-api.js'
+import type { Context } from 'cordis'
 import { errorMessage, isRecord, type JsonValue, type PermissionMode, type ThreadSummary } from '../../src/shared/protocol.js'
 import { AGENT_CHATS_STATE, agentChatStateKey, isAgentChatId, type AgentChat, agentPromptInput } from './agent-chats-api.js'
 
@@ -27,6 +27,11 @@ function taskPreview(task: AgentTask): AgentTask {
   return { ...task, activity: task.activity.slice(0, 16_000), result: task.result.slice(0, 16_000) }
 }
 
+function historyChatId(providerId: string, sessionId: string): string {
+  const hex = createHash('sha256').update(JSON.stringify([providerId, sessionId])).digest('hex').slice(0, 32)
+  return `acp-${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 const permissionMode = (value: unknown): PermissionMode => value === 'full' || value === 'auto' ? value : 'ask'
 function required(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is required`)
@@ -38,6 +43,9 @@ export class AgentChats {
   private readonly store: AgentChatStore
   private readonly loading = new Map<string, Promise<AgentChat>>()
   private active = true
+  private discovered = new Map<string, AgentChat['summary']>()
+  private historyRefresh: Promise<void> | undefined
+  private historyProblems: string[] = []
   private readonly queueStarting = new Set<string>()
   private readonly steering = new Set<string>()
   private readonly starting = new Map<string, Promise<void>>()
@@ -48,6 +56,7 @@ export class AgentChats {
     private readonly changed: (chat?: AgentChat) => void,
     private readonly bridge?: AgentToolBridge,
     private readonly turnProgram?: Pick<TurnProgram, 'prepare'>,
+    private readonly historyProviders: readonly string[] = ['claude'],
   ) {
     this.store = new AgentChatStore(directory, (chat, error) => {
       chat.problem = `Could not save this chat: ${errorMessage(error)}`
@@ -57,7 +66,63 @@ export class AgentChats {
 
   load(): Promise<void> { return this.store.load() }
 
-  threads(): ThreadSummary[] { return this.store.threads() }
+  threads(): ThreadSummary[] {
+    const threads = new Map<string, ThreadSummary>()
+    for (const thread of [...this.discovered.values(), ...this.store.threads()]) {
+      const key = JSON.stringify([thread.providerId, thread.providerSessionId])
+      const previous = threads.get(key)
+      threads.set(key, { ...thread, updatedAt: Math.max(thread.updatedAt, previous?.updatedAt ?? 0) })
+    }
+    return [...threads.values()].sort((a, b) => b.updatedAt - a.updatedAt)
+  }
+
+  historyErrors(): string[] { return [...this.historyProblems] }
+
+  refreshHistory(): Promise<void> {
+    if (!this.active) return Promise.resolve()
+    if (this.historyRefresh) return this.historyRefresh
+    this.historyRefresh = (async () => {
+      const problems: string[] = []
+      for (const providerId of this.historyProviders) {
+        if (!this.active) return
+        const snapshot = this.agents.snapshot().find((provider) => provider.id === providerId && provider.protocol === 'acp')
+        if (!snapshot) continue
+        const provider = this.agents.provider(providerId)
+        if (!provider.listSessions) continue
+        try {
+          const discovered = new Map<string, AgentChat['summary']>()
+          const saved = this.store.threads().filter((thread) => thread.providerId === providerId)
+          const savedIds = new Map(saved.map((thread) => [thread.providerSessionId, thread.id]))
+          const cursors = new Set<string>()
+          let cursor: string | undefined
+          do {
+            const page = await provider.listSessions(cursor ? { cursor } : {})
+            if (!this.active || this.agents.provider(providerId) !== provider) return
+            for (const session of page.sessions) {
+              if (!session.id || !path.isAbsolute(session.cwd)) continue
+              const timestamp = session.updatedAt ? Date.parse(session.updatedAt) / 1000 : 0
+              const updatedAt = Number.isFinite(timestamp) ? Math.floor(timestamp) : 0
+              const id = savedIds.get(session.id) ?? historyChatId(providerId, session.id)
+              discovered.set(id, { id, providerId, providerSessionId: session.id, cwd: session.cwd,
+                title: session.title?.trim() || `${snapshot.label} chat`, preview: '', createdAt: updatedAt, updatedAt })
+            }
+            cursor = page.nextCursor
+            if (cursor && cursors.has(cursor)) throw new Error('The agent repeated a history page')
+            if (cursor) cursors.add(cursor)
+          } while (cursor)
+          for (const [id, thread] of this.discovered) if (thread.providerId === providerId) this.discovered.delete(id)
+          for (const [id, thread] of discovered) this.discovered.set(id, thread)
+        } catch (error) {
+          if (!this.active) return
+          problems.push(`${snapshot.label} history: ${errorMessage(error)}`)
+        }
+      }
+      if (!this.active) return
+      this.historyProblems = problems
+      this.changed()
+    })().finally(() => { this.historyRefresh = undefined })
+    return this.historyRefresh
+  }
 
   providersChanged(): void {
     for (const chat of this.chats.values()) {
@@ -105,13 +170,17 @@ export class AgentChats {
   }
 
   async open(id: string): Promise<AgentChat> {
-    if (!isAgentChatId(id) || !this.store.has(id)) throw new Error('Agent chat was not found')
+    if (!isAgentChatId(id) || (!this.store.has(id) && !this.discovered.has(id))) throw new Error('Agent chat was not found')
     const cached = this.chats.get(id)
-    if (cached && (!cached.remote || cached.remote.state !== 'disconnected')) return cached
+    if (cached && cached.historyLoaded !== false && (!cached.remote || cached.remote.state !== 'disconnected')) return cached
     const pending = this.loading.get(id)
     if (pending) return pending
     const loading = (async () => {
-      const chat = cached ?? await this.store.read(id)
+      const discovered = this.discovered.get(id)
+      const chat: AgentChat = cached ?? (this.store.has(id) ? await this.store.read(id) : {
+        summary: { ...discovered! }, historyLoaded: false,
+        permissionMode: 'ask', turn: 'idle', activities: [], requests: [], queuePaused: true,
+      })
       if (!this.active) throw new Error('Agent chats is unavailable')
       if (chat.remote) {
         chat.remote.state = 'connecting'
@@ -120,16 +189,26 @@ export class AgentChats {
         try { await this.resume(chat) }
         catch (error) { chat.remote.state = 'disconnected'; chat.remote.message = errorMessage(error) }
       } else {
-      chat.turn = 'idle'
-      for (const child of chat.children ?? []) if (taskActive(child.task)) { child.task.status = 'stopped'; child.task.activity = 'Alto restarted' }
-      chat.queuePaused = true
-      chat.requests = []
-      for (const activity of chat.activities) {
-        if (activity.status === 'streaming' || activity.status === 'in_progress') activity.status = 'interrupted'
+        chat.turn = 'idle'
+        for (const child of chat.children ?? []) if (taskActive(child.task)) { child.task.status = 'stopped'; child.task.activity = 'Alto restarted' }
+        chat.queuePaused = true
+        chat.requests = []
+        for (const activity of chat.activities) {
+          if (activity.status === 'streaming' || activity.status === 'in_progress') activity.status = 'interrupted'
+        }
+        this.chats.set(id, chat)
       }
-      this.chats.set(id, chat)
+      if (chat.historyLoaded === false) {
+        try {
+          await this.resume(chat)
+          if (!this.active) throw new Error('Agent chats was closed')
+          chat.historyLoaded = true
+          delete chat.problem
+          this.store.updateSummary(chat)
+          await this.store.save(chat)
+        } catch (error) { chat.problem = errorMessage(error) }
       }
-      this.publish(chat)
+      this.publish(chat, false)
       return chat
     })().finally(() => this.loading.delete(id))
     this.loading.set(id, loading)
@@ -143,11 +222,13 @@ export class AgentChats {
     if (!provider.loadSession) throw new Error('This agent cannot resume saved chats')
     if (provider.snapshot().capabilities?.durableSession) {
       const session = await provider.loadSession(sessionId, { cwd: chat.summary.cwd, permissionMode: chat.permissionMode })
+      if (!this.active) { await provider.closeSession(sessionId); throw new Error('Agent chats was closed') }
       if (chat.remote && session.workspaceName) chat.remote.workspaceName = session.workspaceName
       return
     }
     const desired = chat.configOptions ?? []
     const session = await provider.loadSession(sessionId, { cwd: chat.summary.cwd, permissionMode: chat.permissionMode, ...await this.promptOptions(chat.summary.id, chat.summary.cwd), mcpServers: await this.bridge?.attach(chat.summary.id) ?? [] })
+    if (!this.active) { await provider.closeSession(sessionId); throw new Error('Agent chats was closed') }
     chat.configOptions = session.configOptions ?? []
     for (const option of desired) {
       const current = chat.configOptions.find((candidate) => candidate.id === option.id)
@@ -156,7 +237,7 @@ export class AgentChats {
       chat.configOptions = await provider.configure(sessionId, option.id, option.currentValue)
     }
     chat.configurationRevision = (chat.configurationRevision ?? 0) + 1
-    this.publish(chat)
+    this.publish(chat, false)
   }
 
   async send(id: string, input: AgentPromptPart[], mode: PermissionMode): Promise<void> {
@@ -403,17 +484,17 @@ export class AgentChats {
     if (event.sessionId === owner.summary.providerSessionId && event.type === 'turn.completed' && event.stopReason !== 'cancelled') {
       void this.startQueued(owner)
     }
-    if (!owner.remote?.replaying) this.record(owner)
+    if (!owner.replaying && !owner.remote?.replaying) this.record(owner, !['session.replay', 'config.updated', 'commands.updated', 'usage.updated'].includes(event.type))
   }
 
-  private record(chat: AgentChat): void {
-    this.publish(chat)
+  private record(chat: AgentChat, touch = true): void {
+    this.publish(chat, touch)
     this.store.schedule(chat)
   }
 
-  private publish(chat: AgentChat): void {
+  private publish(chat: AgentChat, touch = true): void {
     if (!this.active) return
-    chat.summary.updatedAt = Math.floor(Date.now() / 1000)
+    if (touch) chat.summary.updatedAt = Math.floor(Date.now() / 1000)
     this.store.updateSummary(chat)
     this.changed(chat)
   }
@@ -439,7 +520,7 @@ export class AgentChats {
   }
 }
 
-const plugin: HarnessPlugin = async (ctx) => {
+const plugin = async (ctx: Context, config: { historyProviders?: string[] } = {}) => {
   const agents = ctx.agents
   const extensions = ctx.clientExtensions
   const states = new Map<string, ReturnType<typeof extensions.registerState>>()
@@ -450,7 +531,7 @@ const plugin: HarnessPlugin = async (ctx) => {
   let catalogValue = ''
   const publishCatalog = () => {
     if (!active) return
-    const value = { providers: agents.snapshot().filter((provider) => provider.protocol !== 'codex-app-server'), threads: chats.threads() }
+    const value = { providers: agents.snapshot().filter((provider) => provider.protocol !== 'codex-app-server'), threads: chats.threads(), historyErrors: chats.historyErrors() }
     const serialized = JSON.stringify(value)
     if (serialized !== catalogValue) { catalogValue = serialized; catalog.update(json(value)) }
   }
@@ -463,8 +544,8 @@ const plugin: HarnessPlugin = async (ctx) => {
   }
   const bridge = new AgentToolBridge(ctx.tools, (id) => chats.toolContext(id))
   const chats: AgentChats = new AgentChats(agents, path.join(ctx.program.projectRoot, '.codex-cordis', 'agent-chats'), (chat) => {
-    if (!active || !chat) return
-    updates.set(chat.summary.id, chat)
+    if (!active) return
+    if (chat) updates.set(chat.summary.id, chat)
     if (!timer) timer = setTimeout(() => {
       timer = undefined
       for (const chat of updates.values()) publish(chat)
@@ -472,12 +553,13 @@ const plugin: HarnessPlugin = async (ctx) => {
       publishCatalog()
       ctx.emit('agent-chats/changed')
     }, 32)
-  }, bridge, ctx.turnProgram)
+  }, bridge, ctx.turnProgram, config?.historyProviders ?? ['claude'])
   ctx.provide('agentChats', chats)
   ctx.effect(() => () => { active = false; clearTimeout(timer); return chats.dispose() }, 'agentChats.lifetime')
   await chats.load()
   if (!active) return
   publishCatalog()
+  void chats.refreshHistory()
   ctx.on('agents/changed', () => { chats.providersChanged(); publishCatalog() })
   ctx.on('agents/event', (event) => chats.event(event))
   const method = (name: string, run: (payload: Record<string, unknown>) => Promise<unknown>) => {
@@ -486,6 +568,7 @@ const plugin: HarnessPlugin = async (ctx) => {
       return json(await run(payload))
     })
   }
+  method('refresh-history', async () => { await chats.refreshHistory(); publishCatalog(); return { errors: chats.historyErrors() } })
   method('workspace-name', async (payload) => {
     const provider = agents.provider(required(payload.providerId, 'providerId'))
     return { name: await provider.workspaceName?.(required(payload.cwd, 'cwd')) ?? null }

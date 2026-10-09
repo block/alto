@@ -17,9 +17,11 @@ Selecting another agent and chatting with it does not start Codex. To use
 Codex, install its CLI on your `PATH` and run `codex login`. If startup fails,
 you can fix the installation and retry without restarting Alto.
 
-The default profile runs `npx --yes @agentclientprotocol/claude-agent-acp@0.81.0` for Claude and `npx --yes pi-acp@0.0.33` for Pi. These versions are pinned: an older Claude adapter can advertise models that its bundled Claude runtime cannot use. The first selection may download the adapter. Subsequent launches use npm's cache. No ACP provider starts just because Alto is open.
+The default profile runs `npx --yes @agentclientprotocol/claude-agent-acp@0.81.0` for Claude and `npx --yes pi-acp@0.0.33` for Pi. These versions are pinned: an older Claude adapter can advertise models that its bundled Claude runtime cannot use. The first launch may download the adapter; subsequent launches can reuse npm's cache, but npm may still consult the registry. Claude's adapter also starts to discover saved history when Alto opens; discovery does not create a session or send a prompt. Other ACP providers start when their first session is needed.
 
 Authenticate the local agent using its own CLI before selecting it in Alto. Pi additionally requires a local `pi` executable; the adapter starts it in RPC mode. Configure another ACP executable with a separate `plugins/acp-provider.ts` entry in `program/cordis.json`, using a unique `config.id`, label, command, and optional args, cwd, or env.
+
+If a package filter or registry outage prevents `npx` from starting, configure the provider to run an already installed adapter directly. For example, use `command: "node"` with `args: ["/absolute/path/to/@agentclientprotocol/claude-agent-acp/dist/index.js"]`, ensuring that installation has the pinned version above. History discovery failures appear in the History pane and can be retried after fixing the launcher.
 
 Gemini uses the local `gemini --acp` executable. Install [Gemini CLI](https://geminicli.com/docs/get-started/installation/) and run `gemini` once to configure authentication before sending a Gemini chat in Alto. The process inherits the environment available to Alto. The profile sets `GEMINI_CLI_NO_RELAUNCH=true` so Alto owns the agent process directly and stopping the provider does not leave Gemini's launcher child running. Launch and authentication failures include setup instructions in the affected chat.
 
@@ -59,6 +61,14 @@ The ACP Ask/Full choices govern requests the agent sends to Alto. They do not ad
 The Cordis bridge binds to `127.0.0.1` on an ephemeral port, requires a random per-chat bearer token, and rejects browser-origin requests. Tokens stay out of saved chat state. The host supplies the chat ID, active turn ID, and captured permission mode; MCP arguments cannot override them. Calls require a running parent turn. If an older child is still active during a later turn, Cordis mutations require approval because Claude shares the parent's MCP connection with its children. Closing the chat fiber revokes the bridge and closes provider sessions so a resumed chat gets a fresh connection.
 
 Cordis `workspace/open_pane` and new local `work/select` / `work/create` panes retain the current local agent provider. ACP sessions cannot change their working directory in place, so work-target changes must open a new local pane. Remote execution, native scheduled jobs, and Codex fork controls remain Codex-specific. Agent slash commands can be typed into the composer; usage and command metadata are retained, but a command picker and context-usage display are not added here.
+
+## Existing Claude Code conversations
+
+Alto discovers local Claude Code conversations through ACP `session/list` and includes them in the workspace sidebar and History pane alongside Codex and Alto-created chats. The default Agent Chats configuration lists `claude` in `historyProviders`; set that list to `[]` to disable automatic discovery, or include another local ACP provider that supports session listing. Remote providers are not queried by this discovery flow.
+
+Discovery reads session metadata only. Selecting a previously unopened conversation calls ACP `session/load`, replays its user, assistant, and tool messages, and saves the transcript in Alto's local store. Subsequent prompts continue the original provider session in its original working directory. Imported conversations start with Ask permissions. The History pane's Refresh action queries Claude again, so conversations created outside Alto can appear without restarting the application. Claude history remains available if Codex history cannot be loaded; the pane shows a notice for the unavailable provider.
+
+Native provider and session IDs identify each conversation. Alto uses stable chat IDs for discovered sessions and reuses the IDs of conversations already saved locally, preventing duplicates after refresh or restart. Opening and replaying a conversation preserves its history timestamp. A failed load preserves the existing transcript; a discovery failure preserves the previous catalog and appears as a notice in the History pane. This discovery concerns local Claude Code sessions rather than the Claude web application's history.
 
 ## Ownership and persistence
 

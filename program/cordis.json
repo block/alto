@@ -79,10 +79,12 @@
         {
           "id": "agent-chats",
           "name": "Agent Chats",
-          "description": "Saves ACP conversations and routes prompts, streaming updates, and approval decisions to their agent.",
+          "description": "Discovers saved agent chats and routes conversations, streaming updates, and approvals to their agent.",
           "module": "plugins/agent-chats.ts",
           "enabled": true,
-          "config": {}
+          "config": {
+            "historyProviders": ["claude"]
+          }
         },
         {
           "id": "remote-agents",

@@ -29,6 +29,13 @@ function applyTranscriptEvent(chat: Pick<AgentChat, 'activities'>, event: AgentE
     finishTextSegments(chat, id)
     chat.activities = mergeActivity(chat.activities, { ...base, id, kind, title: kind === 'agent' ? 'Assistant' : 'Thinking',
       content: event.content.text, contentUpdate: 'append', status: 'streaming' })
+  } else if (event.type === 'message.delta' && event.role === 'user') {
+    finishTextSegments(chat)
+    const part = event.content
+    const id = event.messageId ? `user:${event.messageId}` : `user:${randomUUID()}`
+    chat.activities = mergeActivity(chat.activities, { ...base, id, kind: 'user', title: 'You',
+      content: part.type === 'text' ? part.text : part.type === 'resource' ? `[${part.name.replaceAll(']', '')}](${part.uri})` : '',
+      contentUpdate: 'append', ...(part.type === 'image' ? { images: [{ name: 'Image', mediaType: part.mimeType, url: `data:${part.mimeType};base64,${part.data}` }] } : {}) })
   } else if (event.type === 'message.delta' && event.role === 'agent') {
     const part = event.content
     finishTextSegments(chat)
@@ -85,11 +92,17 @@ export function applyAgentChatEvent(chat: AgentChat, event: AgentEvent): boolean
     return true
   }
   if (event.type === 'session.replay') {
-    chat.remote = { ...chat.remote, state: chat.remote?.state ?? 'connecting', replaying: event.phase === 'started' }
+    chat.replaying = event.phase === 'started'
+    if (chat.remote) chat.remote = { ...chat.remote, replaying: chat.replaying }
     if (event.phase === 'started') {
       chat.activities = []; chat.requests = []; chat.children = []; chat.plan = []; chat.turn = 'idle'
       delete chat.turnId; delete chat.problem
-    } else if (chat.remote.state === 'ended') endRemoteSession(chat)
+    } else {
+      if (!chat.remote) for (const item of chat.activities) {
+        if (item.status === 'streaming' || item.status === 'in_progress') item.status = 'completed'
+      }
+      if (chat.remote?.state === 'ended') endRemoteSession(chat)
+    }
     return true
   }
   if (event.type === 'message.submitted') {

@@ -39,6 +39,7 @@ export function ChatHistoryPane({ visible, services }: WorkspacePaneKindProps & 
   const { store, session, layout, status } = services
   const state = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
   const projects = useStoreSelector(session, (snapshot) => snapshot.projects)
+  const providers = useStoreSelector(session, (snapshot) => snapshot.providers)
   const statuses = useSyncExternalStore(status.subscribe, status.snapshot, status.snapshot)
   const [openError, setOpenError] = useState('')
   const scroll = useRef<HTMLDivElement>(null)
@@ -70,6 +71,7 @@ export function ChatHistoryPane({ visible, services }: WorkspacePaneKindProps & 
     <div ref={scroll} className="chat-history-scroll" tabIndex={0} aria-label="Chat history, most recent first">
       <div className="chat-history-content">
         <div className="chat-history-scope"><span>All workspaces</span><span>Most recent first</span></div>
+        {state.warnings.map((warning) => <p key={warning} className="chat-history-notice" role="status">{warning.split('\n')[0]?.slice(0, 200)}. Try Refresh.</p>)}
         {openError && <p className="chat-history-notice" role="alert">{openError}</p>}
         {groups.map((group) => <section className="chat-history-day" key={group.key} aria-label={group.label}>
           <h2>{group.label}</h2>
@@ -80,12 +82,13 @@ export function ChatHistoryPane({ visible, services }: WorkspacePaneKindProps & 
               const date = new Date(timestamp * 1000)
               const validDate = timestamp > 0 && Number.isFinite(date.getTime())
               const workspace = historyWorkspace(thread, projects)
+              const provider = providers?.find((provider) => provider.id === thread.providerId)?.label ?? thread.providerId
               return <li key={thread.id}>
                 <button type="button" className={clientStyles.button + ' chat-history-row'} onClick={() => open(thread)} title={title} aria-label={'Open chat: ' + title}>
                   <span className="chat-history-row-content">
                     <span className="chat-history-row-title">{title}</span>
-                    <span className="chat-history-row-detail" title={[workspace, thread.gitInfo?.branch].filter(Boolean).join(' · ')}>
-                      <span>{workspace}</span>{thread.gitInfo?.branch && <><span aria-hidden="true">·</span><span>{thread.gitInfo.branch}</span></>}
+                    <span className="chat-history-row-detail" title={[workspace, provider, thread.gitInfo?.branch].filter(Boolean).join(' · ')}>
+                      <span>{workspace}</span>{provider && <><span aria-hidden="true">·</span><span>{provider}</span></>}{thread.gitInfo?.branch && <><span aria-hidden="true">·</span><span>{thread.gitInfo.branch}</span></>}
                     </span>
                   </span>
                   <span className="chat-history-row-end">

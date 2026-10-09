@@ -417,7 +417,9 @@ export class AgentSessionService implements ClientSessionService {
   saveProject(project: LocalProjectInput): Promise<void> { return this.native.saveProject(project) }
   createWorkspace(project: LocalProjectInput): Promise<void> { return this.native.createWorkspace(project) }
   removeProject(id: string): Promise<void> { return this.native.removeProject(id) }
-  refreshHistory(limit?: number): Promise<void> { return this.native.refreshHistory(limit) }
+  async refreshHistory(limit?: number): Promise<void> {
+    await Promise.all([this.native.refreshHistory(limit), this.host.call('agent-chats.refresh-history', {})])
+  }
   async resolveRequest(id: string | number, result: unknown): Promise<void> {
     if (this.providerId === 'codex') return this.native.resolveRequest(id, result)
     if (this.threadId && this.chat?.requests.some((request) => request.id === id && request.method === 'agent/requestUserInput')) {
