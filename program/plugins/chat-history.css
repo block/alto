@@ -101,4 +101,4 @@
   text-align: center;
 }
 .chat-history-more p { margin: 0; }
-.chat-history-notice { color: var(--danger); font-size: var(--type-label); }
+.chat-history-notice { overflow-wrap: anywhere; color: var(--danger); font-size: var(--type-label); }

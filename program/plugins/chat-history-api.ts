@@ -5,5 +5,6 @@ export const CHAT_HISTORY_PAGE_SIZE = 80
 
 export interface ChatHistoryPage {
   threads: ThreadSummary[]
+  warnings?: string[]
   nextCursor: string | null
 }

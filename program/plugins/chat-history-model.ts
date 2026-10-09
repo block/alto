@@ -44,11 +44,12 @@ export interface ChatHistorySnapshot {
   loading: boolean
   nextCursor: string | null
   error: string
+  warnings: string[]
 }
 
 /** Cached for the lifetime of the plugin, not the pane. Reopening keeps the loaded pages. */
 export class ChatHistoryStore {
-  private state: ChatHistorySnapshot = { threads: [], loaded: false, loading: false, nextCursor: null, error: '' }
+  private state: ChatHistorySnapshot = { threads: [], loaded: false, loading: false, nextCursor: null, error: '', warnings: [] }
   private readonly listeners = new Set<() => void>()
   private generation = 0
   private disposed = false
@@ -82,6 +83,7 @@ export class ChatHistoryStore {
       this.update({
         threads: mergeChatHistory(refresh ? [] : this.state.threads, page.threads),
         nextCursor: page.nextCursor,
+        warnings: page.warnings ?? (refresh ? [] : this.state.warnings),
         loaded: true,
         loading: false,
       })

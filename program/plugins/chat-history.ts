@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { HarnessPlugin } from '../../src/server/plugin-api.js'
 import { readThreadSummary } from '../../src/server/services/thread-view.js'
-import { isRecord, type JsonValue, type ThreadSummary } from '../../src/shared/protocol.js'
+import { errorMessage, isRecord, type JsonValue, type ThreadSummary } from '../../src/shared/protocol.js'
 import { CHAT_HISTORY_LIST, CHAT_HISTORY_PAGE_SIZE, type ChatHistoryPage } from './chat-history-api.js'
 
 interface HistoryRuntime {
@@ -41,15 +41,27 @@ const chatHistory: HarnessPlugin = (ctx) => {
   ctx.effect(() => () => { active = false }, 'chat-history.lifetime')
   ctx.clientExtensions.registerMethod(ctx, CHAT_HISTORY_LIST, async (payload) => {
     const { cursor } = z.object({ cursor: z.string().min(1).max(8192).optional() }).parse(payload ?? {})
-    if (!active || !access.client) throw new Error('Chat history is unavailable.')
-    await ctx.codex.start()
-    const page = await readChatHistoryPage(access.client, async (threads) => {
-      if (!active) throw new Error('Chat history was closed.')
-      return ctx.projects.classifyThreads(threads)
-    }, cursor)
+    if (!active) throw new Error('Chat history is unavailable.')
+    if (!cursor) await ctx.agentChats.refreshHistory()
+    let page: ChatHistoryPage
+    try {
+      if (!access.client) throw new Error('Codex history is unavailable.')
+      await ctx.codex.start()
+      page = await readChatHistoryPage(access.client, async (threads) => {
+        if (!active) throw new Error('Chat history was closed.')
+        return ctx.projects.classifyThreads(threads)
+      }, cursor)
+    } catch (error) {
+      if (cursor) throw error
+      page = { threads: [], nextCursor: null, warnings: [`Codex history: ${errorMessage(error)}`] }
+    }
     if (!active) throw new Error('Chat history was closed.')
+    if (!cursor) {
+      page.threads = await ctx.projects.classifyThreads([...page.threads, ...ctx.agentChats.threads()])
+      page.warnings = [...(page.warnings ?? []), ...ctx.agentChats.historyErrors()]
+    }
     return page as unknown as JsonValue
   })
 }
-chatHistory.inject = ['codex', 'projects', 'clientExtensions']
+chatHistory.inject = ['codex', 'projects', 'clientExtensions', 'agentChats']
 export default chatHistory

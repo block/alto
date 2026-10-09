@@ -13,6 +13,8 @@ export interface AgentChat {
   summary: ThreadSummary & { providerId: string; providerSessionId: string }
   permissionMode: PermissionMode
   remote?: { workspaceName?: string; state: 'connecting' | 'connected' | 'disconnected' | 'ended'; message?: string; replaying?: boolean }
+  historyLoaded?: boolean
+  replaying?: boolean
   turn: 'idle' | 'sending' | 'running'
   turnPermissionMode?: PermissionMode
   children?: Array<{ task: AgentTask; sessionId: string; kind: 'subagent' | 'background'; activities: ActivityItem[] }>
@@ -33,6 +35,7 @@ export interface AgentChat {
 export interface AgentChatCatalog {
   providers: AgentProviderSnapshot[]
   threads: ThreadSummary[]
+  historyErrors?: string[]
 }
 
 export function agentPromptInput(draft: ClientDraft): AgentPromptPart[] {

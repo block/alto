@@ -9,6 +9,7 @@ export interface AgentProviderCapabilities {
   resources: boolean
   mcpServers: boolean
   sessionHistory: boolean
+  sessionList?: boolean
   sessionModes: boolean
   steering?: boolean
   durableSession?: boolean
@@ -64,6 +65,18 @@ export interface AgentSession {
   workspaceName?: string
   createdAt: string
   configOptions?: AgentConfigOption[]
+}
+
+export interface AgentSessionInfo {
+  id: string
+  cwd: string
+  title?: string
+  updatedAt?: string
+}
+
+export interface AgentSessionPage {
+  sessions: AgentSessionInfo[]
+  nextCursor?: string
 }
 
 export interface AgentConfigOption {
@@ -190,6 +203,7 @@ export interface AgentProvider {
   snapshot(): AgentProviderSnapshot
   workspaceName?(cwd: string): Promise<string | undefined>
   createSession(options: AgentSessionOptions): Promise<AgentSession>
+  listSessions?(options?: { cwd?: string; cursor?: string }): Promise<AgentSessionPage>
   loadSession?(sessionId: string, options: AgentSessionOptions): Promise<AgentSession>
   resolvePermission?(requestId: string, optionId: string): Promise<void>
   resolveInput?(requestId: string, response: unknown): Promise<void>
