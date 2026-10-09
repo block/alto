@@ -54,7 +54,8 @@ export interface MarkdownFileLinkHandler {
   /** Handles extensionless or otherwise feature-specific filenames. */
   matches?: (filePath: string) => boolean
   priority?: number
-  open(details: MarkdownFileLinkDetails, origin: HTMLElement): void
+  /** Return false to let the next matching handler open the link. */
+  open(details: MarkdownFileLinkDetails, origin: HTMLElement): void | boolean
 }
 
 export interface MarkdownFileLinkRegistration {
@@ -94,6 +95,18 @@ export function resolveMarkdownFileLink(
       normalized.endsWith(extension.trim().toLocaleLowerCase())
     )) === true
   ))
+}
+
+/** Resolve at click time: an editor can open or close after a link renders. */
+export function openMarkdownFileLink(
+  handlers: readonly MarkdownFileLinkHandler[],
+  details: MarkdownFileLinkDetails,
+  origin: HTMLElement,
+): boolean {
+  for (const handler of handlers) {
+    if (resolveMarkdownFileLink([handler], details.path) && handler.open(details, origin) !== false) return true
+  }
+  return false
 }
 
 export interface ClientMarkdownService {

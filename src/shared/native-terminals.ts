@@ -2,6 +2,7 @@ export const nativeTerminalIpc = {
   create: 'alto:native-terminal:create',
   bounds: 'alto:native-terminal:bounds',
   visible: 'alto:native-terminal:visible',
+  overlay: 'alto:native-terminal:overlay',
   focus: 'alto:native-terminal:focus',
   configure: 'alto:native-terminal:configure',
   destroy: 'alto:native-terminal:destroy',
@@ -15,6 +16,18 @@ export interface NativeTerminalBounds {
   height: number
 }
 
+/** A web overlay in viewport coordinates; native content remains visible outside it. */
+export interface NativeTerminalOverlay extends NativeTerminalBounds {
+  borderRadius: number
+}
+
+export function nativeTerminalOverlay(value: NativeTerminalOverlay | null): NativeTerminalOverlay | null {
+  if (value === null) return null
+  const bounds = nativeTerminalBounds(value)
+  if (!Number.isFinite(value.borderRadius)) throw new Error('native terminal overlay radius must be finite')
+  return { ...bounds, borderRadius: Math.max(0, Math.min(value.borderRadius, bounds.width / 2, bounds.height / 2)) }
+}
+
 export interface NativeTerminalCreateOptions {
   workingDirectory?: string
   command?: string
@@ -25,6 +38,7 @@ export interface NativeTerminalCreateOptions {
 export interface NativeTerminalState {
   id: string
   backend: 'ghostty'
+  supportsOverlay?: boolean
 }
 
 export interface NativeTerminalKeyInput {

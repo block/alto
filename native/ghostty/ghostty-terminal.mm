@@ -2,6 +2,8 @@
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <QuartzCore/CAShapeLayer.h>
+#import <QuartzCore/CATransaction.h>
 
 #include <atomic>
 #include <memory>
@@ -15,6 +17,10 @@
 @property(nonatomic, copy) NSString* terminalId;
 @property(nonatomic, strong) NSTrackingArea* terminalTrackingArea;
 @property(nonatomic, assign) BOOL optionLeaderCandidate;
+@property(nonatomic, assign) BOOL overlayActive;
+@property(nonatomic, assign) NSRect overlayFrame;
+@property(nonatomic, assign) CGFloat overlayRadius;
+- (void)updateOverlayMask;
 - (instancetype)initWithTerminalId:(NSString*)terminalId
                    workingDirectory:(NSString*)workingDirectory
                             command:(NSString*)command
@@ -403,7 +409,34 @@ static bool send_key_event(
 }
 
 - (BOOL)acceptsFirstResponder {
-  return YES;
+  return !self.overlayActive;
+}
+
+- (NSView*)hitTest:(NSPoint)point {
+  // Modal web controls and their dismissing backdrop own all pointer input.
+  return self.overlayActive ? nil : [super hitTest:point];
+}
+
+- (void)updateOverlayMask {
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  if (!self.overlayActive) {
+    self.layer.mask = nil;
+  } else {
+    NSRect hostRect = self.overlayFrame;
+    if (!host_view.isFlipped) hostRect.origin.y = host_view.bounds.size.height - NSMaxY(hostRect);
+    NSRect cutout = [self convertRect:hostRect fromView:host_view];
+    CGMutablePathRef path = CGPathCreateMutable();
+    CGPathAddRect(path, nullptr, NSRectToCGRect(self.bounds));
+    CGPathAddRoundedRect(path, nullptr, NSRectToCGRect(cutout), self.overlayRadius, self.overlayRadius);
+    CAShapeLayer* mask = [CAShapeLayer layer];
+    mask.frame = self.bounds;
+    mask.fillRule = kCAFillRuleEvenOdd;
+    mask.path = path;
+    self.layer.mask = mask;
+    CGPathRelease(path);
+  }
+  [CATransaction commit];
 }
 
 - (BOOL)acceptsFirstMouse:(NSEvent*)event {
@@ -426,6 +459,7 @@ static bool send_key_event(
 - (void)setFrameSize:(NSSize)newSize {
   [super setFrameSize:newSize];
   [self updateSurfaceSize];
+  [self updateOverlayMask];
 }
 
 - (void)viewDidChangeBackingProperties {
@@ -871,6 +905,7 @@ static napi_value set_bounds(napi_env env, napi_callback_info info) {
   napi_get_named_property(env, args[1], "height", &part); napi_get_value_double(env, part, &height);
   double native_y = host_view.isFlipped ? y : host_view.bounds.size.height - y - height;
   view.frame = NSMakeRect(x, native_y, width, height);
+  [view updateOverlayMask];
   return undefined_value(env);
 }
 
@@ -887,12 +922,41 @@ static napi_value set_visible(napi_env env, napi_callback_info info) {
   return undefined_value(env);
 }
 
+static napi_value set_overlay(napi_env env, napi_callback_info info) {
+  size_t count = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &count, args, nullptr, nullptr);
+  CordisGhosttyView* view = find_view(env, args[0]);
+  if (!view || count < 2) return nullptr;
+  napi_value null_value;
+  napi_get_null(env, &null_value);
+  bool clear = false;
+  napi_strict_equals(env, args[1], null_value, &clear);
+  view.overlayActive = !clear;
+  if (!clear) {
+    double x = 0, y = 0, width = 0, height = 0, radius = 0;
+    napi_value part;
+    napi_get_named_property(env, args[1], "x", &part); napi_get_value_double(env, part, &x);
+    napi_get_named_property(env, args[1], "y", &part); napi_get_value_double(env, part, &y);
+    napi_get_named_property(env, args[1], "width", &part); napi_get_value_double(env, part, &width);
+    napi_get_named_property(env, args[1], "height", &part); napi_get_value_double(env, part, &height);
+    napi_get_named_property(env, args[1], "borderRadius", &part); napi_get_value_double(env, part, &radius);
+    // Retain viewport coordinates so a host-window resize cannot stale the mask.
+    view.overlayFrame = NSMakeRect(x, y, width, height);
+    view.overlayRadius = radius;
+    if (view.window.firstResponder == view) [view.window makeFirstResponder:nil];
+  }
+  [view updateOverlayMask];
+  if (view.surface) ghostty_surface_refresh(view.surface);
+  return undefined_value(env);
+}
+
 static napi_value focus_terminal(napi_env env, napi_callback_info info) {
   size_t count = 1;
   napi_value args[1];
   napi_get_cb_info(env, info, &count, args, nullptr, nullptr);
   CordisGhosttyView* view = find_view(env, args[0]);
-  if (view) [view.window makeFirstResponder:view];
+  if (view && !view.overlayActive) [view.window makeFirstResponder:view];
   return undefined_value(env);
 }
 
@@ -944,6 +1008,7 @@ static napi_value module_init(napi_env env, napi_value exports) {
     { "create", nullptr, create_terminal, nullptr, nullptr, nullptr, napi_default, nullptr },
     { "setBounds", nullptr, set_bounds, nullptr, nullptr, nullptr, napi_default, nullptr },
     { "setVisible", nullptr, set_visible, nullptr, nullptr, nullptr, napi_default, nullptr },
+    { "setOverlay", nullptr, set_overlay, nullptr, nullptr, nullptr, napi_default, nullptr },
     { "focus", nullptr, focus_terminal, nullptr, nullptr, nullptr, napi_default, nullptr },
     { "configure", nullptr, configure_terminal, nullptr, nullptr, nullptr, napi_default, nullptr },
     { "destroy", nullptr, destroy_terminal, nullptr, nullptr, nullptr, napi_default, nullptr },

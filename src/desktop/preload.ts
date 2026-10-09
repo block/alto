@@ -12,6 +12,7 @@ import type {
   NativeTerminalBounds,
   NativeTerminalCreateOptions,
   NativeTerminalKeyInput,
+  NativeTerminalOverlay,
   NativeTerminalState,
 } from '../shared/native-terminals.js'
 import { nativeTerminalIpc } from '../shared/native-terminals.js'
@@ -71,6 +72,9 @@ contextBridge.exposeInMainWorld('__ALTO_DESKTOP__', {
     ),
     setVisible: (id: string, visible: boolean): Promise<void> => (
       ipcRenderer.invoke(nativeTerminalIpc.visible, id, visible) as Promise<void>
+    ),
+    setOverlay: (id: string, overlay: NativeTerminalOverlay | null): Promise<void> => (
+      ipcRenderer.invoke(nativeTerminalIpc.overlay, id, overlay) as Promise<void>
     ),
     focus: (id: string): Promise<void> => (
       ipcRenderer.invoke(nativeTerminalIpc.focus, id) as Promise<void>

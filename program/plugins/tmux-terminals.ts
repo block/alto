@@ -183,6 +183,14 @@ export class TmuxTerminals {
     })
   }
 
+  async processId(identity: TerminalIdentity): Promise<number> {
+    const request = terminalLaunchRequest({ identity })
+    const id = tmuxSessionName(request.identity)
+    const pid = Number(await this.run('display-message', '-p', '-t', `${id}:0.0`, '#{pane_pid}'))
+    if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('The terminal process is no longer running.')
+    return pid
+  }
+
   close(value: unknown): Promise<void> {
     const request = terminalLaunchRequest(value)
     const id = tmuxSessionName(request.identity)
@@ -199,6 +207,7 @@ const tmuxTerminals: HarnessPlugin<TmuxConfig> = (ctx, config) => {
   // tmux owns the shells. Unloading this fiber cancels management commands,
   // but deliberately leaves sessions available for the next Alto connection.
   const terminals = new TmuxTerminals(ctx.processRunner, ctx.program.projectRoot, config, abort.signal)
+  ctx.provide('tmuxTerminals', terminals)
   ctx.clientExtensions.registerMethod(ctx, TMUX_PREPARE, (value) => terminals.prepare(value))
   ctx.clientExtensions.registerMethod(ctx, TMUX_CLOSE, async (value) => { await terminals.close(value); return null })
   ctx.tools.register(ctx, {
@@ -225,4 +234,5 @@ const tmuxTerminals: HarnessPlugin<TmuxConfig> = (ctx, config) => {
 }
 
 tmuxTerminals.inject = ['processRunner', 'program', 'clientExtensions', 'tools', 'codex']
+tmuxTerminals.provide = 'tmuxTerminals'
 export default tmuxTerminals

@@ -6,6 +6,7 @@ import {
   nativeTerminalBounds,
   nativeTerminalConfiguration,
   nativeTerminalOptions,
+  nativeTerminalOverlay,
 } from '../src/shared/native-terminals.js'
 
 describe('native terminal boundary', () => {
@@ -56,15 +57,24 @@ describe('native terminal boundary', () => {
     expect(() => nativeTerminalConfiguration('bad\0config')).toThrow('null bytes')
   })
 
+  it('validates popup geometry before crossing the native boundary', () => {
+    expect(nativeTerminalOverlay(null)).toBeNull()
+    expect(nativeTerminalOverlay({ x: 3.2, y: 10.7, width: 100, height: 40, borderRadius: 30 }))
+      .toEqual({ x: 3, y: 11, width: 100, height: 40, borderRadius: 20 })
+    expect(() => nativeTerminalOverlay({ x: Infinity, y: 0, width: 10, height: 10, borderRadius: 0 })).toThrow('finite')
+    expect(() => nativeTerminalOverlay({ x: 0, y: 0, width: 10, height: 10, borderRadius: NaN })).toThrow('finite')
+  })
+
   it('deduplicates visibility and destroys the native surface once', async () => {
     const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
     const setVisible = vi.fn().mockResolvedValue(undefined)
     const destroy = vi.fn().mockResolvedValue(undefined)
     const configure = vi.fn().mockResolvedValue(undefined)
     const bridge = {
-      create: vi.fn().mockResolvedValue({ id: 'terminal-1', backend: 'ghostty' as const }),
+      create: vi.fn().mockResolvedValue({ id: 'terminal-1', backend: 'ghostty' as const, supportsOverlay: true }),
       setBounds: vi.fn().mockResolvedValue(undefined),
       setVisible,
+      setOverlay: vi.fn().mockResolvedValue(undefined),
       focus: vi.fn().mockResolvedValue(undefined),
       configure,
       destroy,
@@ -89,6 +99,12 @@ describe('native terminal boundary', () => {
       terminal.setBounds({ x: 2, y: 3, width: 500, height: 300 })
       terminal.setVisible(true)
       terminal.setVisible(true)
+      expect(terminal.supportsOverlay).toBe(true)
+      const overlay = { x: 10, y: 20, width: 350, height: 180, borderRadius: 12 }
+      terminal.setOverlay?.(overlay)
+      terminal.setOverlay?.({ ...overlay })
+      terminal.setOverlay?.(null)
+      expect(bridge.setOverlay.mock.calls).toEqual([['terminal-1', overlay], ['terminal-1', null]])
       terminal.setVisible(false)
       terminal.configure('background = #20232b')
       terminal.configure(' background = #20232b ')

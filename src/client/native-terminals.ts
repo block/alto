@@ -2,18 +2,21 @@ import type {
   NativeTerminalBounds,
   NativeTerminalCreateOptions,
   NativeTerminalKeyInput,
+  NativeTerminalOverlay,
   NativeTerminalState,
 } from '../shared/native-terminals.js'
 import {
   nativeTerminalBounds,
   nativeTerminalConfiguration,
   nativeTerminalOptions,
+  nativeTerminalOverlay,
 } from '../shared/native-terminals.js'
 
 export interface NativeTerminalBridge {
   create(options: NativeTerminalCreateOptions): Promise<NativeTerminalState>
   setBounds(id: string, bounds: NativeTerminalBounds): Promise<void>
   setVisible(id: string, visible: boolean): Promise<void>
+  setOverlay?(id: string, overlay: NativeTerminalOverlay | null): Promise<void>
   focus(id: string): Promise<void>
   configure(id: string, configuration: string): Promise<void>
   destroy(id: string): Promise<void>
@@ -23,6 +26,8 @@ export interface NativeTerminalBridge {
 export interface ClientNativeTerminal {
   readonly id: string
   readonly backend: 'ghostty'
+  readonly supportsOverlay?: boolean
+  setOverlay?(overlay: NativeTerminalOverlay | null): void
   setBounds(bounds: NativeTerminalBounds): void
   setVisible(visible: boolean): void
   focus(): void
@@ -38,6 +43,8 @@ export interface ClientNativeTerminalsService {
 class DesktopNativeTerminal implements ClientNativeTerminal {
   readonly id: string
   readonly backend = 'ghostty' as const
+  readonly supportsOverlay: boolean
+  private overlayKey = 'null'
 
   private bounds?: NativeTerminalBounds
   private visible = false
@@ -51,6 +58,7 @@ class DesktopNativeTerminal implements ClientNativeTerminal {
     configuration?: string,
   ) {
     this.id = state.id
+    this.supportsOverlay = Boolean(state.supportsOverlay && bridge.setOverlay)
     if (bounds) this.bounds = bounds
     if (configuration) this.configuration = configuration
   }
@@ -66,6 +74,15 @@ class DesktopNativeTerminal implements ClientNativeTerminal {
     if (this.destroyed || this.visible === visible) return
     this.visible = visible
     void this.bridge.setVisible(this.id, visible).catch(() => undefined)
+  }
+
+  setOverlay(overlay: NativeTerminalOverlay | null): void {
+    if (this.destroyed || !this.supportsOverlay) return
+    const normalized = nativeTerminalOverlay(overlay)
+    const key = JSON.stringify(normalized)
+    if (key === this.overlayKey) return
+    this.overlayKey = key
+    void this.bridge.setOverlay?.(this.id, normalized).catch(() => undefined)
   }
 
   focus(): void {

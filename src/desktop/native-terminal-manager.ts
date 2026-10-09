@@ -7,6 +7,7 @@ import type {
   NativeTerminalBounds,
   NativeTerminalCreateOptions,
   NativeTerminalKeyInput,
+  NativeTerminalOverlay,
   NativeTerminalState,
 } from '../shared/native-terminals.js'
 import {
@@ -14,6 +15,7 @@ import {
   nativeTerminalConfiguration,
   nativeTerminalIpc,
   nativeTerminalOptions,
+  nativeTerminalOverlay,
 } from '../shared/native-terminals.js'
 
 interface GhosttyNativeAddon {
@@ -24,6 +26,7 @@ interface GhosttyNativeAddon {
   ): void
   create(id: string, options: NativeTerminalCreateOptions): void
   setBounds(id: string, bounds: NativeTerminalBounds): void
+  setOverlay?(id: string, overlay: NativeTerminalOverlay | null): void
   setVisible(id: string, visible: boolean): void
   focus(id: string): void
   configure?(id: string, configuration: string): void
@@ -50,7 +53,7 @@ export class NativeTerminalManager {
     const addon = this.loadAddon()
     const id = randomUUID()
     addon.create(id, nativeTerminalOptions(options))
-    return { id, backend: 'ghostty' }
+    return { id, backend: 'ghostty', supportsOverlay: Boolean(addon.setOverlay) }
   }
 
   setBounds(id: string, bounds: NativeTerminalBounds): void {
@@ -59,6 +62,10 @@ export class NativeTerminalManager {
 
   setVisible(id: string, visible: boolean): void {
     this.loadAddon().setVisible(id, Boolean(visible))
+  }
+
+  setOverlay(id: string, overlay: NativeTerminalOverlay | null): void {
+    this.loadAddon().setOverlay?.(id, nativeTerminalOverlay(overlay))
   }
 
   focus(id: string): void {

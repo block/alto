@@ -23,7 +23,7 @@ async function check() {
           return {id, setBounds:()=>{},setVisible:()=>{},focus:()=>{},configure:()=>{},destroy:async()=>window.destroyed.push(id)};
         }};
         const ui = {
-          overlays: {subscribe:()=>()=>{}, nativeViewsOccluded:()=>false},
+          overlays: {subscribe:()=>()=>{}, nativeViewsOccluded:()=>false,snapshot:()=>undefined},
           registerStyle: (_owner,_id,text) => { const s=document.createElement('style');s.textContent=text;document.head.append(s); }
         };
         const host={call:async()=>({workingDirectory:'/default-development'})};

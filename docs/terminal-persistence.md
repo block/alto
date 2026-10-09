@@ -1,10 +1,10 @@
 # Terminal persistence
 
-Enable **Terminal Persistence** in Plugins to run new terminal surfaces through
-tmux. It is a separate, optional Cordis extension and requires a local `tmux`
+**Terminal Persistence** is enabled in this profile and runs new terminal surfaces
+through tmux. It is a separate Cordis extension and requires a local `tmux`
 executable. Alto searches its PATH and the usual Homebrew locations; the plugin's
-`executable` configuration can specify an absolute path. It is disabled by
-default so installations without tmux retain ordinary terminals.
+`executable` configuration can specify an absolute path. Disable it in Plugins
+to use ordinary terminals on installations without tmux.
 
 Ghostty still renders the terminal. The extension supplies its launch command
 through `clientGhosttyTerminal.registerLauncher`; no tmux code lives in the

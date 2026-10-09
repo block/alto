@@ -11,6 +11,8 @@ export interface WorkspaceOpenPaneRequest {
   id: string
   action: 'open-pane'
   anchorThreadId?: string
+  /** Exact pane anchor, including chats which do not have a thread yet. */
+  anchor?: { workspaceId: string; paneId: string }
   direction: WorkspacePaneDirection
   kind: string
   thread?: ThreadSummary

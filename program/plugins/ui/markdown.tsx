@@ -33,7 +33,7 @@ import type {
   MarkdownFileLinkHandler,
   MarkdownMathRenderer,
 } from '../markdown-api.js'
-import { resolveMarkdownFileLink } from '../markdown-api.js'
+import { openMarkdownFileLink, resolveMarkdownFileLink } from '../markdown-api.js'
 import { MarkdownLink } from '../markdown-link.js'
 import { WorkingShimmer } from './working-shimmer.js'
 
@@ -624,11 +624,13 @@ function SmartLink({
             || event.altKey
           ) return
           if (!handler && !desktopOpenFile) return
-          event.preventDefault()
-          if (handler) {
-            handler.open(details, event.currentTarget)
-          } else {
-            void desktopOpenFile?.(details.path).catch((error: unknown) => {
+          if (openMarkdownFileLink(fileLinks, details, event.currentTarget)) {
+            event.preventDefault()
+            return
+          }
+          if (desktopOpenFile) {
+            event.preventDefault()
+            void desktopOpenFile(details.path).catch((error: unknown) => {
               console.error(`Could not open local file ${details.path}`, error)
             })
           }

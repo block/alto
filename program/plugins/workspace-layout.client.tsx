@@ -865,7 +865,7 @@ function PaneKindPicker({
         if (event.target === event.currentTarget) close()
       }}
     >
-      <div className="workspace-pane-kind-picker" role="dialog" aria-modal="true" aria-label="Choose a pane type">
+      <div className="workspace-pane-kind-picker" data-native-overlay="workspace-pane-kind" role="dialog" aria-modal="true" aria-label="Choose a pane type">
         <header className="workspace-pane-kind-header">
           <strong>New pane</strong>
           <small>Pane types</small>
@@ -2658,7 +2658,14 @@ function WorkspaceLayout({
     registry.showPage()
     let view = activeView
     let paneId = activeView.focusedPaneId
-    if (request.anchorThreadId) {
+    if (request.anchor) {
+      const candidate = layout.views.find((view) => view.id === request.anchor!.workspaceId)
+      if (!candidate || !workspacePane(candidate.root, request.anchor.paneId)) {
+        throw new Error('The pane which requested this split is no longer open.')
+      }
+      view = candidate
+      paneId = request.anchor.paneId
+    } else if (request.anchorThreadId) {
       for (const candidate of layout.views) {
         const anchor = workspacePaneIds(candidate.root).find((candidatePaneId) => (
           sessions.current.get(candidatePaneId)?.snapshot().threadId === request.anchorThreadId

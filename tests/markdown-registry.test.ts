@@ -1,7 +1,8 @@
 import { Context, type Plugin } from 'cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MarkdownRendererRegistry } from '../program/plugins/markdown.client.js'
 import {
+  openMarkdownFileLink,
   resolveMarkdownCodeBlock,
   resolveMarkdownFileLink,
 } from '../program/plugins/markdown-api.js'
@@ -138,4 +139,25 @@ describe('Markdown renderer registry', () => {
       registry.dispose()
     }
   })
+})
+
+it('tries matching file handlers in priority order when an editor declines a link', () => {
+  const editor = vi.fn().mockReturnValue(false)
+  const viewer = vi.fn()
+  const unrelated = vi.fn()
+  const handlers = [
+    { id: 'pdf', extensions: ['.pdf'], open: unrelated },
+    { id: 'editor', extensions: ['.rs'], open: editor },
+    { id: 'source', extensions: ['.rs'], open: viewer },
+  ]
+  const details = { label: 'main.rs', path: '/repo/main.rs', line: 5 }
+  const origin = {} as HTMLElement
+  expect(openMarkdownFileLink(handlers, details, origin)).toBe(true)
+  expect(viewer).toHaveBeenCalledWith(details, origin)
+  expect(unrelated).not.toHaveBeenCalled()
+  viewer.mockClear()
+  editor.mockReturnValue(true)
+  expect(openMarkdownFileLink(handlers, details, origin)).toBe(true)
+  expect(viewer).not.toHaveBeenCalled()
+  expect(openMarkdownFileLink(handlers, { label: 'image.png', path: '/repo/image.png' }, origin)).toBe(false)
 })

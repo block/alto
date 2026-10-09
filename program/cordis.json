@@ -250,13 +250,14 @@
               "children": [
                 {
                   "id": "open-in-ide",
-                  "name": "Open in IDE",
-                  "description": "Opens the current chat’s local workspace or worktree in a new IDE window.",
+                  "name": "Editor Button",
+                  "description": "Opens the chat’s workspace in a Neovim pane or the preferred external editor.",
                   "module": "plugins/open-in-ide.ts",
                   "client": "plugins/open-in-ide.client.tsx",
                   "enabled": true,
                   "config": {
-                    "ide": "cursor"
+                    "ide": "cursor",
+                    "destination": "pane"
                   }
                 }
               ]
@@ -591,8 +592,26 @@
               "description": "Keeps terminal sessions running across Alto restarts and reattaches each pane to its saved shell. Requires tmux.",
               "module": "plugins/tmux-terminals.ts",
               "client": "plugins/tmux-terminals.client.ts",
-              "enabled": false,
+              "enabled": true,
               "config": {}
+            },
+            {
+              "id": "editor-pane",
+              "name": "Neovim Editor",
+              "description": "Opens Neovim in a persistent native workspace pane.",
+              "module": "plugins/editor-pane.ts",
+              "client": "plugins/editor-pane.client.tsx",
+              "enabled": true,
+              "config": {},
+              "children": [{
+                "id": "editor-file-links",
+                "name": "Editor File Links",
+                "description": "Opens source links in the checkout's existing Neovim pane.",
+                "module": "plugins/editor-file-links.ts",
+                "client": "plugins/editor-file-links.client.ts",
+                "enabled": true,
+                "config": {}
+              }]
             }
           ]
         },
@@ -727,6 +746,14 @@
               "name": "Workspace Hotkeys",
               "description": "Creates workspace tabs and split chat panes with leader-key shortcuts.",
               "client": "plugins/hotkeys-workspace.client.ts",
+              "enabled": true,
+              "config": {}
+            },
+            {
+              "id": "hotkeys-editor",
+              "name": "Editor Shortcut",
+              "description": "Opens or focuses a Neovim pane with Command-E.",
+              "client": "plugins/hotkeys-editor.client.ts",
               "enabled": true,
               "config": {}
             }

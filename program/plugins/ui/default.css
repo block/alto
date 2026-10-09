@@ -1183,6 +1183,13 @@ pre.activity-content {
   white-space: pre-wrap;
 }
 
+.activity-agent,
+.activity-user,
+.activity-reasoning {
+  --sans: var(--composer-font);
+  --display: var(--sans);
+}
+
 .activity-agent .activity-content,
 .activity-user .activity-content {
   font-family: var(--sans);

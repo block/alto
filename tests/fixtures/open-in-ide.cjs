@@ -15,6 +15,9 @@ async function check() {
       import {BrowserProgramRuntime} from './src/client/plugin-runtime';
       import composer from './program/plugins/composer.client';
       import ide from './program/plugins/open-in-ide.client';
+      import {EditorPanes} from './program/plugins/editor-pane.client';
+      import editorHotkeys from './program/plugins/hotkeys-editor.client';
+      import {HotkeysService} from './program/plugins/hotkeys.client';
       import {COMPOSER_COMPONENT} from './program/plugins/chat-surfaces-api';
       const root=createRoot(document.getElementById('root'));
       const listeners=new Set();
@@ -31,9 +34,19 @@ async function check() {
         calls.push({method,payload});if(fail)throw new Error('Could not open the IDE.');
         await new Promise(resolve=>held=resolve);
       }};
-      const provider=ctx=>{ctx.provide('clientSession',session);ctx.provide('clientWorkContexts',contexts)};
-      provider.provide=['clientSession','clientWorkContexts'];
-      const runtime=new BrowserProgramRuntime(async url=>({default:url==='/composer'?composer:url==='/ide'?ide:provider}),host);
+      window.paneCalls=[];
+      const layout={available:()=>true,tabs:()=>[{id:'workspace-a',active:true}],
+        paneTargets:()=>[{workspaceId:'workspace-a',paneId:'chat-a',session,focused:true}],
+        focusPane:()=>true,openPane:request=>{paneCalls.push(request);return {workspaceId:'workspace-a',paneId:'editor-'+paneCalls.length}}};
+      const editors=new EditorPanes(layout,contexts);
+      const provider=ctx=>{
+        ctx.provide('clientSession',session);ctx.provide('clientWorkContexts',contexts);ctx.provide('clientEditor',editors);
+        const hotkeys=new HotkeysService(ctx.clientUi,{leader:'Alt'});
+        ctx.provide('clientHotkeys',hotkeys);ctx.effect(()=>()=>hotkeys.dispose());
+      };
+      provider.inject=['clientUi'];
+      provider.provide=['clientSession','clientWorkContexts','clientEditor','clientHotkeys'];
+      const runtime=new BrowserProgramRuntime(async url=>({default:url==='/composer'?composer:url==='/ide'?ide:url==='/editor-hotkeys'?editorHotkeys:provider}),host);
       const view=id=>({id,name:id,description:'IDE fixture',protocolVersion:1,depth:0,enabled:true,effectiveEnabled:true,
         state:'active',inject:[],provides:[],config:id==='ide'?{ide:'cursor'}:{},isolate:{},intercept:{},
         client:{module:id+'.ts',hash:'1',url:'/'+id,loadedAt:''}});
@@ -49,7 +62,7 @@ async function check() {
       }
       window.render=()=>flushSync(()=>root.render(<Page/>));
       window.toggle=async value=>{enabled=value;await runtime.reconcile(++revision,
-        [view('session'),view('composer'),...(enabled?[view('ide')]:[])]);render()};
+        [view('session'),view('composer'),view('editor-hotkeys'),...(enabled?[view('ide')]:[])]);render()};
       window.update=next=>flushSync(()=>{state={...state,...next};for(const fn of listeners)fn()});
       window.showSettings=()=>{settings=true;render()};
       window.finish=()=>held?.();
@@ -77,6 +90,15 @@ async function check() {
     await window.loadURL(`http://127.0.0.1:${server.address().port}`)
     await run(bundle.outputFiles[0].text)
     await run('toggle(true)')
+    await run('click();click()'); await paint()
+    assert.equal((await run('paneCalls')).length,1,'Repeated editor clicks reuse the opening pane')
+    assert.deepEqual((await run('paneCalls'))[0],{
+      kind:'editor',direction:'horizontal',workspace:'/repo/worktree-a',anchor:{workspaceId:'workspace-a',paneId:'chat-a'},anchorThreadId:'pane-a',
+    })
+    assert.equal((await run('calls')).length,0,'The pane choice never launches an external app')
+    await run('showSettings()')
+    await run(`const destination=document.querySelector('[aria-label="Editor button destination"]');destination.value='external';destination.dispatchEvent(new Event('change',{bubbles:true}))`)
+    await paint()
     await run('click();click()')
     assert.equal((await run('calls')).length,1,'Repeated clicks do not spawn duplicate windows')
     assert.deepEqual((await run('calls'))[0],{method:'open-in-ide.open',payload:{ide:'cursor',workspace:'/repo/worktree-a',remote:false,threadId:'pane-a'}})
@@ -90,7 +112,6 @@ async function check() {
     await run("update({remoteLocation:undefined,projectScope:'unscoped'})")
     assert.equal(await run('button().disabled'),true)
     await run("update({projectScope:'workspace'})")
-    await run('showSettings()')
     await run(`const select=document.querySelector('[aria-label="Preferred IDE"]');select.value='zed';select.dispatchEvent(new Event('change',{bubbles:true}))`)
     await paint()
     assert.equal(await run('button().getAttribute("aria-label")'),'Open in Zed')
@@ -120,6 +141,12 @@ async function check() {
     await run('setFailure();click()');await paint()
     assert.equal(await run('document.querySelector("[role=alert]").textContent.includes("Could not open")'),true)
     assert.equal(await run('button().disabled'),false)
+    // Command-E always opens a pane, even with an external editor selected.
+    await run("document.querySelector('[data-cordis-composer-editor]').dispatchEvent(new KeyboardEvent('keydown',{key:'e',metaKey:true,bubbles:true,cancelable:true}))")
+    await paint()
+    assert.equal((await run('paneCalls')).length,2)
+    assert.equal((await run('paneCalls'))[1].workspace,'/repo/pane-b')
+    assert.equal(await run(`document.querySelector('[aria-label="Editor button destination"]').value`),'external')
     await run('teardown()')
     console.log('Open in IDE browser checks passed')
   } finally {

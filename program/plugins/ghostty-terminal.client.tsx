@@ -13,7 +13,7 @@ import type {
 import { clientStyles } from '../../src/client/plugin-api.js'
 import { TerminalLaunchers } from './terminal-launchers.js'
 import type { ClientNativeTerminal } from '../../src/client/native-terminals.js'
-import type { NativeTerminalBounds } from '../../src/shared/native-terminals.js'
+import type { NativeTerminalBounds, NativeTerminalOverlay } from '../../src/shared/native-terminals.js'
 import type {
   ClientGhosttyTerminalService,
   GhosttyTerminalProps,
@@ -101,6 +101,13 @@ function terminalBounds(mount: HTMLElement): NativeTerminalBounds {
   }
 }
 
+function terminalOverlayBounds(element: HTMLElement): NativeTerminalOverlay | null {
+  const bounds = terminalBounds(element)
+  if (bounds.width <= 1 || bounds.height <= 1) return null
+  const radius = Number.parseFloat(getComputedStyle(element).borderTopLeftRadius) || 0
+  return { ...bounds, borderRadius: radius }
+}
+
 function GhosttySurface({
   nativeTerminals,
   ui,
@@ -125,17 +132,21 @@ function GhosttySurface({
   const syncRef = useRef<() => void>(() => undefined)
   const activeRef = useRef(active)
   const focusedRef = useRef(focused)
+  const focusRequested = useRef(false)
   const nativeViewsOccluded = useSyncExternalStore(
     ui.overlays.subscribe,
     ui.overlays.nativeViewsOccluded,
   )
+  const overlayId = useSyncExternalStore(ui.overlays.subscribe, ui.overlays.snapshot)
   const nativeViewsOccludedRef = useRef(nativeViewsOccluded)
+  const overlayIdRef = useRef(overlayId)
   const [problem, setProblem] = useState<string>()
   const [attempt, setAttempt] = useState(0)
 
   activeRef.current = active
   focusedRef.current = focused
   nativeViewsOccludedRef.current = nativeViewsOccluded
+  overlayIdRef.current = overlayId
   configurationRef.current = resolvedConfiguration
 
   useEffect(() => {
@@ -144,6 +155,8 @@ function GhosttySurface({
     let frame: number | undefined
     let creating = false
     let failed = false
+    let overlayElement: HTMLElement | undefined
+    const overlayObserver = new ResizeObserver(() => sync())
 
     const sync = (): void => {
       if (frame !== undefined) return
@@ -183,8 +196,8 @@ function GhosttySurface({
             }
             terminalRef.current = created
             created.configure(configurationRef.current)
+            focusRequested.current = activeRef.current && focusedRef.current && !nativeViewsOccludedRef.current
             sync()
-            if (activeRef.current && focusedRef.current) created.focus()
           }).catch((error: unknown) => {
             creating = false
             failed = true
@@ -194,13 +207,28 @@ function GhosttySurface({
         }
         if (!terminal) return
 
+        const element = nativeViewsOccludedRef.current && terminal.supportsOverlay
+          ? [...document.querySelectorAll<HTMLElement>('[data-native-overlay]')]
+            .find((candidate) => candidate.dataset.nativeOverlay === overlayIdRef.current)
+          : undefined
+        if (element !== overlayElement) {
+          overlayObserver.disconnect()
+          overlayElement = element
+          if (element) overlayObserver.observe(element)
+        }
+        const overlay = element ? terminalOverlayBounds(element) : null
         terminal.setBounds(bounds)
+        terminal.setOverlay?.(overlay)
         terminal.setVisible(
           activeRef.current
-          && !nativeViewsOccludedRef.current
+          && (!nativeViewsOccludedRef.current || overlay !== null)
           && drawable
           && document.visibilityState === 'visible',
         )
+        if (focusRequested.current && activeRef.current && focusedRef.current && !nativeViewsOccludedRef.current) {
+          focusRequested.current = false
+          terminal.focus()
+        }
       })
     }
     syncRef.current = sync
@@ -211,6 +239,7 @@ function GhosttySurface({
       live = false
       if (syncRef.current === sync) syncRef.current = () => undefined
       if (frame !== undefined) window.cancelAnimationFrame(frame)
+      overlayObserver.disconnect()
       const terminal = terminalRef.current
       terminalRef.current = undefined
       terminal?.setVisible(false)
@@ -244,11 +273,12 @@ function GhosttySurface({
 
   useEffect(() => {
     syncRef.current()
-  }, [active, nativeViewsOccluded])
+  }, [active, nativeViewsOccluded, overlayId])
 
   useEffect(() => {
-    if (active && focused) terminalRef.current?.focus()
-  }, [active, focused])
+    focusRequested.current = active && focused && !nativeViewsOccluded
+    syncRef.current()
+  }, [active, focused, nativeViewsOccluded])
 
   return (
     <div className="ghostty-terminal-surface" data-native-pane-surface="" ref={mountRef}>

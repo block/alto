@@ -81,7 +81,7 @@ describe('program profile metadata', () => {
     expect(entries.get('ghostty-workspace')?.enabled).toBe(true)
     expect(entries.get('ghostty-terminal')?.children?.map((entry) => entry.id))
       .toContain('tmux-terminals')
-    expect(entries.get('tmux-terminals')?.enabled).toBe(false)
+    expect(entries.get('tmux-terminals')?.enabled).toBe(true)
     expect(entries.has('ghostty-canvas')).toBe(false)
     expect(entries.get('browser')?.enabled).toBe(true)
     expect(entries.get('browser')?.children).toEqual([])

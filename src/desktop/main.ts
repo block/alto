@@ -11,6 +11,7 @@ import { nativeViewIpc } from '../shared/native-views.js'
 import type {
   NativeTerminalBounds,
   NativeTerminalCreateOptions,
+  NativeTerminalOverlay,
 } from '../shared/native-terminals.js'
 import { nativeTerminalIpc } from '../shared/native-terminals.js'
 import { startHarness, type HarnessApp } from '../server/app.js'
@@ -142,6 +143,9 @@ function registerNativeTerminalIpc(): void {
   })
   ipcMain.handle(nativeTerminalIpc.visible, (event, id: string, visible: boolean) => {
     assertTerminalRenderer(event).setVisible(id, visible)
+  })
+  ipcMain.handle(nativeTerminalIpc.overlay, (event, id: string, overlay: NativeTerminalOverlay | null) => {
+    assertTerminalRenderer(event).setOverlay(id, overlay)
   })
   ipcMain.handle(nativeTerminalIpc.focus, (event, id: string) => {
     assertTerminalRenderer(event).focus(id)
