@@ -1,3 +1,4 @@
+import type {} from './conversation-titles-api.js'
 import type { TurnProgram } from '../../src/server/services/turn-program.js'
 import { applyAgentChatEvent } from './agent-chat-events.js'
 import { AgentChatStore } from './agent-chat-store.js'
@@ -607,7 +608,12 @@ const plugin = async (ctx: Context, config: { historyProviders?: string[] } = {}
   method('approve', async (payload) => {
     await chats.approve(required(payload.id, 'id'), required(payload.requestId, 'requestId'), required(payload.optionId, 'optionId')); return { ok: true }
   })
-  method('rename', async (payload) => { await chats.rename(required(payload.id, 'id'), required(payload.title, 'title')); return { ok: true } })
+  method('rename', async (payload) => {
+    const id = required(payload.id, 'id')
+    const title = required(payload.title, 'title').trim().slice(0, 200)
+    await ctx.waterfall('conversation/rename', id, title, () => chats.rename(id, title))
+    return { ok: true }
+  })
 }
 plugin.inject = ['agents', 'clientExtensions', 'program', 'tools', 'turnProgram']
 plugin.provide = ['agentChats']

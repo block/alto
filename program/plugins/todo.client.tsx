@@ -271,6 +271,10 @@ const todo: BrowserPlugin = (ctx) => {
   services.layout.registerTabNameSource(ctx, {
     id: 'todo',
     name: (id) => findTodoItem(document(), id)?.text,
+    valid: (id, view) => {
+      const item = findTodoItem(document(), id)
+      return workspaceViewThreads(view).some((thread) => item?.chats.some((chat) => chat.thread.id === thread.id))
+    },
     rename: async (itemId, text) => { await services.host.call(TODO_APPLY, { type: 'editItem', itemId, text }) },
     match: (view) => todoItemForThreads(document(), workspaceViewThreads(view).map((thread) => thread.id))?.id,
     subscribe: (listener) => {

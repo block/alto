@@ -5,6 +5,7 @@ export type ThreadWorkStatus = 'running' | 'finished'
 export interface ClientThreadStatusSnapshot {
   revision: number
   running: readonly string[]
+  /** Unacknowledged completions, newest first. */
   finished: readonly string[]
 }
 

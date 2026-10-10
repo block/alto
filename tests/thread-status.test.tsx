@@ -66,6 +66,25 @@ function sessionSnapshot(threadId = 'thread-a'): ClientSessionSnapshot {
 }
 
 describe('chat status', () => {
+  it('restores unacknowledged completions newest first rather than sorting by chat ID', () => {
+    const restore = installBrowserGlobals()
+    const now = Date.now()
+    window.localStorage.setItem('codex-cordis.thread-status', JSON.stringify({
+      version: 1, finished: [['a-old', now - 2000], ['z-new', now - 1000]],
+    }))
+    const host = {
+      snapshot: () => ({ snapshot: { codex: { activeThreadIds: [] } } }),
+      journal: () => [], onEvent: () => () => {},
+    } as unknown as ClientHostService
+    const session = { snapshot: () => sessionSnapshot(), subscribe: () => () => {} } as unknown as ClientSessionService
+    const service = new ThreadStatusService(host, session)
+    try {
+      expect(service.snapshot().finished).toEqual(['z-new', 'a-old'])
+      service.acknowledge('z-new')
+      expect(service.snapshot().finished).toEqual(['a-old'])
+    } finally { service.dispose(); restore() }
+  })
+
   it('tracks per-thread work and acknowledges a completed chat when it is opened', () => {
     const restore = installBrowserGlobals()
     let hostListener = (_event: HarnessEvent): void => undefined

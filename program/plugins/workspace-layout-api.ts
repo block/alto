@@ -124,6 +124,8 @@ export interface WorkspaceTabNameSource {
   name(id: string): string | undefined
   rename(id: string, name: string): Promise<void>
   subscribe(listener: () => void): () => void
+  /** Whether a saved binding still belongs to this tab's current contents. */
+  valid?(id: string, view: WorkspaceView): boolean
   /** Associates an existing tab when it has no saved binding. */
   match?(view: WorkspaceView): string | undefined
 }

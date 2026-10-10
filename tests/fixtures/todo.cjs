@@ -64,6 +64,15 @@ async function check() {
       window.setFail=value=>{fail=value};
       window.linkedTask=()=>doc.projects.flatMap(project=>project.items).find(item=>item.chats.some(chat=>chat.thread.id==='chat-1'));
       window.renameTab=()=>flushSync(()=>registry.renameActiveTab());
+      window.selectTab=id=>flushSync(()=>registry.selectTab(registry.tabs().findIndex(tab=>tab.id===id)));
+      window.reproduceStaleNameBinding=()=>{
+        window.teardown();
+        const linked=saved.views.find(view=>view.nameBinding?.source==='todo');
+        const unrelated={...linked,id:'unrelated-tab',focusedPaneId:'unrelated-pane',root:{type:'pane',id:'unrelated-pane',workspace:'/repo',thread:{...thread,id:'unrelated-chat',title:'Different work'}}};
+        saved={...saved,views:[...saved.views,unrelated]};
+        localStorage.setItem('codex-cordis.workspace-layout',JSON.stringify(saved));
+        window.boot();
+      };
       window.key=(selector,key)=>flushSync(()=>document.querySelector(selector).dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true})));
       window.disableGroups=()=>flushSync(()=>{groups.reverse().forEach(fn=>fn());groups=[]});
       window.teardown=()=>flushSync(()=>root.unmount());
@@ -195,7 +204,20 @@ async function check() {
     assert.ok((await run('inspect()')).tabs.some(tab=>tab.title==='Release ready' && tab.nameBinding?.id===taskIdBeforeMove))
     assert.equal(await run("document.querySelector('.todo-project[aria-label=beta] .todo-count').textContent"),'2','Moved conversations have task rows and count toward their project')
     assert.ok((await run('inspect()')).doc.projects.every(project=>project.chats.length===0),'No bare project chats remain after moving a conversation')
-    await run("click('[aria-label=\"Delete Release ready\"]')")
+    // Persisted task bindings must stop following a tab after it changes chats.
+    await run('reproduceStaleNameBinding()')
+    await until("inspect().tabs.some(tab=>tab.id==='unrelated-tab' && !tab.nameBinding)")
+    const linkedTabId=(await run('inspect()')).tabs.find(tab=>tab.threadIds.includes('chat-1')).id
+    await run("selectTab('unrelated-tab');renameTab();fill('.workspace-tab-name-input','Independent work');key('.workspace-tab-name-input','Enter')")
+    await until("inspect().tabs.some(tab=>tab.id==='unrelated-tab' && tab.title==='Independent work')")
+    assert.equal((await run('linkedTask()')).text,'Release ready','An unrelated tab rename does not rename the original task')
+    await run(`selectTab(${JSON.stringify(linkedTabId)});renameTab();fill('.workspace-tab-name-input','Backup ready');key('.workspace-tab-name-input','Enter')`)
+    await until("linkedTask().text==='Backup ready'")
+    assert.equal((await run('inspect()')).tabs.find(tab=>tab.id==='unrelated-tab').title,'Independent work','Renaming the linked tab leaves the repaired tab alone')
+    await run('reload()')
+    await until("inspect().tabs.some(tab=>tab.id==='unrelated-tab' && tab.title==='Independent work' && !tab.nameBinding)")
+    assert.ok((await run('inspect()')).tabs.some(tab=>tab.threadIds.includes('unrelated-chat')),'Repair preserves the unrelated conversation')
+    await run("click('[aria-label=\"Tasks\"]');click('[aria-label=\"Delete Backup ready\"]')")
     await until('!linkedTask()')
     assert.ok((await run('inspect()')).tabs.some(tab=>tab.threadIds.includes('chat-1')),'Deleting a task keeps the conversation open')
     assert.equal(await run("document.querySelector('.todo-project[aria-label=beta] .todo-count').textContent"),'1')

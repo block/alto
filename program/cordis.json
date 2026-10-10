@@ -18,6 +18,15 @@
           }
         },
         {
+          "id": "conversation-titles",
+          "name": "Conversation Titles",
+          "description": "Lets agents maintain concise conversation titles as topics change while preserving manual names.",
+          "module": "plugins/conversation-titles.ts",
+          "client": "plugins/conversation-titles.client.ts",
+          "enabled": true,
+          "config": {}
+        },
+        {
           "id": "control-plane",
           "name": "Control Plane",
           "description": "Exposes the stable dispatcher and program-management tools.",

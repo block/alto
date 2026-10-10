@@ -272,7 +272,9 @@ export class ThreadStatusService implements ClientThreadStatusService {
     return {
       revision,
       running: [...this.running].sort(),
-      finished: [...this.finished.keys()].sort(),
+      finished: [...this.finished].sort(([leftId, leftTime], [rightId, rightTime]) => (
+        rightTime - leftTime || leftId.localeCompare(rightId)
+      )).map(([id]) => id),
     }
   }
 

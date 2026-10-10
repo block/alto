@@ -300,14 +300,14 @@ export class WorkspaceLayoutRegistry implements ClientWorkspaceLayoutService {
       if (!binding) {
         for (const source of this.tabNameSources.values()) {
           const id = source.match?.(view)
-          if (id) { binding = { source: source.id, id }; break }
+          if (id && source.valid?.(id, view) !== false) { binding = { source: source.id, id }; break }
         }
       }
       if (!binding) return view
       const source = this.tabNameSources.get(binding.source)
       if (!source) return view
       const name = source.name(binding.id)
-      if (name === undefined) {
+      if (name === undefined || source.valid?.(binding.id, view) === false) {
         if (!view.nameBinding) return view
         changed = true
         const next = { ...view }
@@ -2559,7 +2559,7 @@ function WorkspaceLayout({
     if (renameInFlight.current) return
     const viewId = renamingViewId
     const requestedName = renamingViewName.trim()
-    const view = layoutRef.current.views.find((candidate) => candidate.id === viewId)
+    const view = registry.syncTabNames(layoutRef.current).views.find((candidate) => candidate.id === viewId)
     if (!save || !view || !requestedName || requestedName === view.name) {
       setRenamingViewId(undefined); setRenamingViewName(''); setRenameError('')
       return
@@ -2576,10 +2576,11 @@ function WorkspaceLayout({
       }
       if (generation !== renameGeneration.current) return
       setLayout((current) => {
-        if (view.nameBinding) return registry.syncTabNames(current)
-        const otherViews = current.views.filter((candidate) => candidate.id !== viewId)
-        const name = uniqueViewName({ ...current, views: otherViews }, requestedName)
-        return { ...current, views: current.views.map((candidate) => candidate.id === viewId ? { ...candidate, name } : candidate) }
+        const synced = registry.syncTabNames(current)
+        if (view.nameBinding) return synced
+        const otherViews = synced.views.filter((candidate) => candidate.id !== viewId)
+        const name = uniqueViewName({ ...synced, views: otherViews }, requestedName)
+        return { ...synced, views: synced.views.map((candidate) => candidate.id === viewId ? { ...candidate, name } : candidate) }
       })
       setRenamingViewId(undefined)
       setRenamingViewName('')

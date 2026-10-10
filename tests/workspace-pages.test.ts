@@ -50,6 +50,33 @@ it('drops a deleted name binding while keeping the tab, conversation, and last t
   registry.dispose()
 })
 
+it('repairs a stale shared tab name without changing either conversation', async () => {
+  const registry = new WorkspaceLayoutRegistry()
+  const context = new Context()
+  let title = 'backup'
+  const binding = { source: 'tasks', id: 'backup-task' }
+  const stale: WorkspaceView = { ...chat, id: 'old-backup', name: title, nameBinding: binding }
+  const linked: WorkspaceView = { ...chat, id: 'actual-backup', name: title, nameBinding: binding, focusedPaneId: 'backup-pane',
+    root: { type: 'pane', id: 'backup-pane', workspace: '/repo', thread: { id: 'backup-thread', title: 'Backup work', preview: '', cwd: '/repo', createdAt: 1, updatedAt: 2 } } }
+  const fiber = await context.plugin(((owner) => { registry.registerTabNameSource(owner, {
+    id: 'tasks', name: () => title, rename: async (_id, name) => { title = name }, subscribe: () => () => {},
+    valid: (_id, view) => view.root.type === 'pane' && view.root.thread?.id === 'backup-thread',
+  }) }) as Plugin)
+  const state: WorkspaceLayoutState = { version: 2, activeViewId: stale.id, views: [stale, linked] }
+  let repaired = registry.syncTabNames(state)
+  expect(repaired.views[0]!.nameBinding).toBeUndefined()
+  expect(repaired.views[0]!.name).toBe('backup')
+  expect(repaired.views[0]!.root).toBe(stale.root)
+  expect(repaired.views[1]).toBe(linked)
+  await registry.tabNameSource('tasks')!.rename('backup-task', 'New backup name')
+  repaired = registry.syncTabNames(repaired)
+  expect(repaired.views.map((view) => view.name)).toEqual(['backup', 'New backup name'])
+  expect(repaired.views[1]!.root).toBe(linked.root)
+  expect(registry.syncTabNames(parseWorkspaceLayout(repaired)!)).toEqual(repaired)
+  await fiber.dispose()
+  registry.dispose()
+})
+
 it('removes legacy page tabs and split panes while preserving chat identities and focus', () => {
   const mixed: WorkspaceView = { ...chat, focusedPaneId: 'old', maximizedPaneId: 'old', root: { type: 'split', id: 'split', direction: 'horizontal', ratio: .5, first: legacy.root, second: chat.root } }
   const state: WorkspaceLayoutState = { version: 2, activeViewId: legacy.id, views: [legacy, mixed] }

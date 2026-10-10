@@ -1,3 +1,4 @@
+import type {} from './conversation-titles-api.js'
 import type { HarnessPlugin } from '../../src/server/plugin-api.js'
 import { isRecord } from '../../src/shared/protocol.js'
 import { SESSION_CODEX_START, SESSION_THREAD_RENAME, SESSION_WORKSPACE_STATE } from './session-api.js'
@@ -50,7 +51,7 @@ const session: HarnessPlugin = async (ctx) => {
     const name = typeof payload.name === 'string' ? payload.name.trim() : ''
     if (!threadId) throw new Error('threadId is required')
     if (!name) throw new Error('chat name is required')
-    await setThreadName(ctx.codex, threadId, name)
+    await ctx.waterfall('conversation/rename', threadId, name, () => setThreadName(ctx.codex, threadId, name))
     return { threadId, name }
   })
 }

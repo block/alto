@@ -22,9 +22,12 @@ import {
   type ClientOverlays,
 } from '../../src/client/plugin-api.js'
 import { searchSurface } from './search-api.js'
+import { threadRecencyAt, type ThreadSummary } from '../../src/shared/protocol.js'
+import type { ClientWorkspaceLayoutService, WorkspaceTabTarget } from './workspace-layout-api.js'
 import type { ClientSessionService, ClientSessionSnapshot } from './session-api.js'
 import type {
   ClientThreadStatusService,
+  ClientThreadStatusSnapshot,
   ThreadWorkStatus,
 } from './thread-status-api.js'
 import {
@@ -65,6 +68,31 @@ export function filterSearchItems(
     const searchable = `${item.label} ${item.detail ?? ''} ${item.keywords ?? ''}`.toLocaleLowerCase()
     return terms.every((term) => searchable.includes(term))
   }).slice(0, limit)
+}
+
+export function searchThreads(
+  threads: readonly ThreadSummary[],
+  tabs: readonly WorkspaceTabTarget[],
+  status: ClientThreadStatusSnapshot,
+  currentThreadId?: string,
+): ThreadSummary[] {
+  const candidates = new Map<string, ThreadSummary>()
+  for (const thread of [...tabs.flatMap((tab) => tab.threads ?? []), ...threads]) {
+    const previous = candidates.get(thread.id)
+    if (!previous || thread.updatedAt >= previous.updatedAt) candidates.set(thread.id, thread)
+  }
+  const unread = new Map(status.finished.filter((id) => id !== currentThreadId).map((id, index) => [id, index]))
+  return [...candidates.values()].sort((left, right) => {
+    const leftUnread = unread.get(left.id), rightUnread = unread.get(right.id)
+    if (leftUnread !== undefined || rightUnread !== undefined) {
+      return (leftUnread ?? Infinity) - (rightUnread ?? Infinity)
+    }
+    return threadRecencyAt(right) - threadRecencyAt(left) || left.id.localeCompare(right.id)
+  })
+}
+
+export function openSearchThread(layout: ClientWorkspaceLayoutService, thread: ThreadSummary): void {
+  if (!layout.focusThread(thread.id)) layout.newTab(undefined, thread)
 }
 
 function ItemIcon({ kind }: { kind: SearchItem['kind'] }): ReactNode {
@@ -230,28 +258,50 @@ function OpenSearchSurface({
   session,
   threadStatus,
   overlays,
+  layout,
 }: {
   surface: typeof searchSurface
   session: ClientSessionService
   threadStatus: ClientThreadStatusService
   overlays: ClientOverlays
+  layout: ClientWorkspaceLayoutService
 }): ReactNode {
   const state = useStoreSelector(session, searchSessionSnapshot, searchSessionSnapshotEqual)
   const statusState = useSyncExternalStore(threadStatus.subscribe, threadStatus.snapshot)
+  useSyncExternalStore(layout.subscribe, layout.snapshot)
+  const tabs = layout.tabs()
+  const threads = searchThreads(state.threads, tabs, statusState, state.threadId)
+  const threadItems = threads.map((thread): SearchItem => {
+    const tab = tabs.find((tab) => tab.threadIds.includes(thread.id))
+    return {
+      id: `thread:${thread.id}`,
+      label: tab?.title ?? thread.title,
+      detail: thread.preview || thread.cwd,
+      keywords: `${thread.cwd} ${thread.title}`,
+      kind: 'thread',
+      active: thread.id === state.threadId,
+      status: threadWorkStatus(statusState, thread.id),
+      onSelect: () => {
+        openSearchThread(layout, thread)
+        threadStatus.acknowledge(thread.id)
+      },
+    }
+  })
+  const unread = (item: SearchItem): boolean => item.status === 'finished' && !item.active
   const label = surface.label ?? 'Search'
   const limit = surface.kind === 'search' ? surface.limit ?? 8 : 8
   const placeholder = surface.kind === 'search'
     ? surface.placeholder ?? 'Search conversations and actions…'
     : 'Search conversations and actions…'
   const items: SearchItem[] = [
+    ...threadItems.filter(unread),
     {
       id: 'action:new-thread',
       label: 'New chat',
       detail: 'Start a new conversation',
       keywords: 'new thread conversation',
       kind: 'new-thread',
-      disabled: state.turn !== 'idle',
-      onSelect: () => session.newThread(),
+      onSelect: () => layout.newTab(),
     },
     ...(state.surfaces?.some((candidate) => candidate.id === 'default-new-workspace') ? [{
       id: 'action:new-workspace',
@@ -278,17 +328,7 @@ function OpenSearchSurface({
       kind: 'plugins' as const,
       onSelect: () => overlays.open('plugins'),
     }] : []),
-    ...state.threads.map((thread): SearchItem => ({
-      id: `thread:${thread.id}`,
-      label: thread.title,
-      detail: thread.preview || thread.cwd,
-      keywords: thread.cwd,
-      kind: 'thread',
-      active: thread.id === state.threadId,
-      status: threadWorkStatus(statusState, thread.id),
-      disabled: state.turn !== 'idle',
-      onSelect: () => void session.openThread(thread),
-    })),
+    ...threadItems.filter((item) => !unread(item)),
   ]
 
   return (
@@ -308,11 +348,13 @@ function SearchSurface({
   session,
   threadStatus,
   overlays,
+  layout,
 }: {
   surface: typeof searchSurface
   session: ClientSessionService
   threadStatus: ClientThreadStatusService
   overlays: ClientOverlays
+  layout: ClientWorkspaceLayoutService
 }): ReactNode {
   const activeOverlay = useSyncExternalStore(overlays.subscribe, overlays.snapshot)
   if (activeOverlay !== 'search') return null
@@ -322,6 +364,7 @@ function SearchSurface({
       session={session}
       threadStatus={threadStatus}
       overlays={overlays}
+      layout={layout}
     />
   )
 }
@@ -345,6 +388,7 @@ const searchClient: BrowserPlugin = (ctx) => {
       session={session}
       threadStatus={threadStatus}
       overlays={overlays}
+      layout={ctx.clientWorkspaceLayout}
     />
   )
   ctx.clientUi.registerRoot(ctx, 'default-search', BoundSearchRoot)
@@ -352,7 +396,7 @@ const searchClient: BrowserPlugin = (ctx) => {
   return () => threadStatus.dispose()
 }
 
-searchClient.inject = ['clientUi', 'clientSession']
+searchClient.inject = ['clientUi', 'clientSession', 'clientWorkspaceLayout']
 searchClient.resources = { provides: { roots: ['default-search'] } }
 
 export default searchClient
