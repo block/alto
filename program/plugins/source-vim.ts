@@ -1,92 +1,78 @@
 export interface VimCursor {
   /** One-based line number. */
   line: number
-  /** Zero-based character offset. */
+  /** Zero-based UTF-16 offset in the line. Tabs occupy one offset. */
   column: number
 }
 
 export type VimMotion =
-  | 'left'
-  | 'right'
-  | 'down'
-  | 'up'
-  | 'line-start'
-  | 'line-end'
-  | 'word-forward'
-  | 'word-backward'
-  | 'word-end'
-
-function sourceLines(source: string): string[] {
-  return source.split('\n')
-}
-
-function lastColumn(line: string): number {
-  return Math.max(0, line.length - 1)
-}
+  | 'left' | 'right' | 'down' | 'up'
+  | 'line-start' | 'line-first' | 'line-end' | 'line-last'
+  | 'word-forward' | 'word-backward' | 'word-end' | 'word-end-backward'
+  | 'WORD-forward' | 'WORD-backward' | 'WORD-end' | 'WORD-end-backward'
 
 export function clampVimCursor(source: string, cursor: VimCursor): VimCursor {
-  const lines = sourceLines(source)
-  const line = Math.max(1, Math.min(lines.length, cursor.line))
-  return {
-    line,
-    column: Math.max(0, Math.min(lastColumn(lines[line - 1] ?? ''), cursor.column)),
-  }
+  const lines = source.split('\n')
+  const line = Math.max(1, Math.min(lines.length, Math.floor(cursor.line) || 1))
+  const text = lines[line - 1]!
+  let column = Math.max(0, Math.min(Math.max(0, text.length - 1), Math.floor(cursor.column) || 0))
+  if (column > 0 && /[\uDC00-\uDFFF]/u.test(text[column]!) && /[\uD800-\uDBFF]/u.test(text[column - 1]!)) column -= 1
+  return { line, column }
 }
 
-function positionToOffset(source: string, cursor: VimCursor): number {
-  const lines = sourceLines(source)
-  const position = clampVimCursor(source, cursor)
-  let offset = 0
-  for (let line = 1; line < position.line; line += 1) {
-    offset += (lines[line - 1]?.length ?? 0) + 1
-  }
-  return Math.min(Math.max(0, source.length - 1), offset + position.column)
+export function vimCharacterLength(source: string, offset: number): number {
+  return (source.codePointAt(offset) ?? 0) > 0xFFFF ? 2 : 1
 }
 
-function offsetToPosition(source: string, requestedOffset: number): VimCursor {
-  if (!source) return { line: 1, column: 0 }
-  const offset = Math.max(0, Math.min(source.length - 1, requestedOffset))
+export function vimCursorOffset(source: string, cursor: VimCursor): number {
+  const current = clampVimCursor(source, cursor)
+  const lines = source.split('\n')
+  let offset = current.column
+  for (let line = 1; line < current.line; line += 1) offset += lines[line - 1]!.length + 1
+  return offset
+}
+
+export function vimOffsetCursor(source: string, requestedOffset: number): VimCursor {
+  const offset = Math.max(0, Math.min(source.length, requestedOffset))
   const before = source.slice(0, offset)
-  const line = before.split('\n').length
-  const lineStart = before.lastIndexOf('\n') + 1
-  if (source[offset] === '\n') return clampVimCursor(source, { line: line + 1, column: 0 })
-  return clampVimCursor(source, { line, column: offset - lineStart })
+  return clampVimCursor(source, {
+    line: before.split('\n').length,
+    column: offset - (before.lastIndexOf('\n') + 1),
+  })
 }
 
-function characterClass(character: string | undefined): 0 | 1 | 2 {
+export function vimCharacterClass(character: string | undefined, bigWord = false): 0 | 1 | 2 {
   if (!character || /\s/u.test(character)) return 0
-  return /[\p{L}\p{N}_]/u.test(character) ? 1 : 2
+  return bigWord || /[\p{L}\p{N}_]/u.test(character) ? 1 : 2
 }
 
-function nextWordStart(source: string, offset: number): number {
-  if (!source) return 0
-  let next = Math.min(source.length - 1, offset)
-  const currentClass = characterClass(source[next])
-  if (currentClass === 0) {
-    while (next < source.length && characterClass(source[next]) === 0) next += 1
+function wordOffset(source: string, offset: number, motion: VimMotion): number {
+  const bigWord = motion.startsWith('WORD')
+  const kind = motion.slice(motion.indexOf('-') + 1)
+  const cls = (at: number) => vimCharacterClass(source[at], bigWord)
+  const last = Math.max(0, source.length - 1)
+  let next = offset
+  if (kind === 'forward') {
+    const currentClass = cls(next)
+    while (next < source.length && cls(next) === currentClass) next += 1
+    while (next < source.length && cls(next) === 0) next += 1
+  } else if (kind === 'backward') {
+    next = Math.max(0, next - 1)
+    while (next > 0 && cls(next) === 0) next -= 1
+    const currentClass = cls(next)
+    while (next > 0 && cls(next - 1) === currentClass) next -= 1
+  } else if (kind === 'end') {
+    next = Math.min(last, next + 1)
+    while (next < last && cls(next) === 0) next += 1
+    const currentClass = cls(next)
+    while (next < last && cls(next + 1) === currentClass) next += 1
   } else {
-    while (next < source.length && characterClass(source[next]) === currentClass) next += 1
-    while (next < source.length && characterClass(source[next]) === 0) next += 1
+    const currentClass = cls(next)
+    while (next > 0 && cls(next - 1) === currentClass) next -= 1
+    next = Math.max(0, next - 1)
+    while (next > 0 && cls(next) === 0) next -= 1
   }
-  return Math.min(source.length - 1, next)
-}
-
-function previousWordStart(source: string, offset: number): number {
-  if (!source) return 0
-  let next = Math.max(0, offset - 1)
-  while (next > 0 && characterClass(source[next]) === 0) next -= 1
-  const nextClass = characterClass(source[next])
-  while (next > 0 && characterClass(source[next - 1]) === nextClass) next -= 1
-  return next
-}
-
-function nextWordEnd(source: string, offset: number): number {
-  if (!source) return 0
-  let next = Math.min(source.length - 1, offset + 1)
-  while (next < source.length - 1 && characterClass(source[next]) === 0) next += 1
-  const nextClass = characterClass(source[next])
-  while (next < source.length - 1 && characterClass(source[next + 1]) === nextClass) next += 1
-  return next
+  return Math.max(0, Math.min(source.length, next))
 }
 
 export function moveVimCursor(
@@ -95,37 +81,40 @@ export function moveVimCursor(
   motion: VimMotion,
   requestedCount = 1,
 ): VimCursor {
-  const lines = sourceLines(source)
+  const lines = source.split('\n')
   const current = clampVimCursor(source, cursor)
-  const count = Math.max(1, Math.floor(requestedCount))
-
+  const count = Math.max(1, Math.min(100_000, Math.floor(requestedCount) || 1))
+  const text = lines[current.line - 1]!
   switch (motion) {
     case 'left':
-      return clampVimCursor(source, { ...current, column: current.column - count })
-    case 'right':
-      return clampVimCursor(source, { ...current, column: current.column + count })
-    case 'down':
-      return clampVimCursor(source, { ...current, line: current.line + count })
-    case 'up':
-      return clampVimCursor(source, { ...current, line: current.line - count })
-    case 'line-start':
-      return { ...current, column: 0 }
-    case 'line-end':
-      return { ...current, column: lastColumn(lines[current.line - 1] ?? '') }
-    case 'word-forward': {
-      let offset = positionToOffset(source, current)
-      for (let index = 0; index < count; index += 1) offset = nextWordStart(source, offset)
-      return offsetToPosition(source, offset)
+    case 'right': {
+      let column = current.column
+      for (let index = 0; index < count; index += 1) {
+        if (motion === 'left') {
+          if (column === 0) break
+          column -= 1
+          if (column > 0 && /[\uDC00-\uDFFF]/u.test(text[column]!)) column -= 1
+        } else {
+          if (column >= text.length - 1) break
+          column += vimCharacterLength(text, column)
+        }
+      }
+      return clampVimCursor(source, { ...current, column })
     }
-    case 'word-backward': {
-      let offset = positionToOffset(source, current)
-      for (let index = 0; index < count; index += 1) offset = previousWordStart(source, offset)
-      return offsetToPosition(source, offset)
-    }
-    case 'word-end': {
-      let offset = positionToOffset(source, current)
-      for (let index = 0; index < count; index += 1) offset = nextWordEnd(source, offset)
-      return offsetToPosition(source, offset)
+    case 'down': return clampVimCursor(source, { ...current, line: current.line + count })
+    case 'up': return clampVimCursor(source, { ...current, line: current.line - count })
+    case 'line-start': return { ...current, column: 0 }
+    case 'line-first': return { ...current, column: Math.max(0, text.search(/\S/u)) }
+    case 'line-end': return clampVimCursor(source, { ...current, column: Math.max(0, text.length - 1) })
+    case 'line-last': return clampVimCursor(source, { ...current, column: Math.max(0, text.trimEnd().length - 1) })
+    default: {
+      let offset = vimCursorOffset(source, current)
+      for (let index = 0; index < count; index += 1) {
+        const next = wordOffset(source, offset, motion)
+        if (next === offset) break
+        offset = next
+      }
+      return vimOffsetCursor(source, offset)
     }
   }
 }

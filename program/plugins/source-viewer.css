@@ -1,4 +1,5 @@
 .source-viewer-pane {
+  --source-review-footer-height: 42px;
   position: relative;
   flex: 1 1 auto;
   outline: none;
@@ -75,7 +76,7 @@
 }
 
 .source-viewer-command {
-  top: 50px;
+  bottom: 36px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -83,6 +84,64 @@
   border-radius: 10px;
   color: var(--text-muted);
 }
+
+.source-vim-status {
+  display: flex;
+  flex: 0 0 var(--control-compact);
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-muted);
+  font-size: var(--type-supporting);
+  min-width: 0;
+}
+.source-vim-mode { flex: none; color: var(--text); font-size: var(--type-supporting); font-weight: var(--weight-semibold); letter-spacing: .045em; }
+.source-vim-message { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-vim-pending, .source-vim-position { flex: none; font-family: var(--mono); }
+.source-vim-pending { color: var(--accent); }
+
+.source-vim-help {
+  position: absolute;
+  z-index: 8;
+  inset: calc(var(--control-pane-header) + var(--space-3)) var(--space-3) auto;
+  max-width: var(--conversation-reading-width);
+  max-height: calc(100% - var(--control-topbar) - var(--control-compact) - var(--space-3));
+  box-sizing: border-box;
+  overflow: auto;
+  margin: 0 auto;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  color: var(--text);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-panel);
+  font-size: var(--type-label);
+  line-height: 1.6;
+  outline: none;
+}
+.source-vim-help header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.source-vim-help strong { color: var(--text-strong); font-size: var(--type-body); font-weight: var(--weight-semibold); }
+.source-vim-help p { margin: calc(var(--space-1) / 2) 0 0; color: var(--text-muted); }
+.source-vim-help button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--control-icon);
+  height: var(--control-icon);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-dense);
+  color: var(--text-muted);
+  background: transparent;
+}
+.source-vim-help button:hover { background: var(--panel-soft); color: var(--text); }
+.source-vim-help button:focus-visible { outline: 2px solid var(--accent); }
+.source-vim-help dl { display: grid; grid-template-columns: minmax(7em, auto) 1fr; column-gap: var(--space-4); row-gap: var(--space-2); margin: var(--space-4) 0; }
+.source-vim-help dt { color: var(--text-muted); }
+.source-vim-help dd { margin: 0; min-width: 0; }
+.source-vim-help kbd { color: var(--text-strong); font-family: var(--mono); font-size: var(--type-supporting); }
+.source-vim-help .source-vim-help-note { border-top: 1px solid var(--border-soft); padding-top: var(--space-3); font-size: var(--type-supporting); }
 .source-viewer-command input {
   flex: 1 1 auto;
   min-width: 0;
@@ -99,6 +158,8 @@
   padding: 11px;
   border-radius: 13px;
 }
+.source-viewer-pane:has(> .source-viewer-footer) .source-viewer-command,
+.source-viewer-pane:has(> .source-viewer-footer) .source-review-draft { bottom: calc(var(--source-review-footer-height) + var(--control-compact) + var(--space-2)); }
 .source-review-draft-heading,
 .source-review-draft-actions,
 .source-viewer-footer,
@@ -143,7 +204,7 @@
 .source-viewer-footer button:disabled { opacity: .45; }
 
 .source-viewer-footer {
-  flex: 0 0 42px;
+  flex: 0 0 var(--source-review-footer-height);
   justify-content: space-between;
   gap: 12px;
   padding: 0 10px 0 14px;
