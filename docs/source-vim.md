@@ -1,9 +1,30 @@
-# Vim navigation in Source
+# Vim navigation and editing in Source
 
-Focus a Source pane to use Vim navigation. Source stays read-only: navigation,
-selection, clipboard copying, and review comments do not modify the file.
-The status line shows the mode, cursor position, and pending commands. The
-keyboard button or `:help` opens the shortcut reference.
+Focus a Source pane to use Vim navigation. It opens in review mode. Press
+`i`, `a`, `I`, `A`, `o`, or `O` to start editing at the cursor, or click the
+pencil button to open the editor in Normal mode. The status line shows your
+mode, cursor position, and whether the file has unsaved changes. The keyboard
+button or `:help` in review opens the shortcut reference.
+
+Editing uses CodeMirror 6 with Vim bindings. Use Insert mode to type, Escape
+to return to Normal mode, and ordinary Vim changes such as `ciw`, `dd`, `x`,
+`p`, `u`, `Ctrl+r`, and `.`. Mouse placement, dragging, native Copy/Paste,
+search, and Visual selections remain available. `c` changes text in editing;
+it adds a comment in review.
+
+Save with `⌘S` (`Ctrl+s`), `:w`, or the save button. `:wq` saves and returns
+to review only after a successful save with no further edits. The book button
+or `:q` returns to the saved file for review and retains the editor's draft.
+Review comments stay attached to their saved file revision. This is not a
+Neovim process: Neovim plugins and shell commands are not supported.
+
+Each pane retains its file buffers and undo history across file and workspace
+tab switches. Draft text and its original revision are backed up locally for
+recovery when the pane is restored after a reload or restart; undo history
+is session-only. Disk writes are explicit. Saves compare the original revision
+with the current disk contents and reject conflicts without replacing the
+buffer. Changes typed during a pending save remain unsaved. Reload is disabled
+while a draft is dirty; Discard changes requires confirmation before reloading.
 
 Mouse controls remain available. Click source text to place the cursor and
 continue navigating with keys. Drag across text for a character selection, or
@@ -39,19 +60,27 @@ query. Commands belong to one pane and one loaded file: opening another file
 resets its marks and searches, while switching workspace tabs retains the
 loaded pane and cursor.
 
-This is a navigation-focused Vim subset, not a Neovim process. Editing,
-macros, registers, regular-expression searches, block selections, and arbitrary
-Ex commands are not supported. Bracket matching uses source delimiters without
-language-specific parsing. Use the Editor pane when you want to change files.
-The diff viewer is unchanged.
+The table describes the review command layer. Its search is literal and its
+bracket matching uses source delimiters without language-specific parsing.
+Editing has CodeMirror's Vim search, text objects, registers, and editing
+commands instead. The read-only diff viewer is unchanged.
 
 ## Implementation
 
 `source-vim.ts` provides pure motions and position conversions.
 `source-vim-controller.ts` owns command sequences, selections, searches, marks,
 and jump history. It returns effects for the Source pane to carry out, including
-clipboard writes, scrolling, and review comments. The controller never writes
-source files or accesses the DOM.
+clipboard writes, scrolling, and review comments. The review controller never writes source files or accesses the DOM.
+
+`source-editor.client.tsx` owns one CodeMirror instance per edited buffer,
+including its selection, syntax parser, history, and Vim state. Its Ex save
+commands route to the exact invoking editor. The Source pane owns dirty state,
+file navigation, saving, and draft recovery through `source-editor-drafts.ts`.
+`source-viewer.ts` performs bounded UTF-8 reads and revision-checked atomic
+saves, preserving BOM, line endings, permissions, and ownership. A changed
+file is checked again immediately before replacement. External programs can
+still race the final rename because the filesystem has no portable conditional
+rename operation.
 
 `source-vim-dom.ts` measures rendered text to place the cursor and character
 selection overlays across syntax tokens, tabs, wide characters, and wrapped
@@ -59,5 +88,5 @@ lines. Source positions use UTF-16 offsets; screen placement comes from DOM
 ranges rather than assuming each offset occupies one monospace cell.
 
 Unit tests cover command semantics. The Electron fixture exercises the real
-Source plugin, syntax renderer, focus behavior, clipboard integration, mouse
-selection, review comments, pane retention, and normal and narrow layouts.
+Source plugin, syntax renderer, focus behavior, clipboard integration, pane
+retention, editing, save conflicts, and normal and narrow layouts.

@@ -28,7 +28,7 @@ export interface VimResult {
 type Find = { character: string; direction: 1 | -1; till: boolean }
 type Search = { query: string; direction: 1 | -1; wholeWord: boolean }
 const MAX_COUNT = 100_000
-const READ_ONLY = 'Source is read-only. Use c to comment, or open the file in your editor.'
+const READ_ONLY = 'Review is read-only. Press i or click Edit to change this file; c adds a comment.'
 const MOTIONS: Record<string, VimMotion> = {
   h: 'left', ArrowLeft: 'left', Backspace: 'left', l: 'right', ArrowRight: 'right',
   j: 'down', ArrowDown: 'down', k: 'up', ArrowUp: 'up',

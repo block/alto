@@ -219,3 +219,53 @@
 @container conversation-column (max-width: 560px) {
   .source-viewer-toolbar { gap: 6px; padding-left: 8px; }
 }
+
+.source-editor-container {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.source-editor-container[hidden] { display: none; }
+.source-editor { height: 100%; min-width: 0; }
+.source-editor-dirty { flex: none; color: var(--accent); font-size: var(--type-supporting); }
+.source-editor-problem {
+  flex: none;
+  max-height: 25%;
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  color: var(--danger);
+  font-size: var(--type-supporting);
+  overflow-wrap: anywhere;
+}
+.source-editor-discard {
+  position: absolute;
+  z-index: 9;
+  top: calc(var(--control-pane-header) + var(--space-3));
+  right: var(--space-3);
+  left: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-panel);
+  font-size: var(--type-supporting);
+}
+.source-editor-discard p { margin: 0 0 var(--space-3); }
+.source-editor-discard > div { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.source-editor-discard button {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-dense);
+  background: var(--panel-soft);
+  color: var(--text);
+  font: inherit;
+}
+
+.source-viewer-toolbar .source-viewer-file { display: flex; }
+.source-viewer-actions { gap: var(--space-1); }
+.source-vim-status .alto-icon-button { --alto-icon-button-size: var(--control-compact); }
+@container conversation-column (max-width: 560px) {
+  .source-viewer-file small { display: none; }
+}

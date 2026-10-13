@@ -315,7 +315,7 @@ async function check() {
 
     await run("pane().querySelector('[aria-label=\"Vim keyboard shortcuts\"]').click()")
     await until("!!pane().querySelector('[role=dialog][aria-label=\"Vim keyboard shortcuts\"]')")
-    assert.match(await run("pane().querySelector('[role=dialog]').textContent"),/Vim navigation/)
+    assert.match(await run("pane().querySelector('[role=dialog]').textContent"),/Vim (?:navigation|in Source)/)
     await key('Escape')
     await until("!pane().querySelector('[role=dialog]')")
     await run('focusPane()')

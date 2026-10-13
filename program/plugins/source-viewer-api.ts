@@ -1,6 +1,7 @@
 import { isRecord, type JsonValue } from '../../src/shared/protocol.js'
 
 export const SOURCE_VIEWER_READ_METHOD = 'source-viewer.read'
+export const SOURCE_VIEWER_SAVE_METHOD = 'source-viewer.save'
 export const SOURCE_VIEWER_PANE_KIND = 'source-viewer'
 const RESOURCE_PREFIX = 'source:'
 
@@ -18,6 +19,12 @@ export interface SourceDocument {
   revision: string
   modifiedAt: number
   lineCount: number
+}
+
+export interface SourceSaveRequest {
+  path: string
+  source: string
+  expectedRevision: string
 }
 
 function positive(value: string | null): number | undefined {

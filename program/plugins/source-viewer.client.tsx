@@ -4,6 +4,9 @@ import {
   Keyboard as KeyboardIcon,
   MessageSquarePlus,
   RefreshCw,
+  Pencil,
+  Save,
+  BookOpen,
   Send,
   TextWrap,
   Trash2,
@@ -43,6 +46,7 @@ import {
   parseSourceViewerResource,
   SOURCE_VIEWER_PANE_KIND,
   SOURCE_VIEWER_READ_METHOD,
+  SOURCE_VIEWER_SAVE_METHOD,
   sourceViewerResource,
   type SourceDocument,
   type SourceLocation,
@@ -52,6 +56,8 @@ import {
   vimCursorOffset,
   type VimCursor,
 } from './source-vim.js'
+import { SourceEditor, type SourceEditorHandle } from './source-editor.client.js'
+import { readSourceEditDraft, registerSourceDraftOwner, writeSourceEditDraft } from './source-editor-drafts.js'
 import { SourceVimController, type VimResult } from './source-vim-controller.js'
 import { clearSourceTextSelection, clearVimDecorations, paintVimDecorations, revealVimColumn, sourcePointerPosition, sourceTextSelection, sourceViewport } from './source-vim-dom.js'
 import type {
@@ -159,6 +165,22 @@ type ViewerState =
   | { tag: 'idle' | 'loading' }
   | { tag: 'ready'; document: SourceDocument }
   | { tag: 'failed'; problem: string }
+
+interface EditBuffer {
+  document: SourceDocument
+  source: string
+  requestedPath: string
+  editing: boolean
+  mounted: boolean
+  initialCursor: VimCursor
+  startKey?: string
+  cursor: VimCursor
+  mode: string
+  saving: boolean
+  message: string
+  problem?: string | undefined
+  editor?: SourceEditorHandle | undefined
+}
 
 type CommandMode = 'forward' | 'backward' | 'ex'
 
@@ -331,6 +353,42 @@ function SourceViewerPane({
   const [location, setLocation] = useState<SourceLocation | undefined>(initial)
   const activated = useViewerActivated(visible)
   const [reload, setReload] = useState(0)
+  const buffers = useRef(new Map<string, EditBuffer>())
+  const [, updateBuffers] = useState(0)
+  const [discardPrompt, setDiscardPrompt] = useState(false)
+  const discardPanel = useRef<HTMLElement>(null)
+  const seenReload = useRef(reload)
+  const [recoveryProblem, setRecoveryProblem] = useState('')
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const alive = useRef(true)
+  const draftOwner = `${workspaceId}:${pane.id}`
+  const publishBuffers = (): void => { if (alive.current) updateBuffers((version) => version + 1) }
+  const persistBuffers = (): void => {
+    if (draftTimer.current !== undefined) clearTimeout(draftTimer.current)
+    draftTimer.current = undefined
+    try {
+      for (const buffer of buffers.current.values()) writeSourceEditDraft(draftOwner, buffer)
+      if (alive.current) setRecoveryProblem('')
+    } catch {
+      if (alive.current) setRecoveryProblem('Draft recovery is unavailable. Save your changes before closing Alto.')
+    }
+  }
+  const scheduleDraft = (): void => {
+    if (draftTimer.current !== undefined) clearTimeout(draftTimer.current)
+    draftTimer.current = setTimeout(persistBuffers, 300)
+  }
+  useEffect(() => {
+    alive.current = true
+    const releaseOwner = registerSourceDraftOwner(draftOwner)
+    const flush = (): void => persistBuffers()
+    window.addEventListener('beforeunload', flush)
+    return () => {
+      alive.current = false
+      window.removeEventListener('beforeunload', flush)
+      persistBuffers()
+      releaseOwner()
+    }
+  }, [])
   const [state, setState] = useState<ViewerState>({ tag: 'idle' })
   const [lineWrap, setLineWrap] = useLineWrapPreference('source')
   const [selection, setSelection] = useState<CodeViewLineSelection | null>(null)
@@ -371,15 +429,47 @@ function SourceViewerPane({
     if (!activated || !location?.path) return
     let current = true
     setState({ tag: 'loading' })
-    const payload: JsonValue = { path: location.path }
-    void host.call(SOURCE_VIEWER_READ_METHOD, payload).then((value) => {
+    setDiscardPrompt(false)
+    const requestedPath = location.path
+    const refresh = seenReload.current !== reload
+    seenReload.current = reload
+    const retained = buffers.current.get(requestedPath)
+      ?? [...buffers.current.values()].find((buffer) => buffer.requestedPath === requestedPath)
+    const recovered = !retained && readSourceEditDraft(draftOwner, requestedPath)
+    const payload: JsonValue = { path: requestedPath }
+    // Reopening a retained buffer never needs a successful disk read. A file may
+    // have been removed externally while its unsaved draft still needs recovery.
+    const read = retained && !refresh
+      ? Promise.resolve(retained.document as unknown as JsonValue)
+      : recovered ? Promise.resolve(recovered.document as unknown as JsonValue)
+      : host.call(SOURCE_VIEWER_READ_METHOD, payload)
+    void read.then((value) => {
       if (!current) return
-      const document = parseSourceDocument(value)
+      const loaded = parseSourceDocument(value)
+      let buffer = buffers.current.get(loaded.path)
+      if (!buffer) {
+        const recovered = readSourceEditDraft(draftOwner, loaded.path)
+        const document = recovered?.document ?? loaded
+        buffer = {
+          document, source: recovered?.source ?? document.source, requestedPath,
+          editing: !!recovered, mounted: !!recovered, cursor: initialCursor(location),
+          initialCursor: initialCursor(location), mode: 'normal', saving: false,
+          message: recovered ? 'Unsaved draft restored' : '',
+        }
+        buffers.current.set(loaded.path, buffer)
+      } else if (refresh && buffer.source === buffer.document.source && !buffer.saving) {
+        // Clean buffers follow disk; dirty buffers retain the revision they started from.
+        buffer.document = loaded
+        buffer.source = loaded.source
+        buffer.editor?.replaceSource(loaded.source, buffer.cursor)
+      }
+      const document = buffer.document
+      publishBuffers()
       setComments(loadComments(document.path))
       setCommentVersion((version) => version + 1)
       setSelection(null)
       setDraft(undefined)
-      vim.current = new SourceVimController(document.source, initialCursor(location))
+      vim.current = new SourceVimController(document.source, location.line ? initialCursor(location) : buffer.cursor)
       setVimState({ ...vim.current.state })
       setCommand(undefined)
       setShowHelp(false)
@@ -394,6 +484,101 @@ function SourceViewerPane({
   }, [activated, host, location?.path, reload])
 
   const document = state.tag === 'ready' ? state.document : undefined
+  const editBuffer = document ? buffers.current.get(document.path) : undefined
+  const editing = editBuffer?.editing ?? false
+  const dirty = !!editBuffer && editBuffer.source !== editBuffer.document.source
+  const displayedCursor = editing && editBuffer ? editBuffer.cursor : cursor
+
+  const enterEditor = (key?: string): void => {
+    if (!editBuffer) return
+    const position = vim.current.state.cursor
+    editBuffer.editing = true
+    editBuffer.cursor = position
+    if (!editBuffer.mounted) {
+      editBuffer.mounted = true
+      editBuffer.initialCursor = position
+      if (key) editBuffer.startKey = key
+    } else {
+      editBuffer.editor?.command('<Esc>')
+      editBuffer.editor?.setCursor(position)
+      if (key) editBuffer.editor?.command(key)
+      editBuffer.editor?.focus()
+    }
+    setDraft(undefined)
+    setCommand(undefined)
+    setShowHelp(false)
+    publishBuffers()
+  }
+
+  const reviewBuffer = (buffer: EditBuffer): void => {
+    buffer.editor?.command('<Esc>')
+    buffer.cursor = buffer.editor?.cursor() ?? buffer.cursor
+    buffer.editing = false
+    if (buffer === editBuffer) {
+      vim.current.setCursor(buffer.cursor)
+      publishVimState()
+      reveal({ handled: true, cursor: buffer.cursor, jump: true })
+      focusSource()
+    }
+    publishBuffers()
+  }
+
+  const saveBuffer = async (buffer: EditBuffer): Promise<boolean> => {
+    if (buffer.saving) return false
+    if (buffer.source === buffer.document.source) { buffer.message = 'Saved'; publishBuffers(); return true }
+    const submitted = buffer.source
+    const original = buffer.document
+    buffer.saving = true
+    buffer.problem = undefined
+    buffer.message = ''
+    publishBuffers()
+    try {
+      const saved = parseSourceDocument(await host.call(SOURCE_VIEWER_SAVE_METHOD, {
+        path: original.path, source: submitted, expectedRevision: original.revision,
+      }))
+      if (!alive.current) return false
+      // Edits made during this request remain dirty against the newly saved revision.
+      buffer.document = saved
+      if (buffer.source === submitted) {
+        buffer.source = saved.source
+        if (saved.source !== submitted && alive.current) buffer.editor?.replaceSource(saved.source, buffer.cursor)
+      }
+      buffer.message = buffer.source === saved.source ? 'Saved' : 'Unsaved changes'
+      persistBuffers()
+      if (alive.current) {
+        setState((current) => current.tag === 'ready' && current.document.path === saved.path
+          ? { tag: 'ready', document: saved } : current)
+        if (buffer === activeBuffer.current) {
+          const position = buffer.editor?.cursor() ?? buffer.cursor
+          vim.current = new SourceVimController(saved.source, position)
+          setVimState({ ...vim.current.state })
+          setLocation((current) => current ? { path: current.path, line: position.line, column: position.column + 1 } : current)
+        }
+      }
+      return buffer.source === saved.source
+    } catch (error) {
+      buffer.problem = error instanceof Error ? error.message : String(error)
+      return false
+    } finally {
+      buffer.saving = false
+      publishBuffers()
+    }
+  }
+  const activeBuffer = useRef(editBuffer)
+  activeBuffer.current = editBuffer
+
+  const discardChanges = (): void => {
+    if (!editBuffer || editBuffer.saving) return
+    editBuffer.source = editBuffer.document.source
+    editBuffer.editor?.replaceSource(editBuffer.source, editBuffer.cursor)
+    editBuffer.problem = undefined
+    editBuffer.message = ''
+    persistBuffers()
+    setDiscardPrompt(false)
+    setReload((value) => value + 1)
+    publishBuffers()
+  }
+
   const currentComments = useMemo(() => comments.filter((comment) => (
     comment.revision === document?.revision
   )), [comments, document?.revision])
@@ -424,14 +609,15 @@ function SourceViewerPane({
     if (focusFrame.current !== undefined) cancelAnimationFrame(focusFrame.current)
     focusFrame.current = requestAnimationFrame(() => {
       focusFrame.current = undefined
-      paneRoot.current?.focus({ preventScroll: true })
+      if (activeBuffer.current?.editing) activeBuffer.current.editor?.focus()
+      else paneRoot.current?.focus({ preventScroll: true })
     })
   }
 
   const syncVimCursor = (): void => {
     const root = renderedRoot()
     if (!root) return
-    if (!focused || !visible || command || showHelp || draft) {
+    if (!focused || !visible || editing || command || showHelp || draft) {
       clearVimDecorations(root)
       return
     }
@@ -450,6 +636,7 @@ function SourceViewerPane({
 
   const publishVimState = (): void => {
     const next = vim.current.state
+    if (editBuffer && !editing) editBuffer.cursor = next.cursor
     setVimState({ ...next })
     const visual = vim.current.selection()
     if (item) setSelection({ id: item.id, range: {
@@ -539,9 +726,11 @@ function SourceViewerPane({
 
   useEffect(() => {
     if (!item || !document) return
+    const position = location?.line ? initialCursor(location) : editBuffer?.cursor ?? initialCursor(location)
+    if (editing) editBuffer?.editor?.setCursor(position)
     revealCursor.current = true
     mouseSelection.current = undefined
-    const next = clampVimCursor(document.source, initialCursor(location))
+    const next = clampVimCursor(document.source, position)
     vim.current.setCursor(next)
     setVimState({ ...vim.current.state })
     const end = Math.max(1, Math.min(document.lineCount, location?.endLine ?? next.line))
@@ -560,11 +749,14 @@ function SourceViewerPane({
     if (command) commandInput.current?.focus({ preventScroll: true })
   }, [command])
   useEffect(() => {
+    if (discardPrompt) discardPanel.current?.querySelector('button')?.focus()
+  }, [discardPrompt])
+  useEffect(() => {
     if (showHelp) helpPanel.current?.focus({ preventScroll: true })
   }, [showHelp])
   useEffect(() => {
     schedulePaint()
-  }, [vimState, focused, visible, command, showHelp, draft, item?.id, lineWrap])
+  }, [vimState, focused, visible, editing, command, showHelp, draft, item?.id, lineWrap])
   useEffect(() => {
     const container = codeContainer.current
     if (!container || !visible) return
@@ -582,7 +774,8 @@ function SourceViewerPane({
     }
     const active = window.document.activeElement
     if (active instanceof HTMLElement && active.closest('input, textarea, button, [contenteditable="true"]')) return
-    paneRoot.current?.focus({ preventScroll: true })
+    if (activeBuffer.current?.editing) activeBuffer.current.editor?.focus()
+    else paneRoot.current?.focus({ preventScroll: true })
   }, [focused, visible])
 
   useEffect(() => () => {
@@ -592,6 +785,13 @@ function SourceViewerPane({
   }, [])
 
   const finishCommand = (): void => {
+    if (command === 'ex' && /^(?:w|write)$/u.test(commandValue.trim()) && editBuffer) {
+      setCommand(undefined)
+      setCommandValue('')
+      void saveBuffer(editBuffer)
+      focusSource()
+      return
+    }
     const result = command === 'ex' ? vim.current.ex(commandValue)
       : vim.current.search(commandValue, command === 'backward' ? -1 : 1)
     setCommand(undefined)
@@ -601,9 +801,22 @@ function SourceViewerPane({
   }
 
   const keyDown = (event: KeyboardEvent<HTMLElement>): void => {
+    if (focused && visible && editBuffer && !editing && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault()
+      event.stopPropagation()
+      void saveBuffer(editBuffer)
+      return
+    }
+    if (editing || discardPrompt) return
     if (!focused || !visible || !document || command || showHelp || event.metaKey || event.altKey || event.nativeEvent.isComposing) return
     if (event.nativeEvent.composedPath().some((target) => target instanceof HTMLElement
       && target.matches('input, textarea, button, select, [contenteditable="true"], [role="textbox"]'))) return
+    if (!event.ctrlKey && vim.current.state.mode === 'normal' && !vim.current.state.pending && /^[iaIAoO]$/u.test(event.key)) {
+      event.preventDefault()
+      event.stopPropagation()
+      enterEditor(event.key)
+      return
+    }
     const root = renderedRoot()
     const mouseText = root ? sourceTextSelection(root, document.source)?.text : undefined
     const key = event.ctrlKey ? `Ctrl+${event.key.toLowerCase()}` : event.key
@@ -692,11 +905,12 @@ function SourceViewerPane({
       ref={paneRoot}
       className={`${clientStyles.pane} source-viewer-pane`}
       tabIndex={0}
-      aria-label={`Read-only source viewer in Vim ${vimState.mode} mode`}
-      data-vim-mode={vimState.mode}
+      aria-label={`Source ${editing ? 'editor' : 'review'} in Vim ${editing ? editBuffer?.mode : vimState.mode} mode`}
+      data-vim-mode={editing ? editBuffer?.mode : vimState.mode}
+      data-source-dirty={dirty}
       onKeyDown={keyDown}
       onCopy={(event) => {
-        if (!document || event.nativeEvent.composedPath().some((target) => target instanceof HTMLElement
+        if (editing || !document || event.nativeEvent.composedPath().some((target) => target instanceof HTMLElement
           && target.matches('input, textarea, [contenteditable="true"]'))) return
         const range = vim.current.selection()
         if (!range) return
@@ -711,7 +925,7 @@ function SourceViewerPane({
         setClipboardMessage('Copied to clipboard')
       }}
       onPointerDown={(event) => {
-        if (event.button !== 0 || event.nativeEvent.composedPath().some((target) => target instanceof HTMLElement
+        if (editing || event.button !== 0 || event.nativeEvent.composedPath().some((target) => target instanceof HTMLElement
           && target.matches('input, textarea, button, a, [contenteditable="true"]'))) return
         const line = event.nativeEvent.composedPath().find((target) => target instanceof HTMLElement && target.hasAttribute('data-line'))
         const root = renderedRoot()
@@ -721,16 +935,22 @@ function SourceViewerPane({
       onPointerUp={(event) => {
         const interactive = event.nativeEvent.composedPath().some((target) => target instanceof HTMLElement
           && target.matches('input, textarea, button, a, [contenteditable="true"]'))
-        if (!interactive && !showHelp) focusSource()
+        if (!interactive && !showHelp && !editing) focusSource()
       }}
     >
       <header className={`${clientStyles.paneHeader} ${paneToolbarStyles.pane} source-viewer-toolbar`}>
         <div className={`${paneToolbarStyles.title} source-viewer-file`} title={document?.path ?? location?.path}>
           <FileCode2 size={15} strokeWidth={1.6} />
           <span>{document?.name ?? location?.path?.split('/').at(-1) ?? 'Source'}</span>
-          {document && <small>:{cursor.line},{cursor.column + 1}</small>}
+          {document && <small>:{displayedCursor.line},{displayedCursor.column + 1}</small>}
+          {dirty && <span className="source-editor-dirty" aria-label="Unsaved changes">●</span>}
         </div>
         <div className={`${paneToolbarStyles.actions} source-viewer-actions`}>
+          <button className={clientStyles.iconButton} type="button" disabled={!editBuffer}
+            title={editing ? 'Review saved file' : 'Edit file (i)'} aria-label={editing ? 'Review file' : 'Edit file'}
+            aria-pressed={editing} onClick={() => { if (editBuffer) editing ? reviewBuffer(editBuffer) : enterEditor() }}>
+            {editing ? <BookOpen size={14} strokeWidth={1.6} /> : <Pencil size={14} strokeWidth={1.6} />}
+          </button>
           <button className={clientStyles.iconButton} type="button" title="Vim keyboard shortcuts (:help)"
             aria-label="Vim keyboard shortcuts" aria-expanded={showHelp} onClick={() => setShowHelp((value) => !value)}>
             <KeyboardIcon size={14} strokeWidth={1.6} />
@@ -743,17 +963,17 @@ function SourceViewerPane({
             aria-pressed={lineWrap}
             onClick={() => { setLineWrap(!lineWrap); focusSource() }}
           ><TextWrap size={14} strokeWidth={1.6} /></button>
-          <button
+          {!editing && <button
             className={clientStyles.iconButton}
             type="button"
             title="Comment on selected lines (c)"
             aria-label="Comment on selected lines"
-            disabled={!selection}
+            disabled={editing || !selection}
             onClick={commentOnSelection}
-          ><MessageSquarePlus size={14} strokeWidth={1.6} /></button>
-          <button className={clientStyles.iconButton} type="button" title="Reload" aria-label="Reload source file" onClick={() => { mouseSelection.current = undefined; setReload((value) => value + 1); focusSource() }}>
+          ><MessageSquarePlus size={14} strokeWidth={1.6} /></button>}
+          {!editing && <button className={clientStyles.iconButton} type="button" title="Reload" aria-label="Reload source file" disabled={dirty || editBuffer?.saving} onClick={() => { mouseSelection.current = undefined; setReload((value) => value + 1); focusSource() }}>
             <RefreshCw size={14} strokeWidth={1.6} />
-          </button>
+          </button>}
         </div>
       </header>
       <div className="source-viewer-body">
@@ -766,10 +986,29 @@ function SourceViewerPane({
           />
         )}
         <div className="source-viewer-code-shell">
+          {[...buffers.current.values()].filter((buffer) => buffer.mounted).map((buffer) => (
+            <div className="source-editor-container" key={buffer.document.path} hidden={buffer !== editBuffer || !editing} inert={showHelp || discardPrompt}>
+              <SourceEditor
+                ref={(handle) => { buffer.editor = handle ?? undefined }}
+                path={buffer.document.path} initialSource={buffer.source} initialCursor={buffer.initialCursor}
+                {...(buffer.startKey ? { startKey: buffer.startKey } : {})}
+                lineWrap={lineWrap} dark={theme.mode === 'dark'} active={buffer === editBuffer && editing && focused && visible && !showHelp && !discardPrompt}
+                onChange={(source) => {
+                  buffer.source = source
+                  buffer.message = ''
+                  scheduleDraft()
+                  publishBuffers()
+                }}
+                onCursor={(position) => { buffer.cursor = position; publishBuffers() }}
+                onMode={(mode) => { buffer.mode = mode; publishBuffers() }}
+                onSave={() => saveBuffer(buffer)} onReview={() => reviewBuffer(buffer)}
+              />
+            </div>
+          ))}
           {state.tag === 'loading' && <div className="source-viewer-state"><RefreshCw className="is-spinning" size={16} /> Loading source…</div>}
           {state.tag === 'failed' && <div className="source-viewer-state is-error" role="alert">{state.problem}</div>}
           {!location && <div className="source-viewer-state">Open a source file from chat or the file tree.</div>}
-          {item && (
+          {item && !editing && (
             <CodeView<SourceComment>
               ref={viewer}
               containerRef={codeContainer}
@@ -795,18 +1034,30 @@ function SourceViewerPane({
       </div>
       {document && (
         <div className="source-vim-status" aria-label="Vim status">
-          <span className="source-vim-mode">{vimState.mode === 'visual-line' ? 'VISUAL LINE' : vimState.mode.toUpperCase()}</span>
-          <span className="source-vim-message" role="status">{clipboardMessage || vimState.message || 'Read only · c to comment'}</span>
-          <kbd className="source-vim-pending">{vimState.pending}</kbd>
-          <span className="source-vim-position">{cursor.line}:{cursor.column + 1}</span>
+          <span className="source-vim-mode">{editing ? editBuffer?.mode.toUpperCase() : vimState.mode === 'visual-line' ? 'VISUAL LINE' : vimState.mode.toUpperCase()}</span>
+          <span className="source-vim-message" role="status">{editBuffer?.saving ? 'Saving…' : dirty ? editing ? editBuffer?.message || 'Unsaved changes' : 'Reviewing saved file · unsaved draft retained' : editBuffer?.message || clipboardMessage || (!editing && vimState.message) || (editing ? '⌘S or :w to save' : 'i to edit · c to comment')}</span>
+          {(editing || dirty) && <button className={clientStyles.iconButton} type="button"
+            title="Save file (⌘S or :w)" aria-label="Save file" disabled={!dirty || editBuffer?.saving}
+            onClick={() => { if (editBuffer) void saveBuffer(editBuffer); focusSource() }}><Save size={14} strokeWidth={1.6} /></button>}
+          {dirty && <button className={clientStyles.iconButton} type="button" title="Discard changes" aria-label="Discard changes"
+            disabled={editBuffer?.saving} onClick={() => setDiscardPrompt(true)}><X size={14} strokeWidth={1.6} /></button>}
+          <kbd className="source-vim-pending">{editing ? '' : vimState.pending}</kbd>
+          <span className="source-vim-position">{displayedCursor.line}:{displayedCursor.column + 1}</span>
         </div>
       )}
+      {(editBuffer?.problem || recoveryProblem) && <div className="source-editor-problem" role="alert">{editBuffer?.problem || recoveryProblem}</div>}
+      {discardPrompt && <section ref={discardPanel} className="source-editor-discard" role="alertdialog" aria-label="Discard unsaved changes"
+        onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setDiscardPrompt(false); focusSource() } }}>
+        <p>Discard this file’s unsaved changes and reload from disk?</p>
+        <div><button type="button" onClick={() => { setDiscardPrompt(false); focusSource() }}>Keep editing</button>
+          <button type="button" onClick={discardChanges}>Discard</button></div>
+      </section>}
       {showHelp && (
         <section ref={helpPanel} className="source-vim-help" role="dialog" aria-label="Vim keyboard shortcuts" tabIndex={-1}
           onKeyDown={(event) => {
             if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setShowHelp(false); focusSource() }
           }}>
-          <header><div><strong>Vim navigation</strong><p>Select, copy, and comment on source.</p></div>
+          <header><div><strong>Vim in Source</strong><p>Navigate, edit, and review source.</p></div>
             <button type="button" aria-label="Close Vim keyboard shortcuts" onClick={() => { setShowHelp(false); focusSource() }}><X size={15} /></button>
           </header>
           <dl>
@@ -821,9 +1072,12 @@ function SourceViewerPane({
             <dt>Page</dt><dd><kbd>Ctrl+d/u</kbd> half page · <kbd>Ctrl+f/b</kbd> page · <kbd>H M L</kbd> screen</dd>
             <dt>Position view</dt><dd><kbd>zz zt zb</kbd> center / top / bottom</dd>
             <dt>Return</dt><dd><kbd>ma</kbd> set mark · <kbd>'a</kbd> line · <kbd>`a</kbd> exact · <kbd>Ctrl+o/i</kbd> jump history</dd>
-            <dt>Review</dt><dd><kbd>c</kbd> comment on current or selected lines</dd>
+            <dt>Edit</dt><dd><kbd>i a I A o O</kbd> enter editing · <kbd>Esc</kbd> normal mode</dd>
+            <dt>Change text</dt><dd>In editing: <kbd>c d x p</kbd> · <kbd>u</kbd> undo · <kbd>Ctrl+r</kbd> redo · <kbd>.</kbd> repeat</dd>
+            <dt>Save</dt><dd><kbd>⌘S</kbd> / <kbd>Ctrl+s</kbd> · <kbd>:w</kbd> · <kbd>:wq</kbd> save and return to review</dd>
+            <dt>Review</dt><dd>In review: <kbd>c</kbd> comments on selected lines. The book button returns to review.</dd>
           </dl>
-          <p className="source-vim-help-note">Source stays read only. Use the Editor pane to change files. Search uses literal text, ignoring case unless you type a capital letter.</p>
+          <p className="source-vim-help-note">Edit drafts are retained when you switch files or tabs. Review shows the saved file; its search uses literal smart-case text. Editing uses Vim search and text commands. Saves check for changes on disk.</p>
         </section>
       )}
       {command && (
@@ -897,7 +1151,7 @@ const sourceViewerClient: BrowserPlugin = (ctx) => {
   ctx.clientWorkspaceLayout.registerPaneKind(ctx, {
     id: SOURCE_VIEWER_PANE_KIND,
     label: 'Source',
-    description: 'Read source files with Vim navigation and line comments',
+    description: 'Edit and review source files with Vim keys and line comments',
     shortcut: 's',
     icon: FileCode2,
     renderer: (props) => <SourceViewerPane

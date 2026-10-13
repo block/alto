@@ -420,7 +420,7 @@
             {
               "id": "code-explorer",
               "name": "Code Navigation",
-              "description": "Provides shared navigation contributions for read-only source and diff panes.",
+              "description": "Provides shared file navigation for source and diff panes.",
               "client": "plugins/code-explorer.client.ts",
               "enabled": true,
               "config": {},
@@ -428,7 +428,7 @@
                 {
                   "id": "source-viewer",
                   "name": "Source Viewer",
-                  "description": "Opens source files with Vim navigation and line comments for Alto.",
+                  "description": "Edits and reviews source files with Vim keys, safe saving, and line comments.",
                   "module": "plugins/source-viewer.ts",
                   "client": "plugins/source-viewer.client.tsx",
                   "enabled": true,
