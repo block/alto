@@ -18,17 +18,19 @@ async function check() {
       localStorage.setItem('codex-cordis.workspace-layout',JSON.stringify(saved));
       let statuses={revision:0,running:[],finished:['current','newest-unread','older-unread']};
       const statusListeners=new Set(),layoutListeners=new Set(),overlayListeners=new Set();let overlay;
+      const previewRequests=[],paneUpdates=new Map();
+      const activities=id=>id==='read'?[]:[{kind:'user',content:'Opening '+id},{kind:'agent',content:'Latest reply for '+id},{kind:'tool',content:'Tool output is not a message'}];
       const status={subscribe:fn=>{statusListeners.add(fn);return()=>statusListeners.delete(fn)},snapshot:()=>statuses,acknowledge:id=>{statuses={...statuses,revision:statuses.revision+1,finished:statuses.finished.filter(t=>t!==id)};for(const fn of statusListeners)fn()}};
       const state={connected:true,threadId:'current',session:{workspace:'/repo',permissionMode:'full'},projects:[],threads:[current,older,read],skills:[],turn:{tag:'running'},activities:[],history:{tag:'ready',entries:[]},harness:{extensions:{'session.workspace':'/tmp/alto-scratch'},server:{projectRoot:'/repo'},codex:{status:'ready',models:[]},ui:{surfaces:[],contributions:[],regions:[]}}};
       const session={snapshot:()=>state,subscribe:()=>()=>{},openThread:()=>{throw Error('Must not replace current chat')},newThread:()=>{throw Error('Must not replace current chat')}};
-      const host={snapshot:()=>({connectionEpoch:1}),subscribe:()=>()=>{},call:async(method,payload)=>{if(method.endsWith('.read'))return saved;if(method.endsWith('.write'))saved=structuredClone(payload)}};
+      const host={snapshot:()=>({connectionEpoch:1}),subscribe:()=>()=>{},call:async(method,payload)=>{if(method==='search.preview'){previewRequests.push(payload.threadId);if(payload.threadId==='read')throw Error('History unavailable');return {preview:'Latest saved reply for '+payload.threadId}}if(method.endsWith('.read'))return saved;if(method.endsWith('.write'))saved=structuredClone(payload)}};
       const overlays={subscribe:fn=>{overlayListeners.add(fn);return()=>overlayListeners.delete(fn)},snapshot:()=>overlay,open:id=>{overlay=id;for(const fn of overlayListeners)fn()},close:id=>{if(overlay===id){overlay=undefined;for(const fn of overlayListeners)fn()}},toggle:id=>{overlay===id?overlays.close(id):overlays.open(id)}};
       let Surface,SearchRoot,registry;const effects=[];
       const Placeholder=()=> <textarea aria-label="Chat draft" defaultValue="Keep my draft"/>;
       const ui={subscribe:()=>()=>{},snapshot:()=>0,overlays,component:()=>Placeholder,renderer:()=>()=>null,contributionRenderer:()=>undefined,
         registerSurface:(_owner,_id,component)=>{Surface=component},registerRoot:(_owner,_id,component)=>{SearchRoot=component},registerStyle:(_owner,_id,css)=>{const e=document.createElement('style');e.textContent=css;document.head.append(e)}};
       const ctx={effect:fn=>{const cleanup=fn();effects.push(cleanup);return cleanup},provide:(_name,value)=>{registry=value},clientUi:ui,clientSession:session,clientHost:host,
-        clientSessionRouter:{setActive:()=>{},clearActive:()=>{}},clientSessionFactory:{create:()=>{let snap={...state,threadId:undefined};const listeners=new Set();return {session:{snapshot:()=>snap,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},openThread:async thread=>{snap={...snap,threadId:thread.id,threads:[thread]};for(const fn of listeners)fn()},selectProject:()=>{}},dispose:()=>listeners.clear()}}},
+        clientSessionRouter:{setActive:()=>{},clearActive:()=>{}},clientSessionFactory:{create:()=>{let snap={...state,threadId:undefined};const listeners=new Set();return {session:{snapshot:()=>snap,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},openThread:async thread=>{snap={...snap,threadId:thread.id,threads:[thread],activities:activities(thread.id)};paneUpdates.set(thread.id,content=>{snap={...snap,activities:[...snap.activities,{kind:'agent',content}]};for(const fn of listeners)fn()});for(const fn of listeners)fn()},selectProject:()=>{}},dispose:()=>listeners.clear()}}},
         get:name=>name==='clientThreadStatus'?status:undefined,on:()=>()=>{}};
       layoutPlugin(ctx);searchPlugin({...ctx,clientWorkspaceLayout:registry});
       const root=createRoot(document.getElementById('root'));flushSync(()=>root.render(<><Surface surface={{id:'workspace-layout',kind:'workspace-layout'}}/><SearchRoot/></>));
@@ -36,7 +38,8 @@ async function check() {
       window.cmdK=()=>flushSync(()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'k',metaKey:true,bubbles:true,cancelable:true})));
       window.key=key=>flushSync(()=>document.querySelector('.search-palette input').dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true})));
       window.query=value=>flushSync(()=>{const e=document.querySelector('.search-palette input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}))});
-      window.inspect=()=>({tabs:registry.tabs(),saved,overlay,finished:statuses.finished,results:[...document.querySelectorAll('.search-result')].map(e=>({label:e.querySelector('strong').textContent,selected:e.getAttribute('aria-selected'),disabled:e.disabled}))});
+      window.updatePreview=(id,text)=>flushSync(()=>paneUpdates.get(id)(text));
+      window.inspect=()=>({previewRequests,tabs:registry.tabs(),saved,overlay,finished:statuses.finished,results:[...document.querySelectorAll('.search-result')].map(e=>({label:e.querySelector('strong').textContent,preview:e.querySelector('.search-result-copy > span')?.textContent,selected:e.getAttribute('aria-selected'),disabled:e.disabled}))});
       window.select=id=>flushSync(()=>registry.selectTab(registry.tabs().findIndex(tab=>tab.id===id)));
       window.teardown=()=>{flushSync(()=>root.unmount());for(const cleanup of effects.reverse())cleanup?.()};
     ` }, bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',loader:{'.css':'text'},define:{'process.env.NODE_ENV':'"production"'},
@@ -53,6 +56,23 @@ async function check() {
     await run('window.originalDraft=document.querySelector(".workspace-view:not([hidden]) textarea");cmdK()');await run('frame()')
     let result=await run('inspect()');assert.equal(result.results[0].label,'Unread work');assert.equal(result.results[0].selected,'true');assert.equal(result.results[0].disabled,false,'Navigation remains enabled while the current agent works')
     assert.equal(await run('document.activeElement===document.querySelector(".search-palette input")'),true)
+    await until('inspect().results.some(r=>r.label==="older-unread"&&r.preview==="Latest saved reply for older-unread")')
+    result=await run('inspect()')
+    assert.equal(result.results[0].preview,'Latest reply for newest-unread','Preview uses the latest chat message, not the first prompt or tool output')
+    assert.equal(result.previewRequests.includes('newest-unread'),false,'Open pane history is reused')
+    assert.equal(result.results.find(r=>r.label==='Read work').preview,'/repo','A failed history read keeps the picker usable without an opening-message preview')
+    assert.equal(result.tabs.length,3,'Reading saved previews does not open chats')
+    await run('updatePreview("newest-unread","A newer reply arrives while the picker is open")')
+    await until('inspect().results[0].preview==="A newer reply arrives while the picker is open"')
+    assert.equal((await run('inspect()')).results[0].selected,'true','Live previews keep the selected unread stable')
+    for(const width of [1100,390]) {
+      win.setSize(width,760);await run('frame()')
+      const bounds=await run('(()=>{const p=document.querySelector(".search-palette").getBoundingClientRect();return {left:p.left,right:p.right,scroll:document.documentElement.scrollWidth,width:innerWidth}})()')
+      assert.ok(bounds.left>=0&&bounds.right<=bounds.width&&bounds.scroll<=bounds.width,JSON.stringify(bounds))
+      if(process.env.ALTO_SEARCH_ARTIFACT_DIR){await fs.mkdir(process.env.ALTO_SEARCH_ARTIFACT_DIR,{recursive:true});await fs.writeFile(process.env.ALTO_SEARCH_ARTIFACT_DIR+'/search-'+width+'.png',(await win.webContents.capturePage()).toPNG())}
+    }
+    win.setSize(1100,760)
+
     await run('key("Enter")');await until('inspect().tabs.find(t=>t.active)?.id==="unread-tab"')
     result=await run('inspect()');assert.equal(result.tabs.length,3,'Existing tab is reused');assert.equal(result.finished.includes('newest-unread'),false);assert.equal(result.overlay,undefined)
     assert.ok(await run('originalDraft.isConnected && originalDraft.value==="Keep my draft"'))

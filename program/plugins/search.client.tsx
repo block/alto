@@ -20,9 +20,11 @@ import {
   clientStyles,
   type BrowserPlugin,
   type ClientOverlays,
+  type ClientHostService,
 } from '../../src/client/plugin-api.js'
-import { searchSurface } from './search-api.js'
-import { threadRecencyAt, type ThreadSummary } from '../../src/shared/protocol.js'
+import { SEARCH_PREVIEW, searchSurface } from './search-api.js'
+import { latestSearchPreview } from './search-preview.js'
+import { isRecord, threadRecencyAt, type ThreadSummary } from '../../src/shared/protocol.js'
 import type { ClientWorkspaceLayoutService, WorkspaceTabTarget } from './workspace-layout-api.js'
 import type { ClientSessionService, ClientSessionSnapshot } from './session-api.js'
 import type {
@@ -43,6 +45,7 @@ export interface SearchItem {
   id: string
   label: string
   detail?: string
+  preview?: ReactNode
   keywords?: string
   kind: 'thread' | 'new-thread' | 'new-workspace' | 'settings' | 'plugins'
   active?: boolean
@@ -93,6 +96,32 @@ export function searchThreads(
 
 export function openSearchThread(layout: ClientWorkspaceLayoutService, thread: ThreadSummary): void {
   if (!layout.focusThread(thread.id)) layout.newTab(undefined, thread)
+}
+
+const noSubscription = (): (() => void) => () => {}
+
+function ChatPreview({ thread, session, host }: {
+  thread: ThreadSummary
+  session: ClientSessionService | undefined
+  host: ClientHostService
+}): ReactNode {
+  const live = useSyncExternalStore(session?.subscribe ?? noSubscription, () => {
+    const state = session?.snapshot()
+    return state?.threadId === thread.id ? latestSearchPreview(state.activities) : ''
+  })
+  const [saved, setSaved] = useState<{ id: string; updatedAt: number; text: string }>()
+  useEffect(() => {
+    if (live) return
+    let active = true
+    void host.call(SEARCH_PREVIEW, { threadId: thread.id }).then((value) => {
+      if (active && isRecord(value) && typeof value.preview === 'string') {
+        setSaved({ id: thread.id, updatedAt: thread.updatedAt, text: value.preview })
+      }
+    }).catch(() => {})
+    return () => { active = false }
+  }, [host, thread.id, thread.updatedAt, live])
+  const stored = saved?.id === thread.id && saved.updatedAt === thread.updatedAt ? saved.text : ''
+  return <span>{live || stored || thread.cwd}</span>
 }
 
 function ItemIcon({ kind }: { kind: SearchItem['kind'] }): ReactNode {
@@ -206,7 +235,7 @@ function SearchPalette({
               <span className="search-result-icon"><ItemIcon kind={item.kind} /></span>
               <span className="search-result-copy">
                 <strong>{item.label}</strong>
-                {item.detail && <span>{item.detail}</span>}
+                {item.preview ?? (item.detail && <span>{item.detail}</span>)}
               </span>
               <span className="search-result-meta">
                 <ThreadStatusIndicator status={item.status} />
@@ -259,24 +288,28 @@ function OpenSearchSurface({
   threadStatus,
   overlays,
   layout,
+  host,
 }: {
   surface: typeof searchSurface
   session: ClientSessionService
   threadStatus: ClientThreadStatusService
   overlays: ClientOverlays
   layout: ClientWorkspaceLayoutService
+  host: ClientHostService
 }): ReactNode {
   const state = useStoreSelector(session, searchSessionSnapshot, searchSessionSnapshotEqual)
   const statusState = useSyncExternalStore(threadStatus.subscribe, threadStatus.snapshot)
   useSyncExternalStore(layout.subscribe, layout.snapshot)
   const tabs = layout.tabs()
   const threads = searchThreads(state.threads, tabs, statusState, state.threadId)
+  const panes = layout.paneTargets()
   const threadItems = threads.map((thread): SearchItem => {
     const tab = tabs.find((tab) => tab.threadIds.includes(thread.id))
     return {
       id: `thread:${thread.id}`,
       label: tab?.title ?? thread.title,
       detail: thread.preview || thread.cwd,
+      preview: <ChatPreview thread={thread} host={host} session={panes.find((pane) => pane.session.snapshot().threadId === thread.id)?.session} />,
       keywords: `${thread.cwd} ${thread.title}`,
       kind: 'thread',
       active: thread.id === state.threadId,
@@ -349,12 +382,14 @@ function SearchSurface({
   threadStatus,
   overlays,
   layout,
+  host,
 }: {
   surface: typeof searchSurface
   session: ClientSessionService
   threadStatus: ClientThreadStatusService
   overlays: ClientOverlays
   layout: ClientWorkspaceLayoutService
+  host: ClientHostService
 }): ReactNode {
   const activeOverlay = useSyncExternalStore(overlays.subscribe, overlays.snapshot)
   if (activeOverlay !== 'search') return null
@@ -365,6 +400,7 @@ function SearchSurface({
       threadStatus={threadStatus}
       overlays={overlays}
       layout={layout}
+      host={host}
     />
   )
 }
@@ -389,6 +425,7 @@ const searchClient: BrowserPlugin = (ctx) => {
       threadStatus={threadStatus}
       overlays={overlays}
       layout={ctx.clientWorkspaceLayout}
+      host={ctx.clientHost}
     />
   )
   ctx.clientUi.registerRoot(ctx, 'default-search', BoundSearchRoot)
@@ -396,7 +433,7 @@ const searchClient: BrowserPlugin = (ctx) => {
   return () => threadStatus.dispose()
 }
 
-searchClient.inject = ['clientUi', 'clientSession', 'clientWorkspaceLayout']
+searchClient.inject = ['clientUi', 'clientSession', 'clientWorkspaceLayout', 'clientHost']
 searchClient.resources = { provides: { roots: ['default-search'] } }
 
 export default searchClient

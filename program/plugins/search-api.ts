@@ -1,5 +1,7 @@
 import type { UiSurface } from '../../src/shared/protocol.js'
 
+export const SEARCH_PREVIEW = 'search.preview'
+
 export const searchSurface = {
   id: 'default-search',
   kind: 'search',
