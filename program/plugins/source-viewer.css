@@ -62,8 +62,7 @@
 .source-viewer-send-error { color: var(--danger); }
 .source-viewer-state .is-spinning { animation: source-viewer-spin 1.8s linear infinite; }
 
-.source-viewer-command,
-.source-review-draft {
+.source-viewer-command {
   position: absolute;
   z-index: 7;
   right: 16px;
@@ -153,41 +152,39 @@
   font-size: 12.5px;
 }
 
-.source-review-draft {
-  bottom: 54px;
-  padding: 11px;
-  border-radius: 13px;
+.composer.source-review-draft {
+  --composer-resting-shadow: var(--shadow-chat);
+  --composer-editing-shadow: var(--composer-focus-shadow), var(--shadow-chat);
+  position: absolute;
+  z-index: 7;
+  right: 0;
+  left: 0;
+  width: min(var(--composer-content-width), calc(100% - 2 * var(--composer-content-gutter)));
+  margin-inline: auto;
+  bottom: calc(var(--control-compact) + var(--space-4));
+  min-height: calc(var(--composer-action-size) + 2 * var(--composer-action-inset));
+  padding-bottom: var(--space-4);
 }
 .source-viewer-pane:has(> .source-viewer-footer) .source-viewer-command,
 .source-viewer-pane:has(> .source-viewer-footer) .source-review-draft { bottom: calc(var(--source-review-footer-height) + var(--control-compact) + var(--space-2)); }
-.source-review-draft-heading,
-.source-review-draft-actions,
+.source-review-draft textarea {
+  field-sizing: content;
+  width: 100%;
+  padding-right: 0;
+  height: auto;
+  overflow: auto;
+  resize: none;
+  margin: 0;
+}
+.source-review-draft textarea::placeholder { color: var(--composer-placeholder-ink); opacity: 1; }
+.source-review-draft .send-button { border-radius: 50%; corner-shape: round; }
+.source-review-draft .send-button > svg { transform: none; }
 .source-viewer-footer,
 .source-viewer-footer > div,
 .source-viewer-footer button {
   display: flex;
   align-items: center;
 }
-.source-review-draft-heading { justify-content: space-between; margin: 0 1px 8px; color: var(--text-muted); font-size: 10.5px; }
-.source-review-draft-heading button { display: grid; place-items: center; border: 0; color: inherit; background: transparent; }
-.source-review-draft textarea {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 68px;
-  resize: vertical;
-  padding: 8px 9px;
-  border: 1px solid var(--border-soft);
-  border-radius: 9px;
-  outline: none;
-  color: var(--text);
-  background: var(--canvas);
-  font: inherit;
-  font-size: 12.5px;
-  line-height: 1.45;
-}
-.source-review-draft textarea:focus { border-color: color-mix(in srgb, var(--accent) 42%, var(--border)); }
-.source-review-draft-actions { justify-content: flex-end; gap: 6px; margin-top: 8px; }
-.source-review-draft-actions button,
 .source-viewer-footer button {
   justify-content: center;
   gap: 6px;
@@ -198,9 +195,7 @@
   background: var(--panel-soft);
   font-size: 11.5px;
 }
-.source-review-draft-actions button.primary,
 .source-viewer-footer button { border-color: transparent; color: white; background: var(--accent); }
-.source-review-draft-actions button:disabled,
 .source-viewer-footer button:disabled { opacity: .45; }
 
 .source-viewer-footer {

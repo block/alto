@@ -1,5 +1,6 @@
 import { paneToolbarStyles } from './pane-toolbar.js'
 import {
+  ArrowUp,
   FileCode2,
   Keyboard as KeyboardIcon,
   MessageSquarePlus,
@@ -291,23 +292,22 @@ function SourceCommentComposer({
     }
   }
   return (
-    <section className="source-review-draft">
-      <div className="source-review-draft-heading">
-        <span>{rangeLabel(draft.start, draft.end)}</span>
-        <button type="button" aria-label="Cancel comment" onClick={cancel}><X size={13} /></button>
+    <section className="composer source-review-draft is-editing" aria-label={`Source comment, ${rangeLabel(draft.start, draft.end)}`}>
+      <div className="composer-body">
+        <textarea
+          ref={input}
+          className="composer-editor"
+          rows={1}
+          value={draft.body}
+          placeholder="Ask"
+          aria-label="Comment on selected source lines"
+          onChange={(event) => change(event.target.value)}
+          onKeyDown={keyDown}
+        />
       </div>
-      <textarea
-        ref={input}
-        rows={3}
-        value={draft.body}
-        placeholder="Ask Alto about these lines…"
-        onChange={(event) => change(event.target.value)}
-        onKeyDown={keyDown}
-      />
-      <div className="source-review-draft-actions">
-        <button type="button" onClick={cancel}>Cancel</button>
-        <button className="primary" type="button" disabled={!draft.body.trim()} onClick={add}>Add comment</button>
-      </div>
+      <button className="send-button source-review-draft-submit" type="button" aria-label="Add comment" title="Add comment" disabled={!draft.body.trim()} onClick={add}>
+        <ArrowUp size={16} strokeWidth={1.8} aria-hidden="true" />
+      </button>
     </section>
   )
 }
