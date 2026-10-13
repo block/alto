@@ -50,6 +50,7 @@ describe('Cordis prompt guidance', () => {
       expect(Buffer.byteLength(entry.value, 'utf8')).toBeLessThanOrEqual(4_000)
     }
     expect(prepared.additionalContext?.cordis_program?.value).toBe('Base Cordis context.')
+    expect(prepared.additionalContext?.cordis_response_style).toBeUndefined()
     expect(prepared.additionalContext?.cordis_shell?.value).toContain(
       'header-right: inline, row',
     )
@@ -97,6 +98,54 @@ describe('Cordis prompt guidance', () => {
     await shellFiber.dispose()
     await turnFiber.dispose()
     await uiFiber.dispose()
+  })
+
+  it('adds response formatting defaults to ACP chats while preserving user input and existing context', async () => {
+    const ctx = new Context()
+    const uiFiber = await ctx.plugin(uiRegistryPlugin)
+    const turnFiber = await ctx.plugin(turnProgramPlugin)
+    const promptFiber = await ctx.plugin(promptLayer, { context: 'Base Cordis context.' })
+    onTestFinished(async () => {
+      await promptFiber.dispose()
+      await turnFiber.dispose()
+      await uiFiber.dispose()
+    })
+
+    const input = [{ type: 'text' as const, text: 'Use my requested format: one paragraph with no headings.' }]
+    const prepared = await ctx.turnProgram.prepare({
+      threadId: 'acp-be3fd630-f4dd-4d70-81ea-23cfd94e30b8', input,
+      additionalContext: { attachment: { kind: 'untrusted', value: 'Existing attachment.' } },
+    })
+    const style = prepared.additionalContext?.cordis_response_style
+    expect(style?.kind).toBe('application')
+    expect(style?.value).toContain('Follow explicit user style instructions')
+    expect(style?.value).toContain('Prefer ## for main sections and ### for subsections')
+    expect(style?.value).toContain('opening and closing $$ delimiters on separate lines')
+    expect(Buffer.byteLength(style?.value ?? '', 'utf8')).toBeLessThanOrEqual(4_000)
+    expect(prepared.input).toEqual(input)
+    expect(prepared.additionalContext?.attachment).toEqual({ kind: 'untrusted', value: 'Existing attachment.' })
+    expect(prepared.additionalContext?.cordis_program?.value).toBe('Base Cordis context.')
+    expect(prepared.additionalContext?.cordis_shell).toBeDefined()
+    expect(prepared.additionalContext?.cordis_authoring).toBeDefined()
+  })
+
+  it('does not add ACP response defaults to a Codex UUID thread', async () => {
+    const ctx = new Context()
+    const uiFiber = await ctx.plugin(uiRegistryPlugin)
+    const turnFiber = await ctx.plugin(turnProgramPlugin)
+    const promptFiber = await ctx.plugin(promptLayer, { context: 'Base Cordis context.' })
+    onTestFinished(async () => {
+      await promptFiber.dispose()
+      await turnFiber.dispose()
+      await uiFiber.dispose()
+    })
+
+    const prepared = await ctx.turnProgram.prepare({
+      threadId: 'be3fd630-f4dd-4d70-81ea-23cfd94e30b8',
+      input: [{ type: 'text', text: 'Explain the design.' }],
+    })
+    expect(prepared.additionalContext?.cordis_response_style).toBeUndefined()
+    expect(prepared.additionalContext?.cordis_program?.value).toBe('Base Cordis context.')
   })
 
   it.each([

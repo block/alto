@@ -121,6 +121,36 @@ describe('ACP application context', () => {
     expect(JSON.stringify((await f.send(context)).prompt)).toContain('Complete guide.')
   })
 
+  it.each(['claude', 'gemini'])('delivers response formatting defaults to resumed %s sessions', async (id) => {
+    const root = new Context()
+    for (const plugin of [uiRegistryPlugin, turnProgramPlugin]) {
+      const fiber = await root.plugin(plugin)
+      cleanup.push(() => fiber.dispose())
+    }
+    const instructions = await root.plugin(promptLayer, { context: 'Shared Alto guidance.' })
+    cleanup.push(() => instructions.dispose())
+    const prepared = await root.turnProgram.prepare({
+      threadId: 'acp-be3fd630-f4dd-4d70-81ea-23cfd94e30b8',
+      input: [{ type: 'text', text: 'Continue.' }],
+    })
+    const responseContext = prepared.additionalContext ?? {}
+    const style = responseContext.cordis_response_style!.value
+    const f = fixture(id)
+    await f.provider.loadSession('session', {
+      cwd: '/tmp/project', permissionMode: 'ask', additionalContext: responseContext,
+    })
+    const meta = f.loaded[0]!._meta as { systemPrompt?: { append?: string } } | undefined
+    if (id === 'claude') expect(meta?.systemPrompt?.append).toContain(style)
+    else expect(f.loaded[0]!._meta).toBeUndefined()
+    const first = await f.send(responseContext)
+    const contextBlock = first.prompt[0]!
+    if (contextBlock.type !== 'text') throw new Error('Expected a text context update')
+    const update = JSON.parse(contextBlock.text.slice(contextBlock.text.indexOf('\n') + 1))
+    expect(update.application.cordis_response_style).toEqual(responseContext.cordis_response_style)
+    expect(first.prompt.at(-1)).toEqual({ type: 'text', text: 'Continue.' })
+    expect((await f.send(responseContext)).prompt).toEqual([{ type: 'text', text: 'Continue.' }])
+  })
+
   it('runs local chats through the live Alto prompt hooks while retaining the original user message', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'alto-chat-context-'))
     cleanup.push(() => rm(directory, { recursive: true, force: true }))
@@ -144,6 +174,7 @@ describe('ACP application context', () => {
     expect(meta).toContain('Shared Alto guidance.')
     expect(meta).toContain('Canvas is a registered workspace pane')
     expect(meta).toContain('Guard async work')
+    expect(meta).toContain('Alto response formatting defaults:')
     expect(chat.activities.filter((activity) => activity.kind === 'user').map((activity) => activity.content)).toEqual(['Build a Canvas page.'])
   })
 })

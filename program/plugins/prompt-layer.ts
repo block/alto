@@ -4,6 +4,7 @@ import type {
   UiShell,
   UiShellNode,
 } from '../../src/server/plugin-api.js'
+import { isAgentChatId } from './agent-chats-api.js'
 
 interface PromptLayerConfig {
   context?: string
@@ -71,6 +72,15 @@ const authoringGuidance = `Cordis plugin authoring contract:
 - Declare every inject and provide edge. Use a nested profile entry when several fibers share isolation or interception; do not rebuild unrelated entries.
 - Read docs/plugin-authoring.md when the change adds a new fiber or visible contribution.`
 
+const responseStyleGuidance = `Alto response formatting defaults:
+- Follow explicit user style instructions when they differ from these defaults.
+- Lead with a direct answer in plain prose. Use short paragraphs that each develop one idea while preserving technical precision and necessary qualifications.
+- Use bold selectively for short terms or takeaways, rather than whole sentences or long spans.
+- Use descriptive Markdown headings when a longer answer needs sections. Prefer ## for main sections and ### for subsections; avoid numbered headings unless the sections describe an ordered sequence.
+- Use inline code for exact identifiers, commands, and paths, rather than ordinary technical terms.
+- Keep short mathematical symbols inline. Put full equations in display math, with opening and closing $$ delimiters on separate lines and blank lines around the block. Explain the notation in words.
+- Use lists for short, parallel facts or ordered steps. Develop extended arguments in connected paragraphs.`
+
 function shellContext(shell: UiShell | undefined): string {
   const slots = shell ? slotsIn(shell.root) : []
   const outlets = shell ? outletsIn(shell.root) : []
@@ -132,6 +142,9 @@ const promptLayer: HarnessPlugin<PromptLayerConfig> = (ctx, config) => {
         ...applicationContext('cordis_program', context),
         ...applicationContext('cordis_authoring', authoringGuidance),
         ...applicationContext('cordis_shell', shellContext(ctx.ui.snapshot().shell)),
+        ...(isAgentChatId(draft.threadId ?? '')
+          ? applicationContext('cordis_response_style', responseStyleGuidance)
+          : {}),
       },
     }
   })

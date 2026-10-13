@@ -67,11 +67,40 @@ function clamp(value: number | undefined, min: number, max: number): number {
   return Math.max(min, Math.min(max, value ?? 1))
 }
 
+function escapedDelimiter(line: string, index: number): boolean {
+  let backslashes = 0
+  while (index > 0 && line[--index] === '\\') backslashes += 1
+  return backslashes % 2 === 1
+}
+
+function standaloneDisplayMath(line: string): string | undefined {
+  const match = /^\$\$([^\n]+)\$\$([ \t]*\r?)$/.exec(line)
+  if (!match) return undefined
+  const formula = match[1]!
+  // Extra dollar delimiters may be separate inline expressions or a longer
+  // math fence. Neither is an unambiguous single-line display expression.
+  if (!formula.trim() || formula.startsWith('$') || formula.endsWith('$')
+    || formula.includes('$$') || escapedDelimiter(line, 2 + formula.length)) return undefined
+  const newline = line.endsWith('\r') ? '\r\n' : '\n'
+  return `$$${newline}${formula}${newline}$$${match[2]}`
+}
+
 export function normalizeLatexDelimiters(source: string): string {
   let fence: { marker: '`' | '~'; length: number } | undefined
   let codeTicks = 0
+  let mathFence: { length: number; latex: boolean } | undefined
+  let containerParagraph = false
 
   return source.split('\n').map((line) => {
+    if (mathFence) {
+      // Math block contents are TeX, so backticks there must not open a
+      // Markdown code span that leaks into the following prose.
+      const closing = mathFence.latex && /^ {0,3}\\\][ \t]*\r?$/.test(line)
+        ? line.replace('\\]', () => '$$') : line
+      const dollars = /^ {0,3}(\${2,})[ \t]*\r?$/.exec(closing)
+      if (dollars && dollars[1]!.length >= mathFence.length) mathFence = undefined
+      return closing
+    }
     const fenceRun = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
     if (fenceRun) {
       const marker = fenceRun[0] as '`' | '~'
@@ -81,6 +110,11 @@ export function normalizeLatexDelimiters(source: string): string {
     }
     if (fence) return line
 
+    if (codeTicks === 0) {
+      if (!line.trim()) containerParagraph = false
+      else if (/^ {0,3}(?:>|[-+*][ \t]|\d+[.)][ \t])/.test(line)) containerParagraph = true
+    }
+    const continuedCodeSpan = codeTicks > 0
     let normalized = ''
     for (let index = 0; index < line.length;) {
       if (line[index] === '`') {
@@ -109,6 +143,18 @@ export function normalizeLatexDelimiters(source: string): string {
 
       normalized += line[index]
       index += 1
+    }
+
+    if (!continuedCodeSpan && codeTicks === 0 && !containerParagraph) {
+      // Only expand a column-zero line. Adding unprefixed lines inside a list
+      // or blockquote would change its structure, including lazy continuations.
+      const display = standaloneDisplayMath(normalized)
+      if (display !== undefined) return display
+      const openingFence = /^ {0,3}(\${2,})[^$]*$/.exec(normalized)
+      if (openingFence) mathFence = {
+        length: openingFence[1]!.length,
+        latex: line.trimStart().startsWith('\\['),
+      }
     }
     return normalized
   }).join('\n')
