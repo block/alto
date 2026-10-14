@@ -2,6 +2,8 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from 'react'
+import { createPortal } from 'react-dom'
+import { Check, X } from 'lucide-react'
 import type {
   BrowserPlugin,
 } from '../../src/client/plugin-api.js'
@@ -42,7 +44,15 @@ interface ChatNotificationsSnapshot {
   notifyCurrentChat: boolean
   playSound: boolean
   requestingPermission: boolean
+  pending: readonly CompletionNotificationTarget[]
   problem?: string
+}
+
+interface CompletionNotificationTarget {
+  threadId: string
+  thread: ThreadSummary
+  title: string
+  body: string
 }
 
 const STORAGE_KEY = 'alto.chat-notifications'
@@ -102,12 +112,7 @@ function isSubagentThread(threadId: string, session: ClientSessionSnapshot): boo
   return agents?.tasks.some((task) => task.threadId === threadId) === true
 }
 
-export function completionNotificationTarget(threadId: string, session: ClientSessionSnapshot): {
-  threadId: string
-  thread: ThreadSummary
-  title: string
-  body: string
-} | undefined {
+export function completionNotificationTarget(threadId: string, session: ClientSessionSnapshot): CompletionNotificationTarget | undefined {
   if (isSubagentThread(threadId, session)) return undefined
   // Recent chat history excludes native subagents, even if the Agents plugin
   // is disabled or has not received the child's metadata yet.
@@ -131,6 +136,9 @@ export class ChatNotificationsController {
   private revision = 0
   private active = false
   private requestEpoch = 0
+  private pending: CompletionNotificationTarget[] = []
+  private dismissTimer: number | undefined
+  private bannerPaused = false
 
   private readonly refreshPermission = (): void => {
     this.emit()
@@ -168,12 +176,52 @@ export class ChatNotificationsController {
       window.removeEventListener('focus', this.refreshPermission)
       for (const notification of this.notifications) notification.close()
       this.notifications.clear()
+      this.clearPending()
       this.listeners.clear()
+      this.state = this.buildSnapshot()
     }
+  }
+
+  dismiss(threadId: string): void {
+    const current = this.pending[0]?.threadId
+    this.pending = this.pending.filter((target) => target.threadId !== threadId)
+    if (!this.pending.length) this.bannerPaused = false
+    if (current === threadId) this.scheduleDismiss()
+    this.emit()
+  }
+
+  open(threadId: string): void {
+    if (!this.active) return
+    const target = this.pending.find((candidate) => candidate.threadId === threadId)
+    if (!target) return
+    this.dismiss(threadId)
+    void this.openThread(target.threadId, target.thread)
+  }
+
+  setBannerPaused(paused: boolean): void {
+    if (this.bannerPaused === paused) return
+    this.bannerPaused = paused
+    this.scheduleDismiss()
+  }
+
+  private scheduleDismiss(): void {
+    if (this.dismissTimer !== undefined) window.clearTimeout(this.dismissTimer)
+    this.dismissTimer = undefined
+    const target = this.pending[0]
+    if (!this.active || this.bannerPaused || !target) return
+    this.dismissTimer = window.setTimeout(() => this.dismiss(target.threadId), 12_000)
+  }
+
+  private clearPending(): void {
+    this.pending = []
+    this.bannerPaused = false
+    if (this.dismissTimer !== undefined) window.clearTimeout(this.dismissTimer)
+    this.dismissTimer = undefined
   }
 
   async setEnabled(enabled: boolean): Promise<void> {
     this.preference = { ...this.preference, enabled }
+    if (!enabled) this.clearPending()
     this.writePreference()
     this.emit()
     if (!enabled || notificationPermission() !== 'default') return
@@ -239,6 +287,19 @@ export class ChatNotificationsController {
       && threadId === session.threadId
       && visibleAndFocused()
     ) return
+
+    // Electron's macOS foreground banners can dismiss without delivering a
+    // click (electron/electron#51885). Keep foreground navigation inside Alto.
+    if (visibleAndFocused()) {
+      const current = this.pending[0]?.threadId
+      const existing = this.pending.some((entry) => entry.threadId === threadId)
+      this.pending = existing
+        ? this.pending.map((entry) => entry.threadId === threadId ? target : entry)
+        : [...this.pending, target].slice(-10)
+      if (current !== this.pending[0]?.threadId || current === threadId) this.scheduleDismiss()
+      this.emit()
+      return
+    }
 
     let notification: Notification
     try {
@@ -319,6 +380,7 @@ export class ChatNotificationsController {
       notifyCurrentChat: this.preference.notifyCurrentChat,
       playSound: this.preference.playSound,
       requestingPermission,
+      pending: this.pending,
       ...(problem ? { problem } : {}),
     }
   }
@@ -326,6 +388,34 @@ export class ChatNotificationsController {
   private notifyListeners(): void {
     for (const listener of this.listeners) listener()
   }
+}
+
+export function ChatNotificationBanner({ controller }: { controller: ChatNotificationsController }): ReactNode {
+  const { pending } = useSyncExternalStore(controller.subscribe, controller.snapshot)
+  const target = pending[0]
+  if (!target) return null
+  return createPortal(
+    <section className="chat-notification-banner" aria-label="Chat notifications" aria-live="polite" aria-atomic="true"
+      onPointerEnter={() => controller.setBannerPaused(true)}
+      onPointerLeave={(event) => {
+        if (!event.currentTarget.contains(document.activeElement)) controller.setBannerPaused(false)
+      }}
+      onFocusCapture={() => controller.setBannerPaused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget) && !event.currentTarget.matches(':hover')) controller.setBannerPaused(false)
+      }}>
+      <button type="button" className="chat-notification-open" aria-label={`Open ${target.body}`} title={target.body}
+        onClick={() => controller.open(target.threadId)}>
+        <span className="chat-notification-check"><Check size={14} aria-hidden="true" /></span>
+        <span className="chat-notification-title">{target.body}</span>
+        <span className="chat-notification-status">Finished</span>
+        {pending.length > 1 && <span className="chat-notification-count" title={`${pending.length - 1} more finished chats`}>+{pending.length - 1}</span>}
+      </button>
+      <button type="button" className="chat-notification-dismiss" aria-label="Dismiss notification" title="Dismiss"
+        onClick={() => controller.dismiss(target.threadId)}><X size={14} aria-hidden="true" /></button>
+    </section>,
+    document.querySelector('.shell-kernel') ?? document.body,
+  )
 }
 
 function permissionCopy(state: ChatNotificationsSnapshot): string {
@@ -399,6 +489,7 @@ const chatNotificationsClient: BrowserPlugin<ChatNotificationsConfig> = (ctx, co
   const Settings = () => <NotificationsSettings controller={controller} />
 
   ctx.effect(() => controller.activate(), 'chat-notifications.activate')
+  ctx.clientUi.registerRoot(ctx, 'chat-notifications', () => <ChatNotificationBanner controller={controller} />)
   ctx.clientUi.registerStyle(ctx, 'chat-notifications', String(styles))
   ctx.clientUi.registerSettingsPage(ctx, {
     id: 'chat-notifications',

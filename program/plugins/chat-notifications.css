@@ -5,3 +5,47 @@
 .chat-notifications-row .settings-row-copy small {
   white-space: normal;
 }
+
+/* Stay within the tab bar so alerts never cover a native editor or browser. */
+.chat-notification-banner {
+  position: fixed;
+  z-index: 110;
+  top: var(--space-1);
+  right: var(--space-2);
+  display: flex;
+  align-items: center;
+  width: min(calc(100% - 2 * var(--space-2)), calc(var(--control-button) * 11));
+  padding: var(--space-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-panel);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 6%, var(--panel-solid)), var(--panel-solid) 75%);
+  box-shadow: var(--shadow-panel);
+  color: var(--text);
+  font-family: var(--composer-font);
+  -webkit-app-region: no-drag;
+}
+
+.chat-notification-open,
+.chat-notification-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-compact);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.chat-notification-open { flex: 1; min-width: 0; gap: var(--space-2); text-align: left; }
+.chat-notification-open:hover,
+.chat-notification-dismiss:hover { background: var(--surface-hover); }
+.chat-notification-open:focus-visible,
+.chat-notification-dismiss:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 0; }
+.chat-notification-check { display: grid; flex: none; place-items: center; width: var(--control-icon); height: var(--control-icon); color: var(--accent); background: var(--accent-soft); border-radius: var(--radius-pill); }
+.chat-notification-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--type-body); }
+.chat-notification-status,
+.chat-notification-count { flex: none; color: var(--text-muted); font-size: var(--type-label); }
+.chat-notification-dismiss { flex: none; width: var(--control-compact); color: var(--text-muted); }
