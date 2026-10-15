@@ -13,6 +13,7 @@ import type { AgentEvent, AgentPromptOptions, AgentPromptPart, AgentRegistry } f
 import type { Context } from 'cordis'
 import { errorMessage, isRecord, type JsonValue, type PermissionMode, type ThreadSummary } from '../../src/shared/protocol.js'
 import { AGENT_CHATS_STATE, agentChatStateKey, isAgentChatId, type AgentChat, agentPromptInput } from './agent-chats-api.js'
+import type { RemoteWorkspace } from './remote-workspace-api.js'
 
 const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value)) as JsonValue
 // Child history is fetched through orchestrator.open. Broadcasting it with every
@@ -125,6 +126,21 @@ export class AgentChats {
     return this.historyRefresh
   }
 
+  /** Metadata inspection must not open or resume a saved remote conversation. */
+  async workspace(id: string): Promise<RemoteWorkspace | undefined> {
+    const chat = this.chats.get(id) ?? await this.store.read(id)
+    if (!chat.remote) return undefined
+    const provider = this.agents.provider(chat.summary.providerId)
+    const workspace = await provider.workspaceInfo?.(chat.summary.providerSessionId) ?? chat.remote.workspace
+    const current = this.chats.get(id)
+    if (this.active && current?.remote && workspace
+      && JSON.stringify(current.remote.workspace) !== JSON.stringify(workspace)) {
+      current.remote.workspace = workspace
+      this.changed(current)
+    }
+    return workspace
+  }
+
   providersChanged(): void {
     for (const chat of this.chats.values()) {
       if (chat.turn === 'idle') continue
@@ -161,7 +177,7 @@ export class AgentChats {
     const chat: AgentChat = {
       summary: { id, providerId, providerSessionId: session.id,
         cwd, title: `New ${provider.snapshot().label} chat`, preview: '', createdAt: timestamp, updatedAt: timestamp },
-      ...(provider.snapshot().capabilities?.durableSession ? { remote: { state: 'connected' as const, ...(session.workspaceName ? { workspaceName: session.workspaceName } : {}) } } : {}),
+      ...(provider.snapshot().capabilities?.durableSession ? { remote: { state: 'connected' as const, ...(session.workspaceName ? { workspaceName: session.workspaceName } : {}), ...(session.workspace ? { workspace: session.workspace } : {}) } } : {}),
       permissionMode: mode, turn: 'idle', activities: [], requests: [], configOptions: session.configOptions ?? [],
     }
     this.chats.set(chat.summary.id, chat)
@@ -225,6 +241,7 @@ export class AgentChats {
       const session = await provider.loadSession(sessionId, { cwd: chat.summary.cwd, permissionMode: chat.permissionMode })
       if (!this.active) { await provider.closeSession(sessionId); throw new Error('Agent chats was closed') }
       if (chat.remote && session.workspaceName) chat.remote.workspaceName = session.workspaceName
+      if (chat.remote && session.workspace) chat.remote.workspace = session.workspace
       return
     }
     const desired = chat.configOptions ?? []
@@ -574,6 +591,7 @@ const plugin = async (ctx: Context, config: { historyProviders?: string[] } = {}
     const provider = agents.provider(required(payload.providerId, 'providerId'))
     return { name: await provider.workspaceName?.(required(payload.cwd, 'cwd')) ?? null }
   })
+  method('workspace', async (payload) => await chats.workspace(required(payload.id, 'id')) ?? null)
   method('create', async (payload) => {
     const chat = await chats.create(required(payload.providerId, 'providerId'), required(payload.cwd, 'cwd'), permissionMode(payload.permissionMode))
     publish(chat); publishCatalog(); return clientChat(chat)

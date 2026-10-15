@@ -387,7 +387,10 @@ describe('provider-aware browser sessions', () => {
     const f = fixture()
     const remoteChat: AgentChat = { ...structuredClone(chat),
       summary: { ...chat.summary, providerId: 'cloud-claude' },
-      remote: { state: 'connected', workspaceName: 'original-workstation' },
+      remote: { state: 'connected', workspaceName: 'original-workstation', workspace: {
+        name: 'original-workstation', url: 'https://remote.example/terminal', cwd: '/remote/repo',
+        branch: 'feature/remote', repository: 'https://github.com/example/remote',
+      } },
     }
     f.extensions['agent-chats'] = { providers: [
       { id: 'cloud-claude', label: 'Claude', remoteLocation: 'Cloud', capabilities: {} },
@@ -397,7 +400,10 @@ describe('provider-aware browser sessions', () => {
     try {
       await f.session.openThread(remoteChat.summary)
       expect(f.session.snapshot().remoteWorkspaceName).toBe('original-workstation')
+      expect(f.session.snapshot().remoteWorkspace).toEqual(remoteChat.remote?.workspace)
       expect(f.call).not.toHaveBeenCalledWith('agent-chats.workspace-name', expect.anything())
+      f.session.setProvider('codex')
+      expect(f.session.snapshot().remoteWorkspace).toBeUndefined()
     } finally { f.session.dispose() }
   })
 

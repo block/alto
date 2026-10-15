@@ -14,6 +14,7 @@ async function check() {
       import {flushSync} from 'react-dom';
       import {ConversationSurface} from './program/plugins/ui-surfaces.client';
       import {ComposerSurface,ComposerPreferenceController} from './program/plugins/composer.client';
+      import {ComposerActions} from './program/plugins/composer-actions';
       import {createSteerSubmitMiddleware,SteerQueue} from './program/plugins/steer.client';
 
       // Offscreen windows have no OS focus. Exercise the visible conversation path.
@@ -46,7 +47,7 @@ async function check() {
       const markdownState={codeBlocks:[],fileLinks:[]};
       const markdown={subscribe:()=>()=>{},snapshot:()=>markdownState};
       const preferences=new ComposerPreferenceController(false,{getItem:()=>null,setItem:()=>{}});
-      const composer={attach:async()=>{}};
+      const composer={attach:async()=>{},actions:new ComposerActions()};
       flushSync(()=>createRoot(document.getElementById('root')).render(<>
         <header className="alto-pane-header">Astra · intervention test</header>
         <ConversationSurface surface={{id:'conversation',kind:'conversation'}} session={session} ui={ui} markdown={markdown}/>

@@ -33,6 +33,7 @@ const execFileAsync = promisify(execFile)
 const STATE_NAME = 'work-contexts.state'
 const REFRESH_METHOD = 'work-contexts.refresh'
 const SET_TARGET_METHOD = 'work-contexts.set-target'
+const OPEN_LOCATION_METHOD = 'work-contexts.open-location'
 const CREATE_BRANCH_METHOD = 'work-contexts.create-branch'
 const CREATE_WORKTREE_METHOD = 'work-contexts.create-worktree'
 const CREATE_PROVIDER_TARGET_METHOD = 'work-contexts.create-provider-target'
@@ -873,10 +874,41 @@ export function remoteExecutionContext(target: WorkTarget): string {
 Repository work must run through the plugin that owns this remote checkout. Do not modify or test the project in the local checkout. If the provider is unavailable, report that instead of silently falling back to local execution.`
 }
 
+export async function openLocalCheckout(
+  payload: unknown,
+  contexts: Pick<WorkContextRegistryService, 'checkout'>,
+  runner: Pick<ProcessRunnerService, 'execFile'>,
+  signal: AbortSignal,
+): Promise<{ location: string }> {
+  if (!isRecord(payload) || typeof payload.checkoutId !== 'string') {
+    throw new Error('checkoutId is required')
+  }
+  const checkout = contexts.checkout(payload.checkoutId)
+  if (!checkout || checkout.kind !== 'local' || !path.isAbsolute(checkout.location) || checkout.location.includes('\0')) {
+    throw new Error('Choose an available local checkout.')
+  }
+  const info = await stat(checkout.location).catch(() => undefined)
+  if (!info?.isDirectory()) throw new Error('This checkout no longer exists on this computer.')
+  if (process.platform !== 'darwin') throw new Error('Opening a checkout in Finder is only supported on macOS.')
+  signal.throwIfAborted()
+  try {
+    await runner.execFile('open', [checkout.location], { timeout: 15_000, signal })
+  } catch (error) {
+    if (signal.aborted) throw error
+    throw new Error('Could not open this checkout in Finder.', { cause: error })
+  }
+  return { location: checkout.location }
+}
+
 const workContexts: HarnessPlugin = async (ctx) => {
   const registry = new WorkContextRegistry(ctx)
   ctx.provide('workContexts', registry)
   await registry.start(ctx)
+  const lifetime = new AbortController()
+  ctx.effect(() => () => lifetime.abort(), 'workContexts.openLocation')
+  ctx.clientExtensions.registerMethod(ctx, OPEN_LOCATION_METHOD, async (payload) => (
+    openLocalCheckout(payload, registry, ctx.processRunner, lifetime.signal)
+  ))
 
   ctx.clientExtensions.registerMethod(ctx, REFRESH_METHOD, async (payload) => {
     if (isRecord(payload) && typeof payload.location === 'string') {

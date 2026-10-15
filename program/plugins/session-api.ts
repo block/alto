@@ -13,6 +13,7 @@ import type { ClientDraft } from '../../src/client/plugin-api.js'
 import type { ActivityItem } from './ui/activity.js'
 import type { HistoryState } from './ui/history.js'
 import type { AgentStatus, TurnState } from './ui/machines.js'
+import type { RemoteWorkspace } from './remote-workspace-api.js'
 
 export const SESSION_THREAD_RENAME = 'session.thread.rename'
 export const SESSION_CODEX_START = 'session.codex.start'
@@ -23,6 +24,7 @@ export interface ClientSessionSnapshot {
   remoteLocation?: string
   remoteStarting?: boolean
   remoteWorkspaceName?: string
+  remoteWorkspace?: RemoteWorkspace
   providerId?: string
   providers?: Array<Pick<import('../../src/server/services/agent-registry.js').AgentProviderSnapshot, 'id' | 'label' | 'agentId' | 'location'>>
   models?: ModelOption[]

@@ -58,6 +58,32 @@ describe('asynchronous agent questions', () => {
     expect(html.match(/Answered agent questions/g)).toHaveLength(2)
   })
 
+  it.each([false, true])('keeps assistant context around a question when the next prompt folds its details (legacy completion: %s)', (legacyCompletion) => {
+    const question: ActivityItem = { ...activityFrom(notification)!, questions: [{ title: 'Which panel?', options: ['Composer', 'Sidebar'] }] }
+    const items: ActivityItem[] = [
+      { id: 'start', kind: 'user', title: 'You', content: 'Explain the options', timestamp: '' },
+      { id: 'reasoning', kind: 'reasoning', title: 'Thinking', content: 'Internal reasoning detail', timestamp: '' },
+      { id: 'before', kind: 'agent', title: 'Codex', content: 'The composer is the best place for this.', phase: 'commentary', timestamp: '' },
+      question,
+      { id: 'after', kind: 'agent', title: 'Codex', content: 'The sidebar is another option.', phase: 'commentary', timestamp: '',
+        ...(legacyCompletion ? { durationMs: 1000 } : {}) },
+      { id: 'tool', kind: 'tool', title: 'Inspect workspace', content: 'Internal tool detail', timestamp: '' },
+      { id: 'next', kind: 'user', title: 'You', content: 'Keep the current layout', timestamp: '' },
+    ]
+    const session = { snapshot: () => ({ threadId: 'chat-one', turn: { tag: 'running' } }), subscribe: () => () => {} } as unknown as ClientSessionService
+    const html = renderToStaticMarkup(<ActivityTimeline items={items} active session={session} />)
+
+    expect(html).toContain('The composer is the best place for this.')
+    expect(html).toContain('The sidebar is another option.')
+    expect(html).toContain('Agent questions')
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).not.toContain('Internal reasoning detail')
+    expect(html).not.toContain('Internal tool detail')
+    const order = ['before', question.id, 'after', 'next'].map((id) => html.indexOf(`data-activity-id="${id}"`))
+    expect(order.every((position) => position >= 0)).toBe(true)
+    expect(order).toEqual([...order].sort((left, right) => left - right))
+  })
+
   it('preserves the actual Astra delivery shape, including questions without options', () => {
     const activity = activityFrom(notification)!
     expect(activity).toMatchObject({ delivery: 'async', questions: [{ title: item.text }] })

@@ -9,6 +9,25 @@ export interface GitChangedFile {
   previousPath?: string
 }
 
+export interface GitCheckDetail {
+  name: string
+  state: GitCheckState
+  description?: string
+  url?: string
+}
+
+export interface GitPullRequestStack {
+  id: string
+  number: number
+  baseBranch: string
+  size: number
+  entries: Array<{
+    /** GitHub's position, starting at 1 for the PR closest to the base branch. */
+    position: number
+    pullRequest: Omit<GitPullRequest, 'stack'>
+  }>
+}
+
 export interface GitPullRequest {
   number: number
   title: string
@@ -18,6 +37,9 @@ export interface GitPullRequest {
   headBranch: string
   baseBranch: string
   checks?: GitCheckState
+  checkDetails?: GitCheckDetail[]
+  checkCount?: number
+  stack?: GitPullRequestStack
   updatedAt?: string
 }
 

@@ -6,8 +6,11 @@ import type {
   GitBranchInspectOptions,
   GitBranchState,
   GitChangedFile,
+  GitCheckDetail,
+  GitCheckState,
   GitInspectOptions,
   GitPullRequest,
+  GitPullRequestStack,
   GitRepositoryState,
   GitSupportSnapshot,
 } from './git-support-api.js'
@@ -39,7 +42,40 @@ function changedFile(value: unknown): GitChangedFile | undefined {
   }
 }
 
-function pullRequest(value: unknown): GitPullRequest | undefined {
+function checkState(value: unknown): GitCheckState | undefined {
+  return value === 'pending' || value === 'passing' || value === 'failing' ? value : undefined
+}
+
+function checkDetail(value: unknown): GitCheckDetail | undefined {
+  if (!isRecord(value) || typeof value.name !== 'string') return undefined
+  const state = checkState(value.state)
+  if (!state) return undefined
+  return {
+    name: value.name,
+    state,
+    ...(typeof value.description === 'string' ? { description: value.description } : {}),
+    ...(typeof value.url === 'string' ? { url: value.url } : {}),
+  }
+}
+
+function pullRequestStack(value: unknown): GitPullRequestStack | undefined {
+  if (
+    !isRecord(value)
+    || typeof value.id !== 'string'
+    || typeof value.number !== 'number'
+    || typeof value.baseBranch !== 'string'
+    || typeof value.size !== 'number'
+    || !Array.isArray(value.entries)
+  ) return undefined
+  const entries = value.entries.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.position !== 'number' || entry.position < 1) return []
+    const parsed = pullRequest(entry.pullRequest, false)
+    return parsed ? [{ position: entry.position, pullRequest: parsed }] : []
+  }).sort((left, right) => left.position - right.position)
+  return { id: value.id, number: value.number, baseBranch: value.baseBranch, size: value.size, entries }
+}
+
+function pullRequest(value: unknown, includeStack = true): GitPullRequest | undefined {
   if (
     !isRecord(value)
     || typeof value.number !== 'number'
@@ -50,7 +86,24 @@ function pullRequest(value: unknown): GitPullRequest | undefined {
     || typeof value.headBranch !== 'string'
     || typeof value.baseBranch !== 'string'
   ) return undefined
-  return value as unknown as GitPullRequest
+  const checks = checkState(value.checks)
+  const checkDetails = Array.isArray(value.checkDetails) ? value.checkDetails
+    .map(checkDetail).filter((check): check is GitCheckDetail => Boolean(check)) : undefined
+  const stack = includeStack ? pullRequestStack(value.stack) : undefined
+  return {
+    number: value.number,
+    title: value.title,
+    url: value.url,
+    state: value.state,
+    draft: value.draft,
+    headBranch: value.headBranch,
+    baseBranch: value.baseBranch,
+    ...(typeof value.updatedAt === 'string' ? { updatedAt: value.updatedAt } : {}),
+    ...(checks ? { checks } : {}),
+    ...(checkDetails ? { checkDetails } : {}),
+    ...(typeof value.checkCount === 'number' ? { checkCount: value.checkCount } : {}),
+    ...(stack ? { stack } : {}),
+  }
 }
 
 function branchState(value: unknown): GitBranchState | undefined {
@@ -60,7 +113,7 @@ function branchState(value: unknown): GitBranchState | undefined {
     || typeof value.updatedAt !== 'string'
     || !Array.isArray(value.pullRequests)
   ) return undefined
-  const pullRequests = value.pullRequests.map(pullRequest)
+  const pullRequests = value.pullRequests.map((value) => pullRequest(value))
   if (pullRequests.some((candidate) => !candidate)) return undefined
   return {
     branch: value.branch,
@@ -83,7 +136,7 @@ function repository(value: unknown): GitRepositoryState | undefined {
     || !Array.isArray(value.pullRequests)
   ) return undefined
   const files = value.files.map(changedFile)
-  const pullRequests = value.pullRequests.map(pullRequest)
+  const pullRequests = value.pullRequests.map((value) => pullRequest(value))
   if (files.some((candidate) => !candidate) || pullRequests.some((candidate) => !candidate)) return undefined
   return {
     ...value,

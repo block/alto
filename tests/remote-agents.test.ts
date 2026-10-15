@@ -350,6 +350,41 @@ describe('durable remote chats', () => {
     expect((await third.chats.open(chat.summary.id)).activities).toHaveLength(restored.activities.length)
   })
 
+  it('inspects a saved remote workspace without creating or reconnecting its agent', async () => {
+    const f = await fixture()
+    const first = await f.connect()
+    const chat = await first.chats.create('example-claude', '/local/repo', 'ask')
+    await first.close()
+    const workspace = { name: 'original-workstation', url: 'https://remote.example/terminal',
+      cwd: '/remote/repo', branch: 'feature/remote', repository: 'https://github.com/example/remote' }
+    const lookup = vi.fn(async (_process: RemoteAgentProcess, _signal: AbortSignal) => workspace)
+    Object.assign(f.backend, { workspaceInfo: lookup })
+    const reconnect = vi.spyOn(f.backend, 'read')
+    const sends = f.backend.sends.length
+    const second = await f.connect()
+    expect(await Promise.all([second.chats.workspace(chat.summary.id), second.chats.workspace(chat.summary.id)]))
+      .toEqual([workspace, workspace])
+    expect(lookup).toHaveBeenCalledTimes(1)
+    expect(lookup).toHaveBeenCalledWith(expect.objectContaining({ id: 'process-1', cwd: '/remote/repo' }), expect.any(AbortSignal))
+    expect(second.provider.snapshot().activeSessionIds).toEqual([])
+    expect(reconnect).not.toHaveBeenCalled()
+    expect(f.backend.creates).toBe(1)
+    expect(f.backend.sends).toHaveLength(sends)
+    expect(f.backend.terminate).not.toHaveBeenCalled()
+  })
+
+  it('updates remote workspace metadata without making the conversation appear newly active', async () => {
+    const f = await fixture()
+    const first = await f.connect()
+    const chat = await first.chats.create('example-claude', '/local/repo', 'ask')
+    chat.summary.updatedAt = 123
+    const workspace = { branch: 'remote-branch', cwd: '/remote/repo' }
+    Object.assign(f.backend, { workspaceInfo: vi.fn(async () => workspace) })
+    expect(await first.chats.workspace(chat.summary.id)).toEqual(workspace)
+    expect(chat.remote?.workspace).toEqual(workspace)
+    expect(chat.summary.updatedAt).toBe(123)
+  })
+
   it('restores a question asked offline and validates the answer without reinitializing the agent', async () => {
     const f = await fixture()
     const first = await f.connect()

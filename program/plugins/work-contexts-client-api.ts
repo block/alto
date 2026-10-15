@@ -13,6 +13,7 @@ export interface ClientWorkContextsService {
   workstreamForPath(path: string, projectId?: string): Workstream | undefined
   localCheckoutForPath(path: string, projectId?: string): WorkCheckout | undefined
   targetForThread(threadId: string | undefined): WorkTarget | undefined
+  openLocation(checkoutId: string): Promise<void>
   setTarget(threadId: string, checkoutId: string): Promise<void>
   createLocalBranch(
     threadId: string,

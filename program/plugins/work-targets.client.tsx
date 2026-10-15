@@ -5,6 +5,7 @@ import {
   GitBranchPlus,
   Laptop,
   LoaderCircle,
+  X,
 } from 'lucide-react'
 import {
   useEffect,
@@ -15,7 +16,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { BrowserPlugin } from '../../src/client/plugin-api.js'
+import type { BrowserPlugin, ClientHostService } from '../../src/client/plugin-api.js'
 import type {
   WorkCheckout,
   WorkProviderDescriptor,
@@ -27,27 +28,32 @@ import type { ClientSessionService, ClientSessionSnapshot } from './session-api.
 import type { WorkspacePaneAddonProps } from './workspace-layout-api.js'
 import { useStoreSelector } from './ui/store-selector.js'
 import { startWorktreeStatusRefresh } from './work-contexts-refresh.js'
+import { workTargetDisplay } from './work-target-display.js'
 import styles from './work-targets.css'
 
 type BranchDestination = 'checkout' | 'worktree' | `provider:${string}`
 
 interface WorkTargetSessionSnapshot {
-  threads: ClientSessionSnapshot['threads']
-  history: ClientSessionSnapshot['history']
   threadId?: string
   activeProjectId?: string
   workspace: string
   remoteLocation?: string
+  remoteWorkspaceName?: string
+  remoteWorkspace?: NonNullable<ClientSessionSnapshot['remoteWorkspace']>
+  providerId?: string
+  providers?: NonNullable<ClientSessionSnapshot['providers']>
 }
 
 function workTargetSessionSnapshot(state: ClientSessionSnapshot): WorkTargetSessionSnapshot {
   return {
-    threads: state.threads,
-    history: state.history,
     ...(state.threadId ? { threadId: state.threadId } : {}),
     ...(state.activeProjectId ? { activeProjectId: state.activeProjectId } : {}),
     workspace: state.session.workspace,
     ...(state.remoteLocation ? { remoteLocation: state.remoteLocation } : {}),
+    ...(state.remoteWorkspaceName ? { remoteWorkspaceName: state.remoteWorkspaceName } : {}),
+    ...(state.remoteWorkspace ? { remoteWorkspace: state.remoteWorkspace } : {}),
+    ...(state.providerId ? { providerId: state.providerId } : {}),
+    ...(state.providers ? { providers: state.providers } : {}),
   }
 }
 
@@ -55,12 +61,14 @@ function workTargetSessionSnapshotEqual(
   left: WorkTargetSessionSnapshot,
   right: WorkTargetSessionSnapshot,
 ): boolean {
-  return left.threads === right.threads
-    && left.history === right.history
-    && left.threadId === right.threadId
+  return left.threadId === right.threadId
     && left.activeProjectId === right.activeProjectId
     && left.workspace === right.workspace
     && left.remoteLocation === right.remoteLocation
+    && left.remoteWorkspaceName === right.remoteWorkspaceName
+    && left.remoteWorkspace === right.remoteWorkspace
+    && left.providerId === right.providerId
+    && left.providers === right.providers
 }
 
 function compactLocation(value: string): string {
@@ -347,11 +355,19 @@ function WorktreeStatusRefresh({ location, contexts }: {
   return null
 }
 
+function RemoteWorkspaceRefresh({ threadId, host }: { threadId: string; host: ClientHostService }): null {
+  useEffect(() => startWorktreeStatusRefresh(async () => {
+    await host.call('agent-chats.workspace', { id: threadId })
+  }), [host, threadId])
+  return null
+}
+
 function VisibleWorkTargetControl({
   focused,
   session,
   contexts,
-}: WorkspacePaneAddonProps & { contexts: ClientWorkContextsService }): ReactNode {
+  host,
+}: WorkspacePaneAddonProps & { contexts: ClientWorkContextsService; host: ClientHostService }): ReactNode {
   const sessionState = useStoreSelector(
     session,
     workTargetSessionSnapshot,
@@ -360,52 +376,105 @@ function VisibleWorkTargetControl({
   const contextState = useSyncExternalStore(contexts.subscribe, contexts.snapshot)
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
-  const thread = sessionState.threads.find((candidate) => candidate.id === sessionState.threadId)
-    ?? sessionState.history.entries.find((candidate) => candidate.id === sessionState.threadId)
+  const [openingLocation, setOpeningLocation] = useState(false)
+  const [locationError, setLocationError] = useState<string>()
+  const locationRequest = useRef(0)
+  const locationPending = useRef(false)
   const currentCheckout = contexts.localCheckoutForPath(
     sessionState.workspace,
     sessionState.activeProjectId,
   )
-  if (!currentCheckout) return null
-
   const selected = contexts.targetForThread(sessionState.threadId)
-  const streams = contextState.workstreams.filter((stream) => stream.projectId === currentCheckout.projectId)
-  const capturedCheckout = thread?.gitInfo?.branch
-    ? streams.flatMap((stream) => stream.checkouts).find((checkout) => (
-        checkout.kind === 'local'
-        && checkout.branch === thread.gitInfo?.branch
-        && (!thread.gitInfo.sha || !checkout.head || checkout.head === thread.gitInfo.sha)
-      ))
-    : undefined
-  const target = selected
-    ?? capturedCheckout
-    ?? (thread?.gitInfo?.branch && thread.gitInfo.branch !== currentCheckout.branch
-      ? { ...currentCheckout, branch: thread.gitInfo.branch, head: thread.gitInfo.sha }
-      : currentCheckout)
+  const streams = contextState.workstreams.filter((stream) => stream.projectId === (currentCheckout?.projectId ?? selected?.projectId))
+  const target = selected ?? currentCheckout
+  const display = workTargetDisplay(
+    sessionState,
+    target,
+    contextState.workstreams.flatMap((stream) => stream.checkouts),
+    contextState.providers,
+  )
+  useEffect(() => {
+    setOpen(false)
+    setLocationError(undefined)
+    setOpeningLocation(false)
+    locationPending.current = false
+    return () => { locationRequest.current++ }
+  }, [sessionState.threadId, display?.location])
+  if (!display) return null
+
+  const openLocation = async (): Promise<void> => {
+    if (!display.checkoutId || locationPending.current) return
+    locationPending.current = true
+    const request = ++locationRequest.current
+    setOpeningLocation(true)
+    setLocationError(undefined)
+    try {
+      await contexts.openLocation(display.checkoutId)
+    } catch (cause) {
+      if (locationRequest.current === request) setLocationError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      if (locationRequest.current === request) {
+        locationPending.current = false
+        setOpeningLocation(false)
+      }
+    }
+  }
+  const placeContent = <>{display.local ? <Laptop size={11} /> : <Cloud size={11} />}<span>{display.label}</span></>
 
   return (
     <div className="work-target-control">
-      {focused && !sessionState.remoteLocation && target.kind === 'local' && (
+      {focused && !sessionState.remoteLocation && target?.kind === 'local' && (
         <WorktreeStatusRefresh location={target.location} contexts={contexts} />
       )}
-      <button
-        className={`work-target-button${target.statusTone ? ` is-${target.statusTone}` : ''}`}
+      {focused && sessionState.remoteLocation && sessionState.threadId && (
+        <RemoteWorkspaceRefresh threadId={sessionState.threadId} host={host} />
+      )}
+      {display.local ? (
+        <button
+          className="work-target-button work-target-location"
+          type="button"
+          aria-label={`Open ${display.location} in Finder`}
+          title={display.location}
+          aria-busy={openingLocation}
+          disabled={openingLocation}
+          onClick={(event) => { event.stopPropagation(); void openLocation() }}
+        >{placeContent}</button>
+      ) : display.url ? (
+        <a
+          className="work-target-button work-target-location"
+          href={display.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Open ${display.label} workspace ${display.location}`}
+          title={`${display.label} · ${display.location}`}
+          onClick={(event) => event.stopPropagation()}
+        >{placeContent}</a>
+      ) : (
+        <span className="work-target-button work-target-location is-unavailable" title={`${display.label} · ${display.location}`}>
+          {placeContent}
+        </span>
+      )}
+      {display.branch && <button
+        className={`work-target-button work-target-branch-button${display.statusTone ? ` is-${display.statusTone}` : ''}`}
         type="button"
         ref={anchor}
         aria-expanded={open}
         aria-haspopup="menu"
-        title={sessionState.remoteLocation ? `Agent runs on ${sessionState.remoteLocation}` : `Work on ${target.branch} · ${target.location}`}
-        disabled={Boolean(sessionState.remoteLocation)}
+        title={`Work on ${display.branch} · ${display.location}`}
+        disabled={Boolean(sessionState.remoteLocation) || !currentCheckout}
         onClick={(event) => {
           event.stopPropagation()
           setOpen((value) => !value)
           if (!open) void contexts.refresh().catch(() => undefined)
         }}
       >
-        <span className="work-target-branch"><GitBranch size={11} />{target.branch}</span>
-
-      </button>
-      {open && anchor.current && (
+        <GitBranch size={11} /><span className="work-target-branch">{display.branch}</span>
+      </button>}
+      {locationError && <div className="work-target-location-error" role="alert">
+        <span>{locationError}</span>
+        <button type="button" aria-label="Dismiss location error" onClick={() => setLocationError(undefined)}><X size={12} /></button>
+      </div>}
+      {open && anchor.current && currentCheckout && (
         <WorkTargetPicker
           anchor={anchor.current}
           streams={streams}
@@ -423,7 +492,7 @@ function VisibleWorkTargetControl({
 }
 
 function WorkTargetControl(
-  props: WorkspacePaneAddonProps & { contexts: ClientWorkContextsService },
+  props: WorkspacePaneAddonProps & { contexts: ClientWorkContextsService; host: ClientHostService },
 ): ReactNode {
   return props.visible ? <VisibleWorkTargetControl {...props} /> : null
 }
@@ -433,11 +502,11 @@ const workTargets: BrowserPlugin = (ctx) => {
     id: 'work-target',
     placement: 'pane-title',
     order: 20,
-    renderer: (props) => <WorkTargetControl {...props} contexts={ctx.clientWorkContexts} />,
+    renderer: (props) => <WorkTargetControl {...props} contexts={ctx.clientWorkContexts} host={ctx.clientHost} />,
   })
   ctx.clientUi.registerStyle(ctx, 'work-targets', String(styles))
 }
 
-workTargets.inject = ['clientUi', 'clientWorkContexts', 'clientWorkspaceLayout']
+workTargets.inject = ['clientUi', 'clientHost', 'clientWorkContexts', 'clientWorkspaceLayout']
 
 export default workTargets

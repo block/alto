@@ -5,9 +5,11 @@ import type {
   GitBranchInspectOptions,
   GitBranchState,
   GitChangedFile,
+  GitCheckDetail,
   GitCheckState,
   GitInspectOptions,
   GitPullRequest,
+  GitPullRequestStack,
   GitRepositoryState,
   GitSupportService,
   GitSupportSnapshot,
@@ -24,17 +26,39 @@ interface GitSupportConfig {
   remoteTtlMs?: number
 }
 
-interface PullRequestJson {
-  number: number
-  title: string
-  url: string
-  state: string
-  isDraft: boolean
-  headRefName: string
-  baseRefName: string
-  updatedAt?: string
-  statusCheckRollup?: unknown[]
-}
+// Native stack membership and positions come from GitHub, never branch-name inference.
+// https://docs.github.com/en/graphql/reference/pulls#pullrequeststack
+const PULL_REQUEST_QUERY = `
+  query AltoBranchPullRequests($owner: String!, $name: String!, $branch: String!) {
+    repository(owner: $owner, name: $name) {
+      pullRequests(headRefName: $branch, states: OPEN, first: 5,
+        orderBy: {field: UPDATED_AT, direction: DESC}) {
+        nodes {
+          ...PullRequestDetails
+          stack {
+            id number baseRefName size
+            entries(first: 100) {
+              nodes { position pullRequest { ...PullRequestDetails } }
+            }
+          }
+        }
+      }
+    }
+  }
+  fragment PullRequestDetails on PullRequest {
+    number title url state isDraft headRefName baseRefName updatedAt
+    statusCheckRollup {
+      state
+      contexts(first: 100) {
+        totalCount
+        nodes {
+          ... on CheckRun { name status conclusion detailsUrl }
+          ... on StatusContext { context state description targetUrl }
+        }
+      }
+    }
+  }
+`
 
 function normalizedPath(value: string): string {
   return value.trim().replaceAll('\\', '/').replace(/\/+$/u, '')
@@ -86,21 +110,44 @@ export function parseGitStatus(value: string): GitChangedFile[] {
   return files.toSorted((left, right) => left.path.localeCompare(right.path))
 }
 
-export function checkState(checks: unknown): GitCheckState | undefined {
-  if (!Array.isArray(checks) || checks.length === 0) return undefined
-  let pending = false
-  for (const check of checks) {
-    if (!isRecord(check)) continue
-    const conclusion = typeof check.conclusion === 'string' ? check.conclusion.toUpperCase() : ''
-    const state = typeof check.state === 'string' ? check.state.toUpperCase() : ''
-    const status = typeof check.status === 'string' ? check.status.toUpperCase() : ''
-    if (['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED'].includes(conclusion)
-      || ['FAILURE', 'ERROR'].includes(state)) return 'failing'
-    if ((status && status !== 'COMPLETED') || ['PENDING', 'EXPECTED', 'QUEUED', 'IN_PROGRESS'].includes(state)) {
-      pending = true
-    }
+function individualCheckState(value: unknown): GitCheckState | undefined {
+  if (!isRecord(value)) return undefined
+  const conclusion = typeof value.conclusion === 'string' ? value.conclusion.toUpperCase() : ''
+  const state = typeof value.state === 'string' ? value.state.toUpperCase() : ''
+  const status = typeof value.status === 'string' ? value.status.toUpperCase() : ''
+  if (['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'STALE'].includes(conclusion)
+    || ['FAILURE', 'ERROR'].includes(state)) return 'failing'
+  if ((status && status !== 'COMPLETED') || ['PENDING', 'EXPECTED', 'QUEUED', 'IN_PROGRESS'].includes(state)) {
+    return 'pending'
   }
-  return pending ? 'pending' : 'passing'
+  if (['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(conclusion) || state === 'SUCCESS') return 'passing'
+  return undefined
+}
+
+export function checkState(checks: unknown): GitCheckState | undefined {
+  if (!Array.isArray(checks)) return undefined
+  const states = checks.map(individualCheckState)
+  if (states.includes('failing')) return 'failing'
+  if (states.includes('pending')) return 'pending'
+  return states.includes('passing') ? 'passing' : undefined
+}
+
+export function checkDetails(checks: unknown): GitCheckDetail[] {
+  if (!Array.isArray(checks)) return []
+  return checks.flatMap((check) => {
+    if (!isRecord(check)) return []
+    const state = individualCheckState(check)
+    const name = typeof check.name === 'string' ? check.name
+      : typeof check.context === 'string' ? check.context : undefined
+    if (!state || !name) return []
+    const url = typeof check.detailsUrl === 'string' ? check.detailsUrl
+      : typeof check.targetUrl === 'string' ? check.targetUrl : undefined
+    const label = typeof check.conclusion === 'string' && check.conclusion
+      ? check.conclusion : typeof check.status === 'string' ? check.status : undefined
+    const description = typeof check.description === 'string' && check.description
+      ? check.description : label?.toLowerCase().replaceAll('_', ' ')
+    return [{ name, state, ...(url ? { url } : {}), ...(description ? { description } : {}) }]
+  })
 }
 
 export function githubRepository(remote: string): string | undefined {
@@ -117,7 +164,7 @@ export function githubRepository(remote: string): string | undefined {
   }
 }
 
-function pullRequest(value: unknown): GitPullRequest | undefined {
+export function parseGitPullRequest(value: unknown, includeStack = true): GitPullRequest | undefined {
   if (
     !isRecord(value)
     || typeof value.number !== 'number'
@@ -128,7 +175,13 @@ function pullRequest(value: unknown): GitPullRequest | undefined {
     || typeof value.headRefName !== 'string'
     || typeof value.baseRefName !== 'string'
   ) return undefined
-  const checks = checkState(value.statusCheckRollup)
+  const rollup = value.statusCheckRollup
+  const contexts = isRecord(rollup) && isRecord(rollup.contexts) ? rollup.contexts : undefined
+  const rawChecks = contexts?.nodes ?? rollup
+  const checks = individualCheckState(rollup) ?? checkState(rawChecks)
+  const details = checkDetails(rawChecks)
+  const checkCount = typeof contexts?.totalCount === 'number' ? contexts.totalCount : details.length
+  const stack = includeStack ? parsePullRequestStack(value.stack) : undefined
   return {
     number: value.number,
     title: value.title,
@@ -138,8 +191,29 @@ function pullRequest(value: unknown): GitPullRequest | undefined {
     headBranch: value.headRefName,
     baseBranch: value.baseRefName,
     ...(checks ? { checks } : {}),
+    ...(details.length ? { checkDetails: details } : {}),
+    ...(checkCount ? { checkCount } : {}),
+    ...(stack ? { stack } : {}),
     ...(typeof value.updatedAt === 'string' ? { updatedAt: value.updatedAt } : {}),
   }
+}
+
+function parsePullRequestStack(value: unknown): GitPullRequestStack | undefined {
+  if (
+    !isRecord(value)
+    || typeof value.id !== 'string'
+    || typeof value.number !== 'number'
+    || typeof value.baseRefName !== 'string'
+    || typeof value.size !== 'number'
+    || !isRecord(value.entries)
+    || !Array.isArray(value.entries.nodes)
+  ) return undefined
+  const entries = value.entries.nodes.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.position !== 'number' || entry.position < 1) return []
+    const pullRequest = parseGitPullRequest(entry.pullRequest, false)
+    return pullRequest ? [{ position: entry.position, pullRequest }] : []
+  }).sort((left, right) => left.position - right.position)
+  return { id: value.id, number: value.number, baseBranch: value.baseRefName, size: value.size, entries }
 }
 
 async function readPullRequests(runner: ProcessRunnerService, root: string, branch: string): Promise<GitPullRequest[]> {
@@ -155,13 +229,33 @@ async function readPullRequests(runner: ProcessRunnerService, root: string, bran
   return readPullRequestsForRepository(runner, repository, branch, root)
 }
 
-async function readPullRequestsForRepository(
+export async function readPullRequestsForRepository(
   runner: ProcessRunnerService,
   repository: string,
   branch: string,
   cwd?: string,
 ): Promise<GitPullRequest[]> {
   if (!branch || branch.startsWith('detached@')) return []
+  const [hostname, owner, name] = repository.split('/')
+  if (hostname && owner && name) {
+    try {
+      const output = await command(runner, 'gh', [
+        'api', 'graphql', '--hostname', hostname,
+        '-f', `query=${PULL_REQUEST_QUERY}`,
+        '-f', `owner=${owner}`, '-f', `name=${name}`, '-f', `branch=${branch}`,
+      ], { ...(cwd ? { cwd } : {}), timeout: 7_000 })
+      const result = JSON.parse(output) as unknown
+      const data = isRecord(result) && isRecord(result.data) ? result.data : undefined
+      const repo = data && isRecord(data.repository) ? data.repository : undefined
+      const pullRequests = repo && isRecord(repo.pullRequests) ? repo.pullRequests : undefined
+      if (pullRequests && Array.isArray(pullRequests.nodes)) {
+        return pullRequests.nodes.map((value) => parseGitPullRequest(value))
+          .filter((candidate): candidate is GitPullRequest => Boolean(candidate))
+      }
+    } catch {
+      // Stack fields are newer than some GitHub hosts. Keep ordinary PRs available.
+    }
+  }
   try {
     const output = await command(runner, 'gh', [
       'pr', 'list',
@@ -173,7 +267,7 @@ async function readPullRequestsForRepository(
     ], { ...(cwd ? { cwd } : {}), timeout: 7_000 })
     const parsed = JSON.parse(output) as unknown
     return Array.isArray(parsed)
-      ? parsed.map(pullRequest).filter((candidate): candidate is GitPullRequest => Boolean(candidate))
+      ? parsed.map((value) => parseGitPullRequest(value)).filter((candidate): candidate is GitPullRequest => Boolean(candidate))
       : []
   } catch {
     // GitHub CLI is optional. Local branch and file state remain available.

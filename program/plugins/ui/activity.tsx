@@ -1058,6 +1058,12 @@ function ActivityTurn({
     ? items.findLast((item) => item.kind === 'agent' && item.delivery !== 'async' && item.durationMs)
     : undefined
   const finalAgents = legacyFinalAgent ? [legacyFinalAgent] : phasedFinalAgents
+  // A question can be the last thing an agent sends before the next prompt.
+  // Until there is a separate final answer, its preceding prose is still the
+  // response to read, even when the turn's tool and reasoning details fold.
+  const preserveQuestionContext = phasedFinalAgents.length === 0 && items.some((item) => (
+    item.kind === 'agent' && item.delivery === 'async' && item.questions?.length
+  ))
   const finalAgentIds = new Set(finalAgents.map((item) => item.id))
   const finalAgent = finalAgents.at(-1)
   const completed = Boolean(finalAgent?.durationMs)
@@ -1163,9 +1169,9 @@ function ActivityTurn({
         )}
       </button>
       {workSections.map((section) => section.kind === 'work'
-        ? expanded && (
+        ? (expanded || preserveQuestionContext && section.items.some((item) => item.kind === 'agent')) && (
           <div className="activity-turn-work" key={`work:${section.items[0]!.id}`}>
-            {groupToolActivities(section.items).map((entry) => (
+            {groupToolActivities(section.items.filter((item) => expanded || item.kind === 'agent')).map((entry) => (
               entry.kind === 'tool-group'
                 ? (
                     <MemoizedToolActivityGroup

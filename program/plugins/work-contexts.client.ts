@@ -149,6 +149,10 @@ export class ClientWorkContexts implements ClientWorkContextsService {
     return threadId ? this.current.threadTargets[threadId] : undefined
   }
 
+  async openLocation(checkoutId: string): Promise<void> {
+    await this.host.call('work-contexts.open-location', { checkoutId })
+  }
+
   async setTarget(threadId: string, checkoutId: string): Promise<void> {
     await this.host.call('work-contexts.set-target', { threadId, checkoutId })
   }

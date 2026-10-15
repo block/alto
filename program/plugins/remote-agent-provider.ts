@@ -9,6 +9,7 @@ import type { PermissionMode } from '../../src/shared/protocol.js'
 import { childCapabilities } from './acp-extensions.js'
 import { promptBlock } from './acp-format.js'
 import { RemoteAgentProtocol, inputSchema, record, records, string, type RemoteEvent } from './remote-agent-protocol.js'
+import type { RemoteWorkspace } from './remote-workspace-api.js'
 
 type Saved = { version: 1; id: string; providerId: string; process: RemoteAgentProcess; cwd: string; createdAt: string; mode: PermissionMode; config?: AgentConfigOption[] }
 type Attached = { saved: Saved; rpc: RemoteRpc; protocol: RemoteAgentProtocol; replaying: boolean; answering: Set<string> }
@@ -17,6 +18,7 @@ const now = () => new Date().toISOString()
 export class RemoteAgentProvider implements AgentProvider {
   private readonly sessions = new Map<string, Attached>()
   private readonly loading = new Map<string, Promise<AgentSession>>()
+  private readonly workspaces = new Map<string, { expires: number; value: Promise<RemoteWorkspace | undefined> }>()
   private readonly listeners = new Set<AgentEventListener>()
   private readonly lifecycle = new AbortController()
   readonly id: string
@@ -36,6 +38,20 @@ export class RemoteAgentProvider implements AgentProvider {
     return this.backend.workspaceName?.(cwd, this.lifecycle.signal)
   }
 
+  async workspaceInfo(sessionId: string): Promise<RemoteWorkspace | undefined> {
+    const cached = this.workspaces.get(sessionId)
+    if (cached && cached.expires > Date.now()) return cached.value
+    const value = (async () => {
+      const saved = this.sessions.get(sessionId)?.saved ?? await this.readSaved(sessionId)
+      return this.backend.workspaceInfo
+        ? this.backend.workspaceInfo(saved.process, AbortSignal.any([this.lifecycle.signal, AbortSignal.timeout(25_000)]))
+        : saved.process.workspace
+    })()
+    this.workspaces.set(sessionId, { expires: Date.now() + 30_000, value })
+    void value.catch(() => { if (this.workspaces.get(sessionId)?.value === value) this.workspaces.delete(sessionId) })
+    return value
+  }
+
   private publicRequestId(sessionId: string, wireId: string): string {
     return `${sessionId}:${wireId}`
   }
@@ -52,7 +68,7 @@ export class RemoteAgentProvider implements AgentProvider {
   }
 
   private session(value: Attached): AgentSession {
-    return { id: value.saved.id, providerId: this.id, cwd: value.saved.cwd, createdAt: value.saved.createdAt, ...(value.saved.process.workspaceName ? { workspaceName: value.saved.process.workspaceName } : {}), configOptions: structuredClone(value.protocol.config) }
+    return { id: value.saved.id, providerId: this.id, cwd: value.saved.cwd, createdAt: value.saved.createdAt, ...(value.saved.process.workspaceName ? { workspaceName: value.saved.process.workspaceName } : {}), ...(value.saved.process.workspace ? { workspace: value.saved.process.workspace } : {}), configOptions: structuredClone(value.protocol.config) }
   }
 
   private file(id: string): string {
@@ -66,6 +82,12 @@ export class RemoteAgentProvider implements AgentProvider {
     const temporary = `${target}.${randomUUID()}.tmp`
     await writeFile(temporary, JSON.stringify(saved), { mode: 0o600 })
     await rename(temporary, target)
+  }
+
+  private async readSaved(id: string): Promise<Saved> {
+    const saved = JSON.parse(await readFile(this.file(id), 'utf8')) as Saved
+    if (saved.version !== 1 || saved.id !== id || saved.providerId !== this.id || !saved.process?.id) throw new Error('Invalid remote session binding')
+    return saved
   }
 
   private async attach(saved: Saved, replay: boolean): Promise<Attached> {
@@ -141,8 +163,7 @@ export class RemoteAgentProvider implements AgentProvider {
     const pending = this.loading.get(id)
     if (pending) return pending
     const operation = (async () => {
-      const saved = JSON.parse(await readFile(this.file(id), 'utf8')) as Saved
-      if (saved.version !== 1 || saved.id !== id || saved.providerId !== this.id || !saved.process?.id) throw new Error('Invalid remote session binding')
+      const saved = await this.readSaved(id)
       if (!saved.process.workspaceName && this.backend.workspaceName) {
         // Older bindings kept provider-specific metadata in the opaque process
         // handle. A missing display name must never prevent reconnecting.

@@ -4,6 +4,7 @@ import type { AgentConfigOption, AgentPlanEntry, AgentProviderSnapshot } from '.
 import type { PendingServerRequest, PermissionMode, ThreadSummary } from '../../src/shared/protocol.js'
 import type { AgentTask } from './orchestrator-api.js'
 import type { ActivityItem } from './ui/transcript.js'
+import type { RemoteWorkspace } from './remote-workspace-api.js'
 
 export const AGENT_CHATS_STATE = 'agent-chats'
 export const agentChatStateKey = (id: string): string => `agent-chats.${id}`
@@ -12,7 +13,7 @@ export const isAgentChatId = (id: string): boolean => /^acp-[a-f0-9-]{36}$/.test
 export interface AgentChat {
   summary: ThreadSummary & { providerId: string; providerSessionId: string }
   permissionMode: PermissionMode
-  remote?: { workspaceName?: string; state: 'connecting' | 'connected' | 'disconnected' | 'ended'; message?: string; replaying?: boolean }
+  remote?: { workspaceName?: string; workspace?: RemoteWorkspace; state: 'connecting' | 'connected' | 'disconnected' | 'ended'; message?: string; replaying?: boolean }
   historyLoaded?: boolean
   replaying?: boolean
   turn: 'idle' | 'sending' | 'running'

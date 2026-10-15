@@ -110,7 +110,7 @@ export class AgentSessionService implements ClientSessionService {
       const model = config.find((option) => option.category === 'model')
       const effort = config.find((option) => option.category === 'thought_level')
       this.state = {
-        ...common, ...(provider?.remoteLocation ? { remoteLocation: provider.remoteLocation } : {}), ...(remoteWorkspaceName ? { remoteWorkspaceName } : {}), threadId: this.threadId, canAcceptDirectInput: true, models: this.models,
+        ...common, ...(provider?.remoteLocation ? { remoteLocation: provider.remoteLocation } : {}), ...(remoteWorkspaceName ? { remoteWorkspaceName } : {}), ...(chat?.remote?.workspace ? { remoteWorkspace: chat.remote.workspace } : {}), threadId: this.threadId, canAcceptDirectInput: true, models: this.models,
         connected: common.connected && (!chat?.remote || chat.remote.state === 'connected'),
         agentConfig: config, ...(chat?.plan ? { agentPlan: chat.plan } : {}), ...(chat?.usage ? { agentUsage: chat.usage } : {}), ...(chat?.commands ? { agentCommands: chat.commands } : {}),
         canSteer: provider?.capabilities.steering === true, acceptsImages: provider?.capabilities.images === true,

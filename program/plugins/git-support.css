@@ -36,11 +36,12 @@
 .git-pane-control {
   min-width: 0;
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   align-items: center;
   gap: 1px;
 }
 .git-pane-button {
+  text-decoration: none;
   height: 24px;
   display: inline-flex;
   min-width: 0;
@@ -72,6 +73,13 @@
 }
 
 .git-pane-popover {
+  position: fixed;
+  z-index: 520;
+  box-sizing: border-box;
+  color: var(--text);
+  border: 1px solid var(--border-soft);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-popover);
   width: 320px;
   max-height: min(430px, calc(100vh - 20px));
   padding: 8px;
@@ -148,3 +156,65 @@
   background: var(--panel-solid);
   box-shadow: var(--shadow-popover);
 }
+
+.git-pane-button:focus-visible,
+.git-pane-popover a:focus-visible,
+.git-pane-popover summary:focus-visible,
+.git-pane-popover button:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 0;
+}
+.git-pane-pr { flex: none; }
+.git-pane-pr-details { display: grid; gap: var(--space-1); }
+.git-pane-stack-base {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  color: var(--muted);
+  font-size: var(--type-label);
+}
+.git-pane-stack-base span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.git-pane-stack-base small { color: var(--muted-soft); }
+.git-pane-pr-section { min-width: 0; padding: var(--space-2) 0; border-top: 1px solid var(--border-soft); }
+.git-pane-pr-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  font-size: var(--type-supporting);
+}
+.git-pane-pr-row:hover { background: var(--surface-hover); }
+.git-pane-pr-row > svg { flex: none; margin-top: var(--space-1); color: var(--muted); }
+.git-pane-pr-row > span { min-width: 0; display: grid; gap: var(--space-1); }
+.git-pane-pr-row strong { display: flex; align-items: center; gap: var(--space-2); color: var(--text-strong); font-weight: var(--weight-medium); }
+.git-pane-pr-row strong small { color: var(--muted); font-size: var(--type-label); font-weight: var(--weight-regular); text-transform: capitalize; }
+.git-pane-pr-row span > span { overflow-wrap: anywhere; }
+.git-pane-check-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  color: var(--muted);
+  font-size: var(--type-label);
+}
+.git-pane-passing-checks > summary { border-radius: var(--radius-sm); cursor: pointer; list-style: none; }
+.git-pane-passing-checks > summary::-webkit-details-marker { display: none; }
+.git-pane-passing-checks > summary:hover { background: var(--surface-hover); }
+.git-pane-check-chevron { flex: none; margin-left: auto; }
+.git-pane-passing-checks[open] > summary .git-pane-check-chevron { transform: rotate(90deg); }
+.git-pane-popover .is-passing { color: var(--success); }
+.git-pane-popover .is-failing { color: var(--danger); }
+.git-pane-popover .is-pending { color: var(--accent); }
+.git-pane-popover .is-unknown { color: var(--muted-soft); }
+.git-pane-check-list { display: grid; gap: var(--space-1); margin: 0; padding: 0 var(--space-2); list-style: none; }
+.git-pane-check-list li { display: grid; grid-template-columns: var(--control-icon) minmax(0, 1fr) auto; align-items: center; gap: var(--space-1); font-size: var(--type-label); }
+.git-pane-check-list a,
+.git-pane-check-list span { min-width: 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+.git-pane-check-list a:hover { color: var(--accent); }
+.git-pane-check-list small { max-width: calc(var(--control-button) * 3); overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: inherit; }
+.git-pane-more-checks { display: block; padding: var(--space-2); color: var(--accent); font-size: var(--type-label); text-decoration: none; }
+.git-pane-stack-more { margin: 0; padding: var(--space-2); color: var(--muted); font-size: var(--type-label); }
