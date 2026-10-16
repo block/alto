@@ -79,6 +79,7 @@ import type {
   WorkspaceTabStrip,
   WorkspaceTabStripProps,
 } from './workspace-layout-api.js'
+import { WORKSPACE_NEW_CHAT_EVENT } from './workspace-layout-api.js'
 import type {
   WorkspaceOpenPaneRequest,
   WorkspaceOpenPaneResult,
@@ -228,7 +229,7 @@ interface WorkspaceLayoutController {
   selectTab(index: number): void
   tabs(): readonly WorkspaceTabTarget[]
   moveActiveTab(direction: 1 | -1): void
-  newTab(kind?: string, thread?: ThreadSummary): void
+  newTab(kind?: string, thread?: ThreadSummary, project?: LocalProject | null): void
   showThreadInPane(workspaceId: string, paneId: string, thread: ThreadSummary): void
   openPane(
     request: Omit<WorkspaceOpenPaneRequest, 'id' | 'action'>,
@@ -368,8 +369,9 @@ export class WorkspaceLayoutRegistry implements ClientWorkspaceLayoutService {
     this.controller?.moveActiveTab(direction)
   }
 
-  newTab(kind?: string, thread?: ThreadSummary): void {
-    if (thread) this.controller?.newTab(kind, thread)
+  newTab(kind?: string, thread?: ThreadSummary, project?: LocalProject | null): void {
+    if (project !== undefined) this.controller?.newTab(kind, thread, project)
+    else if (thread) this.controller?.newTab(kind, thread)
     else this.controller?.newTab(kind)
   }
 
@@ -1592,7 +1594,7 @@ function WorkspaceLayoutControllerBridge({
   selectTab: (index: number) => void
   tabs: () => readonly WorkspaceTabTarget[]
   moveActiveTab: (direction: 1 | -1) => void
-  newTab: (kind?: string, thread?: ThreadSummary) => void
+  newTab: (kind?: string, thread?: ThreadSummary, project?: LocalProject | null) => void
   showThreadInPane: (workspaceId: string, paneId: string, thread: ThreadSummary) => void
   openPane: (
     request: Omit<WorkspaceOpenPaneRequest, 'id' | 'action'>,
@@ -2642,6 +2644,21 @@ function WorkspaceLayout({
     }))
   }
 
+  useEffect(() => {
+    const newChat = (event: Event): void => {
+      const request = event as CustomEvent<{ projectId?: string }>
+      const projectId = request.detail?.projectId
+      const project = projectId
+        ? globalSession.snapshot().projects.find((candidate) => candidate.id === projectId)
+        : undefined
+      if (projectId && !project) return
+      addView(project)
+      request.preventDefault()
+    }
+    window.addEventListener(WORKSPACE_NEW_CHAT_EVENT, newChat)
+    return () => window.removeEventListener(WORKSPACE_NEW_CHAT_EVENT, newChat)
+  }, [addView, globalSession])
+
   const splitFocused = (direction: WorkspaceSplitDirection, kind?: string): void => {
     registry.showPage()
     const paneId = activeView.focusedPaneId
@@ -2981,7 +2998,7 @@ function WorkspaceLayout({
           paneKinds: workspaceViewPaneKinds(view),
         }))}
         moveActiveTab={moveActiveTab}
-        newTab={(kind, thread) => addView(undefined, kind, thread)}
+        newTab={(kind, thread, project) => addView(project, kind, thread)}
         showThreadInPane={showThreadInPane}
         openPane={openPane}
         splitFocused={splitFocused}

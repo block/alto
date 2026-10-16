@@ -35,6 +35,8 @@ import {
   threadWorkStatus,
 } from './thread-status-api.js'
 import { HistoryPanel } from './ui/history.js'
+import type { HistoryState } from './ui/history-model.js'
+import { requestWorkspaceNewChat, type WorkspaceTabTarget } from './workspace-layout-api.js'
 import { NewWorkspaceDialog } from './ui/project-settings.js'
 import { useStoreSelector } from './ui/store-selector.js'
 import styles from './sidebar.css'
@@ -282,6 +284,28 @@ interface SidebarHistoryDataSnapshot {
   projects: ClientSessionSnapshot['projects']
 }
 
+/** Keep chats visible while the global history list catches up with a new pane. */
+export function historyWithOpenWorkspaceThreads(
+  history: HistoryState,
+  tabs: readonly WorkspaceTabTarget[],
+): HistoryState {
+  const entries = new Map(history.entries.map((thread) => [thread.id, thread]))
+  let changed = false
+  for (const tab of tabs) {
+    for (const thread of tab.threads ?? []) {
+      const listed = entries.get(thread.id)
+      if (!listed) {
+        entries.set(thread.id, thread)
+        changed = true
+      } else if (thread.projectId && !listed.projectId) {
+        entries.set(thread.id, { ...listed, projectId: thread.projectId })
+        changed = true
+      }
+    }
+  }
+  return changed ? { ...history, entries: [...entries.values()] } : history
+}
+
 function sidebarHistoryDataSnapshot(state: ClientSessionSnapshot): SidebarHistoryDataSnapshot {
   return { history: state.history, projects: state.projects }
 }
@@ -469,7 +493,6 @@ const sidebarClient: BrowserPlugin<SidebarResizeConfig> = (ctx, config) => {
   }
 
   function NewThreadSurface({ surface }: ClientSurfaceProps): ReactNode {
-    const turn = useStoreSelector(session, turnTag)
     const { labeled, buttonClass } = appearance(surface)
     const label = surface.label ?? 'New chat'
     return (
@@ -480,11 +503,9 @@ const sidebarClient: BrowserPlugin<SidebarResizeConfig> = (ctx, config) => {
           data-hotkey-action="chat.new"
           title={label}
           aria-label={label}
-          disabled={turn !== 'idle'}
           onClick={() => {
             overlays.closeAll()
-            session.newThread()
-            if (controller.snapshot().mode === 'floating') controller.setCollapsed(true)
+            if (requestWorkspaceNewChat() && controller.snapshot().mode === 'floating') controller.setCollapsed(true)
           }}
         >
           <SquarePen size={16} strokeWidth={1.5} />
@@ -517,6 +538,7 @@ const sidebarClient: BrowserPlugin<SidebarResizeConfig> = (ctx, config) => {
   }
 
   function HistorySurface({ surface }: ClientSurfaceProps): ReactNode {
+    const [newThreadProblem, setNewThreadProblem] = useState('')
     const historyState = useStoreSelector(
       historySession,
       sidebarHistoryDataSnapshot,
@@ -527,6 +549,7 @@ const sidebarClient: BrowserPlugin<SidebarResizeConfig> = (ctx, config) => {
       sidebarSelectionSnapshot,
       sidebarSelectionSnapshotEqual,
     )
+    useSyncExternalStore(ctx.clientWorkspaceLayout.subscribe, ctx.clientWorkspaceLayout.snapshot)
     const statusState = useSyncExternalStore(threadStatus.subscribe, threadStatus.snapshot)
     useSyncExternalStore(ctx.clientUi.subscribe, ctx.clientUi.snapshot)
     const EntryDecoration = ctx.clientUi.component<HistoryEntryDecorationProps>(
@@ -535,11 +558,13 @@ const sidebarClient: BrowserPlugin<SidebarResizeConfig> = (ctx, config) => {
     return (
       <HistoryPanel
         label={surface.label ?? ''}
-        state={historyState.history}
+        state={historyWithOpenWorkspaceThreads(historyState.history, ctx.clientWorkspaceLayout.tabs())}
         {...(selection.threadId ? { activeThreadId: selection.threadId } : {})}
         {...(selection.activeProjectId ? { activeProjectId: selection.activeProjectId } : {})}
         projects={historyState.projects}
         disabled={selection.turn !== 'idle'}
+        newThreadDisabled={false}
+        newThreadProblem={newThreadProblem}
         showAge={surface.showAge ?? true}
         emptyText={surface.emptyText ?? 'No conversations yet'}
         statusFor={(threadId) => threadWorkStatus(statusState, threadId)}
@@ -547,8 +572,12 @@ const sidebarClient: BrowserPlugin<SidebarResizeConfig> = (ctx, config) => {
         onNewWorkspace={() => overlays.open('new-workspace')}
         onClose={() => controller.setCollapsed(true)}
         onNewThread={(project) => {
+          if (!requestWorkspaceNewChat(project.id)) {
+            setNewThreadProblem('Workspace tabs are not ready. Try again in a moment.')
+            return
+          }
+          setNewThreadProblem('')
           overlays.closeAll()
-          session.newThread(project)
           if (controller.snapshot().mode === 'floating') controller.setCollapsed(true)
         }}
         onOpen={(thread) => {
@@ -686,7 +715,7 @@ const sidebarClient: BrowserPlugin<SidebarResizeConfig> = (ctx, config) => {
   }
 }
 
-sidebarClient.inject = ['clientUi', 'clientSession', 'clientSessionRouter']
+sidebarClient.inject = ['clientUi', 'clientSession', 'clientSessionRouter', 'clientWorkspaceLayout']
 sidebarClient.provide = 'clientSidebar'
 sidebarClient.resources = {
   provides: {

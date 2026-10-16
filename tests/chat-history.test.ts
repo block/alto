@@ -30,6 +30,23 @@ describe('chat history pages', () => {
     expect(newTab).toHaveBeenCalledTimes(2)
   })
 
+  it('forwards an explicit project or projectless chat without changing the selected thread', () => {
+    const registry = new WorkspaceLayoutRegistry()
+    const newTab = vi.fn()
+    const unbind = registry.bindController({ tabs: () => [], paneTargets: () => [], newTab } as unknown as Parameters<typeof registry.bindController>[0])
+    const project = { id: 'atlas', name: 'Atlas', primaryRoot: '/repo/atlas', roots: ['/repo/atlas'] }
+    const thread = chat('existing', 10)
+    registry.newTab(undefined, undefined, project)
+    registry.newTab(undefined, undefined, null)
+    registry.newTab(undefined, thread)
+    expect(newTab.mock.calls).toEqual([
+      [undefined, undefined, project],
+      [undefined, undefined, null],
+      [undefined, thread],
+    ])
+    unbind()
+  })
+
   it('requests one cursor page of top-level chats and uses the shared summary parser and workspace classifier', async () => {
     const request = vi.fn().mockResolvedValue({ data: [
       { id: 'a', name: 'Actual chat name', preview: 'First message', cwd: '/repo', createdAt: 10, updatedAt: 20 },

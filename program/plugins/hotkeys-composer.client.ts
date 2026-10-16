@@ -83,13 +83,13 @@ const hotkeysComposer: Plugin = (ctx) => {
   ctx.clientHotkeys.registerAction(ctx, {
     id: 'chat.new',
     label: 'New chat',
-    detail: 'Start a blank task in the current workspace.',
+    detail: 'Open a new chat tab.',
     category: 'Navigation',
     binding: { kind: 'leader', key: 'n' },
-    enabled: () => ctx.clientConversation.snapshot().turn.tag === 'idle',
+    enabled: () => ctx.clientWorkspaceLayout.available(),
     run: () => {
       ctx.clientUi.overlays.closeAll()
-      ctx.clientConversation.newThread()
+      ctx.clientWorkspaceLayout.newTab()
     },
   })
 
@@ -106,6 +106,6 @@ const hotkeysComposer: Plugin = (ctx) => {
   })
 }
 
-hotkeysComposer.inject = ['clientHotkeys', 'clientComposer', 'clientConversation', 'clientUi']
+hotkeysComposer.inject = ['clientHotkeys', 'clientComposer', 'clientConversation', 'clientUi', 'clientWorkspaceLayout']
 
 export default hotkeysComposer

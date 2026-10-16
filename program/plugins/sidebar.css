@@ -448,3 +448,9 @@ html[data-alto-theme='dark'] .history-entry.active {
     box-shadow: var(--shadow-popover);
   }
 }
+
+.history-new-thread-error {
+  margin: var(--space-2) var(--space-3);
+  color: var(--danger);
+  font-size: var(--type-caption);
+}
