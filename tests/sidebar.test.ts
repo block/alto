@@ -2,9 +2,49 @@ import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import {
   clampSidebarWidth,
+  historyWithOpenWorkspaceThreads,
   SidebarController,
   sidebarWidthBounds,
 } from '../program/plugins/sidebar.client.js'
+import type { HistoryState } from '../program/plugins/ui/history-model.js'
+import type { WorkspaceTabTarget } from '../program/plugins/workspace-layout-api.js'
+import type { ThreadSummary } from '../src/shared/protocol.js'
+
+describe('open workspace chat history', () => {
+  const thread = (id: string, projectId?: string): ThreadSummary => ({
+    id, title: id, preview: '', cwd: '/repo', createdAt: 1, updatedAt: 1,
+    ...(projectId ? { projectId } : {}),
+  })
+  const tab = (...threads: ThreadSummary[]): WorkspaceTabTarget => ({
+    id: 'workspace', title: 'Workspace', active: true,
+    threadIds: threads.map(({ id }) => id), threads,
+  })
+
+  it('shows a new pane chat before history refresh completes, without duplicate rows', () => {
+    const history: HistoryState = { tag: 'loading', entries: [thread('listed')] }
+    const pending = thread('new', 'project')
+    const merged = historyWithOpenWorkspaceThreads(history, [tab(pending), tab(pending, thread('listed'))])
+    expect(merged.tag).toBe('loading')
+    expect(merged.entries).toEqual([thread('listed'), pending])
+    expect(history.entries).toHaveLength(1)
+  })
+
+  it('retains a provisional project assignment without replacing fresher global metadata', () => {
+    const listed = { ...thread('new'), title: 'Renamed chat', updatedAt: 10 }
+    const history: HistoryState = { tag: 'ready', entries: [listed, thread('assigned', 'authoritative')] }
+    const merged = historyWithOpenWorkspaceThreads(history, [tab(thread('new', 'project'), thread('assigned', 'stale'))])
+    expect(merged.entries).toEqual([{ ...listed, projectId: 'project' }, thread('assigned', 'authoritative')])
+    expect(listed.projectId).toBeUndefined()
+  })
+
+  it('keeps history failure information and reuses the snapshot when no pane adds information', () => {
+    const history: HistoryState = { tag: 'failed', entries: [thread('listed')], problem: 'Offline' }
+    expect(historyWithOpenWorkspaceThreads(history, [tab(thread('listed'))])).toBe(history)
+    expect(historyWithOpenWorkspaceThreads(history, [tab(thread('new'))])).toMatchObject({
+      tag: 'failed', problem: 'Offline', entries: [thread('listed'), thread('new')],
+    })
+  })
+})
 
 describe('sidebar resizing', () => {
   it('uses restrained defaults', () => {

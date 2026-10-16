@@ -193,7 +193,7 @@ describe('hotkeys plugin', () => {
     })
   })
 
-  it('leaves Space unregistered so the focused conversation uses native scrolling', async () => {
+  it('opens a separate chat during an active turn and leaves native scrolling unregistered', async () => {
     const context = new Context()
     const actions = new Map<string, HotkeyAction>()
     const hotkeys = {
@@ -209,15 +209,23 @@ describe('hotkeys plugin', () => {
     hotkeysProvider.provide = 'clientHotkeys'
     const composerProvider: Plugin = (ctx) => ctx.provide('clientComposer', { focus: vi.fn() } as never)
     composerProvider.provide = 'clientComposer'
+    const replaceThread = vi.fn()
     const conversationProvider: Plugin = (ctx) => ctx.provide('clientConversation', {
-      snapshot: () => ({ turn: { tag: 'idle' } }),
-      newThread: vi.fn(),
+      snapshot: () => ({ turn: { tag: 'running' } }),
+      newThread: replaceThread,
     } as never)
     conversationProvider.provide = 'clientConversation'
     const uiProvider: Plugin = (ctx) => ctx.provide('clientUi', {
       overlays: { closeAll: vi.fn() },
     } as never)
     uiProvider.provide = 'clientUi'
+    let layoutAvailable = true
+    const newTab = vi.fn()
+    const layoutProvider: Plugin = (ctx) => ctx.provide('clientWorkspaceLayout', {
+      available: () => layoutAvailable,
+      newTab,
+    } as never)
+    layoutProvider.provide = 'clientWorkspaceLayout'
 
     const actionFiber = context.plugin(hotkeysComposer)
     await actionFiber
@@ -225,13 +233,22 @@ describe('hotkeys plugin', () => {
     const composerFiber = await context.plugin(composerProvider)
     const conversationFiber = await context.plugin(conversationProvider)
     const uiFiber = await context.plugin(uiProvider)
+    const layoutFiber = await context.plugin(layoutProvider)
     await actionFiber.await()
 
     expect([...actions.keys()]).toEqual(['chat.new', 'chat.focus'])
+    const newChat = actions.get('chat.new')!
+    expect(newChat.enabled?.()).toBe(true)
+    newChat.run()
+    expect(newTab).toHaveBeenCalledExactlyOnceWith()
+    expect(replaceThread).not.toHaveBeenCalled()
+    layoutAvailable = false
+    expect(newChat.enabled?.()).toBe(false)
     expect([...actions.values()].some((action) => (
       action.binding?.kind === 'global' && action.binding.key === ' '
     ))).toBe(false)
 
+    await layoutFiber.dispose()
     await uiFiber.dispose()
     await conversationFiber.dispose()
     await composerFiber.dispose()

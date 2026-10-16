@@ -152,6 +152,8 @@ export function HistoryPanel({
   activeProjectId,
   projects,
   disabled,
+  newThreadDisabled = disabled,
+  newThreadProblem,
   showAge = false,
   emptyText = 'No conversations yet',
   statusFor,
@@ -169,6 +171,8 @@ export function HistoryPanel({
   activeProjectId?: string
   projects: LocalProject[]
   disabled: boolean
+  newThreadDisabled?: boolean
+  newThreadProblem?: string
   showAge?: boolean
   emptyText?: string
   statusFor?: (threadId: string) => ThreadWorkStatus | undefined
@@ -273,6 +277,7 @@ export function HistoryPanel({
           )}
         </header>
       )}
+      {newThreadProblem && <p className="history-new-thread-error" role="alert">{newThreadProblem}</p>}
       <div className="history-list">
         {groups.map((group) => {
           const project = group.project
@@ -309,7 +314,7 @@ export function HistoryPanel({
                     type="button"
                     title={`New chat in ${group.label}`}
                     aria-label={`New chat in ${group.label}`}
-                    disabled={disabled}
+                    disabled={newThreadDisabled}
                     onClick={() => onNewThread(project)}
                   >
                     <Plus size={15} strokeWidth={1.7} />

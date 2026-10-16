@@ -1,5 +1,5 @@
 import type { ComponentType, Dispatch, KeyboardEvent, MouseEvent, ReactNode, RefObject, SetStateAction } from 'react'
-import type { ThreadSummary } from '../../src/shared/protocol.js'
+import type { LocalProject, ThreadSummary } from '../../src/shared/protocol.js'
 import type { ClientSessionService } from './session-api.js'
 import type {
   WorkspaceOpenPaneRequest,
@@ -148,6 +148,18 @@ export interface WorkspaceTabAction {
   run(tab: WorkspaceView): void
 }
 
+export const WORKSPACE_NEW_CHAT_EVENT = 'alto:workspace-new-chat'
+
+/** Request a tab from the mounted compositor and report whether it handled the click. */
+export function requestWorkspaceNewChat(projectId?: string): boolean {
+  const event = new CustomEvent<{ projectId?: string }>(WORKSPACE_NEW_CHAT_EVENT, {
+    cancelable: true,
+    detail: projectId ? { projectId } : {},
+  })
+  window.dispatchEvent(event)
+  return event.defaultPrevented
+}
+
 export interface ClientWorkspaceLayoutService {
   subscribe(listener: () => void): () => void
   snapshot(): number
@@ -167,7 +179,7 @@ export interface ClientWorkspaceLayoutService {
   tabs(): readonly WorkspaceTabTarget[]
   moveActiveTab(direction: 1 | -1): void
   /** Open a full-size tab; omit kind for the normal new-chat behavior. */
-  newTab(kind?: string, thread?: ThreadSummary): void
+  newTab(kind?: string, thread?: ThreadSummary, project?: LocalProject | null): void
   showThreadInPane(workspaceId: string, paneId: string, thread: ThreadSummary): void
   openPane(
     request: Omit<WorkspaceOpenPaneRequest, 'id' | 'action'>,
