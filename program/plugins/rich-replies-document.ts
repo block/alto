@@ -20,11 +20,31 @@ export function buildRichReplyDocument(source: string, token: string): { documen
   const serializedToken = JSON.stringify(token).replace(/</g, '\\u003c')
   const bootstrap = `(() => {
     const token = ${serializedToken};
+    let pending = false, previousHeight = 0, contentChanged = true;
+    let viewportWidth = innerWidth, viewportHeight = innerHeight;
     const report = () => {
-      if (!document.body) return;
-      const height = Math.ceil(document.body.getBoundingClientRect().height);
-      parent.postMessage({ type: 'alto.rich-reply.resize', token, height }, '*');
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => {
+        pending = false;
+        if (!document.body) return;
+        const heightOnlyResize = innerHeight !== viewportHeight && innerWidth === viewportWidth;
+        viewportWidth = innerWidth;
+        viewportHeight = innerHeight;
+        // Authored viewport units can otherwise grow the iframe repeatedly in
+        // response to its own resize. Content and width changes still remeasure.
+        if (heightOnlyResize && !contentChanged) return;
+        contentChanged = false;
+        // Root scrollHeight is at least the iframe viewport height, which would
+        // prevent a reply from shrinking again after a section is collapsed.
+        const body = document.body;
+        const height = Math.ceil(Math.max(body.scrollHeight, body.getBoundingClientRect().bottom));
+        if (height === previousHeight) return;
+        previousHeight = height;
+        parent.postMessage({ type: 'alto.rich-reply.resize', token, height }, '*');
+      });
     };
+    const invalidate = () => { contentChanged = true; report(); };
     addEventListener('message', event => {
       const data = event.data;
       if (event.source !== parent || !data || data.type !== 'alto.rich-reply.theme' || data.token !== token) return;
@@ -32,10 +52,12 @@ export function buildRichReplyDocument(source: string, token: string): { documen
         if (typeof data.values?.[key] === 'string') document.documentElement.style.setProperty(key, data.values[key]);
       }
       if (data.scheme === 'light' || data.scheme === 'dark') document.documentElement.style.colorScheme = data.scheme;
-      report();
+      invalidate();
     });
     addEventListener('DOMContentLoaded', () => {
       new ResizeObserver(report).observe(document.body);
+      new MutationObserver(invalidate).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+      addEventListener('load', invalidate, true);
       report();
     });
   })();`
@@ -43,9 +65,11 @@ export function buildRichReplyDocument(source: string, token: string): { documen
     title,
     document: `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${RICH_REPLY_CONTENT_SECURITY_POLICY}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeText(title)}</title><style>
       :root { color-scheme: light dark; }
-      * { box-sizing: border-box; }
+      * { box-sizing: border-box; scrollbar-width: none !important; }
+      *::-webkit-scrollbar { display: none !important; }
       html { overflow-x: hidden; background: transparent; }
-      body { margin: 0; padding: 0; background: transparent; color: var(--alto-fg, #353a4e); font: 14px/1.55 var(--alto-font, system-ui, sans-serif); overflow-wrap: anywhere; }
+      html, body { height: auto !important; min-height: 0 !important; max-height: none !important; }
+      body { display: flow-root; margin: 0; padding: 0; background: transparent; color: var(--alto-fg, #353a4e); font: 14px/1.55 var(--alto-font, system-ui, sans-serif); overflow-wrap: anywhere; }
       img, svg { max-width: 100%; height: auto; }
       pre { white-space: pre-wrap; overflow-wrap: anywhere; }
       table { max-width: 100%; border-collapse: collapse; }

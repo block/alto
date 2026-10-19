@@ -151,6 +151,30 @@ async function check() {
     }
     throw Error('Timed out waiting for the reply document')
   }
+  const replyLayout = () => inReply(`(()=>{
+    const root=document.scrollingElement;
+    const scrollers=[...document.querySelectorAll('body *')].filter(element=>{
+      const style=getComputedStyle(element);
+      return ['auto','scroll'].includes(style.overflowY)&&element.scrollHeight>element.clientHeight+1;
+    }).map(element=>element.id||element.tagName);
+    return {height:innerHeight,documentHeight:root.scrollHeight,bodyHeight:document.body.scrollHeight,
+      lastBottom:document.querySelector('#last-marker')?.getBoundingClientRect().bottom,scrollers};
+  })()`)
+  const fullyExpanded = async () => {
+    let layout
+    for (let i=0;i<150;i++) {
+      layout=await replyLayout()
+      if (layout.documentHeight<=layout.height+1&&Math.abs(layout.height-Math.max(80,layout.bodyHeight))<=1&&layout.lastBottom<=layout.height+1&&!layout.scrollers.length) break
+      await frames()
+    }
+    assert.ok(layout.documentHeight<=layout.height+1, 'The reply document has no vertical scroll range: '+JSON.stringify(layout))
+    assert.ok(layout.bodyHeight<=layout.height+1, 'The full body fits in its iframe: '+JSON.stringify(layout))
+    assert.ok(Math.abs(layout.height-Math.max(80,layout.bodyHeight))<=1, 'The iframe follows the natural content height: '+JSON.stringify(layout))
+    assert.ok(layout.lastBottom<=layout.height+1, 'The final paragraph is inside the full-height iframe: '+JSON.stringify(layout))
+    assert.deepEqual(layout.scrollers, [], 'Answer content has no nested vertical scrollers')
+    assert.equal(await inReply('document.scrollingElement.scrollTop=100;document.scrollingElement.scrollTop'), 0, 'The document cannot scroll separately from the conversation')
+    return layout.height
+  }
   const screenshot = async name => {
     if (!process.env.ALTO_RICH_REPLY_ARTIFACT_DIR) return
     // Offscreen child-frame painting follows layout asynchronously.
@@ -198,7 +222,7 @@ async function check() {
     await inReply('document.querySelector("summary").click()')
     await until(`${frame}.getBoundingClientRect().height > ${closedHeight + 30}`)
     assert.equal(await inReply('document.querySelector("details").open'), true)
-    assert.ok(await run(`${frame}.getBoundingClientRect().height <= 640`))
+    assert.ok(await inReply('document.documentElement.scrollHeight<=innerHeight+1'), 'Expanded details remain fully visible in the reply')
     await inReply('document.querySelector("summary").click()')
     await until(`${frame}.getBoundingClientRect().height <= ${closedHeight + 2}`)
 
@@ -244,8 +268,10 @@ async function check() {
     await run(`postMessage({type:'alto.rich-reply.resize',token:${JSON.stringify(token)},height:81},'*')`)
     await frames()
     assert.equal(await run(`${frame}.getBoundingClientRect().height`), priorHeight, 'A different message source cannot resize the reply')
+    await inReply(`parent.postMessage({type:'alto.rich-reply.resize',token:${JSON.stringify(token)},height:2400},'*')`)
+    await until(`${frame}.getBoundingClientRect().height===2400`)
     await inReply(`parent.postMessage({type:'alto.rich-reply.resize',token:${JSON.stringify(token)},height:1e9},'*')`)
-    await until(`${frame}.getBoundingClientRect().height===640`)
+    await until(`${frame}.getBoundingClientRect().height===1000000`)
     await inReply(`parent.postMessage({type:'alto.rich-reply.resize',token:${JSON.stringify(token)},height:1},'*')`)
     await until(`${frame}.getBoundingClientRect().height===80`)
 
@@ -263,9 +289,60 @@ async function check() {
     assert.ok(await run('document.querySelector("textarea").getBoundingClientRect().bottom<=innerHeight'))
     await run('click("Show rich reply")');await until(`!!${frame}`)
 
-    await show('<section><h2>Tall reply</h2><div style="height:1600px">The iframe scrolls internally.</div></section>')
-    assert.ok(await run(`${frame}.getBoundingClientRect().height <= 640`), 'Rich replies have a bounded maximum height')
-    assert.ok(await inReply('document.documentElement.scrollHeight>innerHeight'), 'Oversized content remains available by scrolling')
+    const longReply = `<title>Full answer</title><h2>A complete explanation</h2>
+      <section id="answer-sequence"><table><thead><tr><th scope="col" style="white-space:nowrap">Point</th><th scope="col">Explanation</th></tr></thead><tbody>
+        ${Array.from({length:20},(_,i)=>`<tr><th scope="row">${i+1}</th><td>This explanation remains in the conversation flow, so the reader can follow every sentence without switching to another scroll area.</td></tr>`).join('')}
+      </tbody></table><p id="sequence-last">The complete table ends here.</p></section>
+      <p id="after-sequence">The next paragraph follows all of that content.</p>
+      <details id="long-details"><summary>Show the supporting explanation</summary>
+        ${Array.from({length:10},(_,i)=>`<p>Supporting point ${i+1}: expanding this explanation should extend the answer naturally and keep all of its text readable.</p>`).join('')}
+      </details>
+      <button id="add-content" onclick="document.querySelector('#dynamic-content').innerHTML=Array.from({length:12},(_,i)=>'<p>Additional point '+(i+1)+': this content appeared after the reply was rendered and belongs in the same conversation flow.</p>').join('')">Add an explanation</button>
+      <div id="dynamic-content"></div><p id="last-marker">End of the full answer.</p>`
+    for (const width of [1000,360]) {
+      win.setContentSize(width,760)
+      await until(`innerWidth===${width}`)
+      await run("document.documentElement.dataset.altoTheme='light';document.querySelector('main').scrollTop=0")
+      if (width===1000) await show(longReply)
+      else await frames()
+      const initialHeight=await fullyExpanded()
+      assert.ok(initialHeight>640, 'A long answer grows past the former preview limit')
+      assert.ok(await inReply('document.querySelector("#after-sequence").getBoundingClientRect().top>=document.querySelector("#sequence-last").getBoundingClientRect().bottom'), 'The complete table cannot overlap the following paragraph')
+      assert.ok(await run('document.querySelector("main").scrollHeight>document.querySelector("main").clientHeight'), 'The conversation owns scrolling for long answers')
+      await screenshot(`long-${width}-top`)
+
+      await inReply('document.querySelector("#long-details summary").click()')
+      await until(`${frame}.getBoundingClientRect().height>${initialHeight+100}`)
+      const detailsHeight=await fullyExpanded()
+      await inReply('document.querySelector("#add-content").click()')
+      await until(`${frame}.getBoundingClientRect().height>${detailsHeight+100}`)
+      const dynamicHeight=await fullyExpanded()
+      assert.equal(await inReply('document.querySelectorAll("#dynamic-content p").length'),12)
+
+      await run('document.querySelector("main").scrollTop=document.querySelector("main").scrollHeight')
+      await frames()
+      const marker=await inReply('(()=>{const rect=document.querySelector("#last-marker").getBoundingClientRect();return{top:rect.top,bottom:rect.bottom}})()')
+      const outer=await run(`(()=>{const main=document.querySelector('main').getBoundingClientRect(),reply=${frame}.getBoundingClientRect(),composer=document.querySelector('footer').getBoundingClientRect();return{mainTop:main.top,mainBottom:main.bottom,replyTop:reply.top,composerTop:composer.top,horizontalOverflow:document.documentElement.scrollWidth>innerWidth}})()`)
+      assert.ok(outer.replyTop+marker.top>=outer.mainTop&&outer.replyTop+marker.bottom<=outer.mainBottom+1, 'Scrolling the conversation reveals the final paragraph')
+      assert.ok(outer.mainBottom<=outer.composerTop, 'The expanded reply cannot cover the composer')
+      assert.equal(outer.horizontalOverflow,false)
+      await screenshot(`long-${width}-bottom`)
+
+      await inReply('document.querySelector("#long-details summary").click()')
+      await until(`${frame}.getBoundingClientRect().height<${dynamicHeight-100}`)
+      const collapsedHeight=await fullyExpanded()
+      await inReply('document.querySelector("#dynamic-content").replaceChildren()')
+      await until(`${frame}.getBoundingClientRect().height<${collapsedHeight-100}`)
+      const finalHeight=await fullyExpanded()
+      assert.ok(Math.abs(finalHeight-initialHeight)<=2, 'Collapsing details and removing dynamic content restores the natural answer height')
+    }
+
+    await show('<section style="min-height:100vh">A viewport-sized authored widget.</section><footer style="height:40px">A following footer.</footer>')
+    for (let i=0;i<6;i++) await frames()
+    const viewportHeight=await run(`${frame}.getBoundingClientRect().height`)
+    assert.ok(viewportHeight<2000, 'Viewport-relative content cannot cause runaway iframe growth')
+    for (let i=0;i<6;i++) await frames()
+    assert.equal(await run(`${frame}.getBoundingClientRect().height`),viewportHeight, 'Viewport-dependent sizing settles instead of feeding back into itself')
 
     await show('<section><h2>Recovered markup</h2><p>Browsers recover an unclosed section')
     assert.equal(await inReply('document.querySelector("h2").textContent'), 'Recovered markup')
@@ -305,7 +382,10 @@ async function check() {
     assert.equal(await run('window.hostMarker'), 'untouched', 'Reply JavaScript cannot call host functions')
     assert.equal(await run('hostCalls.length'), callsBeforeAttack + 1, 'Forged messages do not dispatch host methods')
     assert.equal(win.webContents.getURL(), origin + '/', 'Reply JavaScript cannot navigate the top-level chat')
-    assert.ok(await run(`${frame}.getBoundingClientRect().height <= 640`), 'Forged resize messages cannot expand the chat')
+    const attackHeight=await run(`${frame}.getBoundingClientRect().height`)
+    await inReply("parent.postMessage({type:'alto.rich-reply.resize',token:'wrong-token',height:1e9},'*')")
+    await frames()
+    assert.equal(await run(`${frame}.getBoundingClientRect().height`),attackHeight, 'Forged resize messages cannot expand the chat')
     assert.deepEqual(attempted, [], 'Reply CSP and sandbox prevent outbound resource requests')
     assert.deepEqual(received, [], 'No rich-reply resource reaches the network')
 

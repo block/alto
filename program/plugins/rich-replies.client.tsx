@@ -59,7 +59,9 @@ function RichReply({ code, host }: MarkdownCodeBlockProps & { host: ClientHostSe
       const data = event.data
       if (event.source !== iframe.contentWindow || event.origin !== 'null' || !data || data.type !== 'alto.rich-reply.resize' || data.token !== preview.token) return
       if (typeof data.height !== 'number' || !Number.isFinite(data.height)) return
-      nextHeight = Math.min(640, Math.max(80, Math.ceil(data.height)))
+      // Replies belong to the conversation's scroll flow. Keep only a generous
+      // defensive bound for pathological reports from an executable document.
+      nextHeight = Math.min(1_000_000, Math.max(80, Math.ceil(data.height)))
       if (!resizeFrame) resizeFrame = requestAnimationFrame(() => { resizeFrame = 0; setHeight(nextHeight) })
     }
     window.addEventListener('message', receive)

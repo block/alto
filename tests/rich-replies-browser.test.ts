@@ -7,7 +7,7 @@ import { WEB_SECURITY_HEADERS } from '../src/server/services/web-gateway.js'
 
 const require = createRequire(import.meta.url)
 
-it.skipIf(process.platform !== 'darwin')('renders isolated rich replies under the application CSP at normal and narrow chat widths', async () => {
+it.skipIf(process.platform !== 'darwin')('renders isolated full-height rich replies without nested scrolling at normal and narrow chat widths', async () => {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ALTO_TEST_WEB_SECURITY_HEADERS: JSON.stringify(WEB_SECURITY_HEADERS),

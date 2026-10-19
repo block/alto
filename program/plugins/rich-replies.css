@@ -1,5 +1,5 @@
 .rich-reply {
-  --rich-reply-max-height: 640px;
+  --rich-reply-source-max-height: 640px;
   min-width: 0;
   max-width: 100%;
   margin: 0;
@@ -28,9 +28,9 @@
 .rich-reply-toggle:hover { color: var(--text); background: transparent; box-shadow: none; }
 @media (hover: none) { .rich-reply-toggle { opacity: 1; } }
 
-.rich-reply-frame { display: block; width: 100%; max-width: 100%; border: 0; background: transparent; }
+.rich-reply-frame { display: block; width: 100%; max-width: 100%; max-height: none; border: 0; background: transparent; }
 .rich-reply-frame[hidden] { display: none; }
-.rich-reply .rich-reply-source { max-height: var(--rich-reply-max-height); margin: 0; padding: var(--space-3); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--type-label); }
+.rich-reply .rich-reply-source { max-height: var(--rich-reply-source-max-height); margin: 0; padding: var(--space-3); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--type-label); }
 .rich-reply-error, .rich-reply-loading { margin: 0; font-size: var(--type-label); }
 .rich-reply-error { color: var(--red, var(--text)); }
 .rich-reply-loading { color: var(--muted); }
