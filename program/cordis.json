@@ -149,6 +149,15 @@
               }
             },
             {
+              "id": "rich-replies",
+              "name": "Rich Replies",
+              "description": "Lets agents use compact, interactive HTML in chat replies when it helps explain an answer.",
+              "module": "plugins/rich-replies.ts",
+              "client": "plugins/rich-replies.client.tsx",
+              "enabled": true,
+              "config": {}
+            },
+            {
               "id": "mermaid",
               "name": "Mermaid Diagrams",
               "description": "Renders Mermaid diagrams from fenced Markdown blocks.",
