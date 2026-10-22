@@ -7,6 +7,5 @@ export const searchSurface = {
   kind: 'search',
   label: 'Search',
   appearance: 'full',
-  placeholder: 'Search conversations and actions…',
-  limit: 10,
+  placeholder: 'Search conversations…',
 } satisfies UiSurface

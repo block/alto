@@ -2014,8 +2014,6 @@ details pre {
 }
 
 .composer {
-  --composer-surface: light-dark(#f8f9fc, #262931);
-  --composer-placeholder-ink: light-dark(#b5bac7, #808797);
   --composer-outline: light-dark(#e2e4ec, #363a46);
   --composer-focus-outline: light-dark(#d9caf8, #63527d);
   --composer-shadow-tint: light-dark(#33354916, #00000042);
@@ -2039,7 +2037,7 @@ details pre {
   min-height: 98px;
   padding: 18px 70px 49px 20px;
   border: 1px solid var(--border);
-  border-radius: 27px;
+  border-radius: var(--radius-composer-card);
   background: var(--composer-surface);
   box-shadow: var(--composer-resting-shadow);
   -webkit-backdrop-filter: none;

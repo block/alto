@@ -29,6 +29,8 @@
   --sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --display: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --composer-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  --composer-surface: light-dark(#f8f9fc, #262931);
+  --composer-placeholder-ink: light-dark(#b5bac7, #808797);
   --mono: "Geist Mono", ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
   --type-page-headline: 24px;
   --type-product-title: 18px;
@@ -111,6 +113,8 @@
   --radius-panel: 18px;
   --radius-dialog: 24px;
   --radius-pill: 999px;
+  --radius-composer-card: 27px;
+  --radius-result-row: 14px;
   --corner-shape-pill: superellipse(1.05);
   --radius-xs: var(--radius-dense);
   --radius-sm: var(--radius-row);

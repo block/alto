@@ -1,11 +1,6 @@
 import {
   Check,
-  FolderPlus,
-  MessageSquareText,
-  Plus,
-  Puzzle,
   Search,
-  Settings2,
 } from 'lucide-react'
 import {
   useEffect,
@@ -47,7 +42,6 @@ export interface SearchItem {
   detail?: string
   preview?: ReactNode
   keywords?: string
-  kind: 'thread' | 'new-thread' | 'new-workspace' | 'settings' | 'plugins'
   active?: boolean
   status?: ThreadWorkStatus | undefined
   disabled?: boolean
@@ -63,14 +57,13 @@ export function isSearchShortcut(event: Pick<globalThis.KeyboardEvent, 'key' | '
 export function filterSearchItems(
   items: SearchItem[],
   query: string,
-  limit: number,
 ): SearchItem[] {
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
   return items.filter((item) => {
     if (!terms.length) return true
     const searchable = `${item.label} ${item.detail ?? ''} ${item.keywords ?? ''}`.toLocaleLowerCase()
     return terms.every((term) => searchable.includes(term))
-  }).slice(0, limit)
+  })
 }
 
 export function searchThreads(
@@ -124,37 +117,27 @@ function ChatPreview({ thread, session, host }: {
   return <span>{live || stored || thread.cwd}</span>
 }
 
-function ItemIcon({ kind }: { kind: SearchItem['kind'] }): ReactNode {
-  switch (kind) {
-    case 'thread': return <MessageSquareText size={16} />
-    case 'new-thread': return <Plus size={16} />
-    case 'new-workspace': return <FolderPlus size={16} />
-    case 'settings': return <Settings2 size={16} />
-    case 'plugins': return <Puzzle size={16} />
-  }
-}
-
 function SearchPalette({
   open,
   label,
   placeholder,
   items,
-  limit,
   onClose,
 }: {
   open: boolean
   label: string
   placeholder: string
   items: SearchItem[]
-  limit: number
   onClose: () => void
 }): ReactNode {
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const resultRefs = useRef<Array<HTMLButtonElement | null>>([])
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const results = useMemo(
-    () => filterSearchItems(items, query, limit),
-    [items, limit, query],
+    () => filterSearchItems(items, query),
+    [items, query],
   )
 
   useEffect(() => {
@@ -166,6 +149,20 @@ function SearchPalette({
   }, [open])
 
   useEffect(() => setActiveIndex(0), [query])
+
+  useEffect(() => {
+    if (!open) return
+    const list = listRef.current
+    const active = resultRefs.current[activeIndex]
+    if (!list || !active) return
+    const listRect = list.getBoundingClientRect()
+    const itemRect = active.getBoundingClientRect()
+    if (itemRect.top < listRect.top) {
+      list.scrollTop -= listRect.top - itemRect.top
+    } else if (itemRect.bottom > listRect.bottom) {
+      list.scrollTop += itemRect.bottom - listRect.bottom
+    }
+  }, [activeIndex, open, results])
 
   if (!open) return null
 
@@ -218,11 +215,11 @@ function SearchPalette({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
           />
-          <kbd>esc</kbd>
         </div>
-        <div className="search-results" role="listbox" aria-label="Search results">
+        <div ref={listRef} className="search-results" role="listbox" aria-label="Search results">
           {results.map((item, index) => (
             <button
+              ref={(node) => { resultRefs.current[index] = node }}
               className={`search-result ${index === activeIndex ? 'active' : ''}`}
               type="button"
               role="option"
@@ -232,7 +229,6 @@ function SearchPalette({
               onClick={() => select(item)}
               key={item.id}
             >
-              <span className="search-result-icon"><ItemIcon kind={item.kind} /></span>
               <span className="search-result-copy">
                 <strong>{item.label}</strong>
                 {item.preview ?? (item.detail && <span>{item.detail}</span>)}
@@ -243,32 +239,22 @@ function SearchPalette({
               </span>
             </button>
           ))}
-          {!results.length && <div className="search-empty">No matching conversations or actions.</div>}
+          {!results.length && <div className="search-empty">No matching conversations.</div>}
         </div>
-        <footer className="search-footer">
-          <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
-          <span><kbd>↵</kbd> Open</span>
-        </footer>
       </section>
     </ConversationPaneOverlay>
   )
 }
 
 interface SearchSessionSnapshot {
-  threads: ClientSessionSnapshot['threads']
   threadId?: string
-  turn: ClientSessionSnapshot['turn']['tag']
-  surfaces: NonNullable<ClientSessionSnapshot['harness']>['ui']['surfaces'] | undefined
 }
 
 function searchSessionSnapshot(
   state: ClientSessionSnapshot,
 ): SearchSessionSnapshot {
   return {
-    threads: state.threads,
     ...(state.threadId ? { threadId: state.threadId } : {}),
-    turn: state.turn.tag,
-    surfaces: state.harness?.ui.surfaces,
   }
 }
 
@@ -276,10 +262,7 @@ function searchSessionSnapshotEqual(
   left: SearchSessionSnapshot,
   right: SearchSessionSnapshot,
 ): boolean {
-  return left.threads === right.threads
-    && left.threadId === right.threadId
-    && left.turn === right.turn
-    && left.surfaces === right.surfaces
+  return left.threadId === right.threadId
 }
 
 function OpenSearchSurface({
@@ -301,17 +284,20 @@ function OpenSearchSurface({
   const statusState = useSyncExternalStore(threadStatus.subscribe, threadStatus.snapshot)
   useSyncExternalStore(layout.subscribe, layout.snapshot)
   const tabs = layout.tabs()
-  const threads = searchThreads(state.threads, tabs, statusState, state.threadId)
+  const threads = searchThreads([], tabs, statusState, state.threadId)
   const panes = layout.paneTargets()
   const threadItems = threads.map((thread): SearchItem => {
     const tab = tabs.find((tab) => tab.threadIds.includes(thread.id))
+    const conversationTitle = thread.title.trim()
+    const title = conversationTitle && conversationTitle !== 'Untitled conversation'
+      ? conversationTitle
+      : tab?.title || conversationTitle || 'Untitled conversation'
     return {
       id: `thread:${thread.id}`,
-      label: tab?.title ?? thread.title,
+      label: title,
       detail: thread.preview || thread.cwd,
       preview: <ChatPreview thread={thread} host={host} session={panes.find((pane) => pane.session.snapshot().threadId === thread.id)?.session} />,
       keywords: `${thread.cwd} ${thread.title}`,
-      kind: 'thread',
       active: thread.id === state.threadId,
       status: threadWorkStatus(statusState, thread.id),
       onSelect: () => {
@@ -322,45 +308,11 @@ function OpenSearchSurface({
   })
   const unread = (item: SearchItem): boolean => item.status === 'finished' && !item.active
   const label = surface.label ?? 'Search'
-  const limit = surface.kind === 'search' ? surface.limit ?? 8 : 8
   const placeholder = surface.kind === 'search'
-    ? surface.placeholder ?? 'Search conversations and actions…'
-    : 'Search conversations and actions…'
+    ? surface.placeholder ?? 'Search conversations…'
+    : 'Search conversations…'
   const items: SearchItem[] = [
     ...threadItems.filter(unread),
-    {
-      id: 'action:new-thread',
-      label: 'New chat',
-      detail: 'Start a new conversation',
-      keywords: 'new thread conversation',
-      kind: 'new-thread',
-      onSelect: () => layout.newTab(),
-    },
-    ...(state.surfaces?.some((candidate) => candidate.id === 'default-new-workspace') ? [{
-      id: 'action:new-workspace',
-      label: 'New workspace',
-      detail: 'Add a folder-backed workspace',
-      keywords: 'project folder repository',
-      kind: 'new-workspace' as const,
-      disabled: state.turn !== 'idle',
-      onSelect: () => overlays.open('new-workspace'),
-    }] : []),
-    ...(state.surfaces?.some((candidate) => candidate.id === 'default-settings') ? [{
-      id: 'action:settings',
-      label: 'Settings',
-      detail: 'Change workspace, model, effort, and permissions',
-      keywords: 'preferences configuration',
-      kind: 'settings' as const,
-      onSelect: () => overlays.open('settings'),
-    }] : []),
-    ...(state.surfaces?.some((candidate) => candidate.id === 'default-plugins') ? [{
-      id: 'action:plugins',
-      label: 'Plugins',
-      detail: 'Manage active plugins and tools',
-      keywords: 'extensions tools fibers',
-      kind: 'plugins' as const,
-      onSelect: () => overlays.open('plugins'),
-    }] : []),
     ...threadItems.filter((item) => !unread(item)),
   ]
 
@@ -370,7 +322,6 @@ function OpenSearchSurface({
       label={label}
       placeholder={placeholder}
       items={items}
-      limit={limit}
       onClose={() => overlays.close('search')}
     />
   )

@@ -11,11 +11,10 @@ import type { ClientWorkspaceLayoutService, WorkspaceTabTarget } from '../progra
 
 const items: SearchItem[] = [
   {
-    id: 'action:settings',
-    label: 'Settings',
-    detail: 'Change workspace and model',
-    keywords: 'preferences configuration',
-    kind: 'settings',
+    id: 'thread:two',
+    label: 'Align palette spacing',
+    detail: 'Updated the result layout',
+    keywords: '/workspace/alto',
     onSelect: vi.fn(),
   },
   {
@@ -23,7 +22,6 @@ const items: SearchItem[] = [
     label: 'Fix composer spacing',
     detail: 'Adjusted the input layout',
     keywords: '/workspace/codex-cordis',
-    kind: 'thread',
     onSelect: vi.fn(),
   },
 ]
@@ -36,16 +34,23 @@ describe('command palette filtering', () => {
   })
 
   it('matches labels, details, and keywords case-insensitively', () => {
-    expect(filterSearchItems(items, 'SETTINGS', 8).map((item) => item.id))
-      .toEqual(['action:settings'])
-    expect(filterSearchItems(items, 'input layout', 8).map((item) => item.id))
+    expect(filterSearchItems(items, 'input layout').map((item) => item.id))
       .toEqual(['thread:one'])
-    expect(filterSearchItems(items, 'codex cordis', 8).map((item) => item.id))
+    expect(filterSearchItems(items, 'codex cordis').map((item) => item.id))
       .toEqual(['thread:one'])
   })
 
-  it('keeps source order and applies the result limit', () => {
-    expect(filterSearchItems(items, '', 1)).toEqual([items[0]])
+  it('keeps source order without truncating the results', () => {
+    expect(filterSearchItems(items, '')).toEqual(items)
+  })
+
+  it('returns every conversation instead of applying a fixed cap', () => {
+    const many = Array.from({ length: 24 }, (_, index): SearchItem => ({
+      id: `thread:${index}`,
+      label: `Conversation ${index}`,
+      onSelect: vi.fn(),
+    }))
+    expect(filterSearchItems(many, '')).toHaveLength(24)
   })
 })
 
