@@ -373,7 +373,7 @@ export class SessionService implements ClientSessionService {
   private optimisticUserSerial = 0
   private activeTurnId: string | undefined
   private threadCreation: Promise<string> | undefined
-  private defaultsApplied = false
+  private defaultsKey: string | undefined
   private modelSelectionChanged = false
   private effortSelectionChanged = false
   private permissionSelectionChanged = false
@@ -400,7 +400,8 @@ export class SessionService implements ClientSessionService {
     this.pendingRestoreThreadId = options.restoreActiveThread === false
       ? undefined
       : readActiveThreadId()
-    this.defaultsApplied = configuredDefaults(harness) !== undefined
+    const configured = configuredDefaults(harness)
+    this.defaultsKey = configured ? JSON.stringify(configured) : undefined
     this.state = {
       revision: 0,
       connected: hostState.connected,
@@ -612,10 +613,10 @@ export class SessionService implements ClientSessionService {
   newThread(project?: LocalProject | null): void {
     const active = project ?? null
     this.projectSelection = active?.id ?? null
-    const session = {
-      ...this.state.session,
-      workspace: active?.primaryRoot ?? defaultWorkspace(this.state.harness),
-    }
+    const workspace = active?.primaryRoot ?? defaultWorkspace(this.state.harness)
+    const session = { ...sessionDefaults(this.state.harness, workspace), permissionMode: this.state.session.permissionMode }
+    this.modelSelectionChanged = false
+    this.effortSelectionChanged = false
     this.clearThread(session)
     this.scheduleResources()
   }
@@ -936,7 +937,9 @@ export class SessionService implements ClientSessionService {
     let session = this.state.session
     if (harness) {
       const workspace = session.workspace || defaultWorkspace(harness)
-      if (!this.defaultsApplied && configuredDefaults(harness)) {
+      const configured = configuredDefaults(harness)
+      const defaultsKey = configured ? JSON.stringify(configured) : undefined
+      if (defaultsKey !== this.defaultsKey && configured && !this.state.threadId) {
         const previous = session
         session = sessionDefaults(harness, workspace)
         if (this.modelSelectionChanged) session = withModel(session, previous.model)
@@ -944,7 +947,7 @@ export class SessionService implements ClientSessionService {
         if (this.permissionSelectionChanged || this.state.turn.tag !== 'idle') {
           session.permissionMode = previous.permissionMode
         }
-        this.defaultsApplied = true
+        this.defaultsKey = defaultsKey
       } else {
         const model = session.model
           ?? harness.codex.models.find((candidate) => candidate.isDefault)?.id

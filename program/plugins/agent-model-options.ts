@@ -12,8 +12,29 @@ const claudeEffort: AgentConfigOption = {
   ],
 }
 
+// Draft choices do not start the optional CLI or contact a model provider.
+// Gemini CLI's legacy setter accepts explicit model IDs, including models
+// newer than its built-in menu. Keep its advertised catalog when available.
+const geminiModel: AgentConfigOption = {
+  id: '__model', name: 'Model', category: 'model', currentValue: 'default',
+  options: [
+    { value: 'default', name: 'Agent default' },
+    { value: 'gemini-4-argon', name: 'Gemini 4 Argon' },
+    { value: 'auto', name: 'Auto' },
+    { value: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro Preview' },
+    { value: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview' },
+    { value: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview' },
+    { value: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+    { value: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' },
+    { value: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
+    { value: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite' },
+    { value: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite' },
+  ],
+}
+
 export function initialAgentConfig(agentId: string, known?: AgentConfigOption[]): AgentConfigOption[] {
-  if (known?.some((option) => option.category === 'model')) return structuredClone(known)
+  if (known !== undefined) return structuredClone(known)
+  if (agentId === 'gemini') return [structuredClone(geminiModel)]
   if (agentId !== 'claude') return []
   // Draft choices must not start a remote machine. Validate both the version
   // and effort against the running agent before sending the first prompt.
@@ -25,6 +46,19 @@ export function initialAgentConfig(agentId: string, known?: AgentConfigOption[])
     { value: 'sonnet', name: 'Sonnet (latest)' },
     { value: 'haiku', name: 'Haiku (latest)' },
   ] }, structuredClone(claudeEffort)]
+}
+
+export function legacyAgentConfig(agentId: string, config: AgentConfigOption[]): AgentConfigOption[] {
+  const model = config.find((option) => option.id === '__model')
+  if (agentId !== 'gemini' || !model) return config
+  // The legacy setter accepts these explicit IDs even when the agent's menu
+  // does not list them. Modern configOptions never pass through this path.
+  for (const option of geminiModel.options) {
+    if (option.value !== 'default' && !model.options.some((candidate) => candidate.value === option.value)) {
+      model.options.push(structuredClone(option))
+    }
+  }
+  return config
 }
 
 export function draftAgentConfig(agentId: string, config: AgentConfigOption[], selectedModel?: string): AgentConfigOption[] {

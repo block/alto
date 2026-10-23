@@ -4,6 +4,7 @@ import { isRecord, type LocalProject, type LocalProjectInput, type PermissionMod
 import type { ClientSessionService, ClientSessionSnapshot } from './session-api.js'
 import { AGENT_CHATS_STATE, agentChatStateKey, isAgentChatId, type AgentChat, type AgentChatCatalog, agentPromptInput } from './agent-chats-api.js'
 import { configuredDefaults } from './session-defaults.js'
+import { MODEL_DEFAULTS_STATE, modelDefaults } from './model-defaults-api.js'
 import { draftAgentConfig, resolveDraftConfigValue } from './agent-model-options.js'
 import { projectForWorkspace } from './ui/history-model.js'
 import type { ActivityItem } from './ui/transcript.js'
@@ -21,6 +22,7 @@ export class AgentSessionService implements ClientSessionService {
   private readonly listeners = new Set<() => void>()
   private readonly cleanup: Array<() => void>
   private providerId = 'codex'
+  private providerSelectionChanged = false
   private permissionMode: PermissionMode | undefined
   private threadId: string | undefined
   private chat: AgentChat | undefined
@@ -38,8 +40,9 @@ export class AgentSessionService implements ClientSessionService {
   constructor(
     private readonly native: ClientSessionService,
     private readonly host: ClientHostService,
-    private readonly options: { restoreThreadId?: string; persist?: (id?: string) => void } = {},
+    private readonly options: { restoreThreadId?: string; persist?: (id?: string) => void; useDefaults?: boolean } = {},
   ) {
+    this.providerSelectionChanged = options.useDefaults === false
     this.pendingRestore = options.restoreThreadId
     this.cleanup = [native.subscribe(() => this.sync()), host.subscribe(() => this.sync())]
     this.sync()
@@ -61,6 +64,17 @@ export class AgentSessionService implements ClientSessionService {
     if (this.disposed) return
     const native = this.native.snapshot()
     const catalog = this.catalog()
+    if (!this.providerSelectionChanged && !this.pendingRestore && !this.threadId && !native.threadId
+      && !this.creating && !this.sending && native.turn.tag === 'idle' && !native.activities.length) {
+      const defaults = modelDefaults(this.host.snapshot().snapshot?.extensions[MODEL_DEFAULTS_STATE])
+      const preferred = defaults?.providerId ?? 'codex'
+      const available = preferred === 'codex' || catalog.providers.some((provider) => provider.id === preferred)
+      if (defaults && available && this.providerId !== preferred) {
+        this.providerId = preferred
+        this.draftConfig.clear()
+        this.problem = undefined
+      }
+    }
     if (!this.host.snapshot().connected) this.requestedState = undefined
     const provider = catalog.providers.find((candidate) => candidate.id === this.providerId)
     const choices = catalog.providers.map(({ id, label, agentId, location }) => ({
@@ -178,7 +192,13 @@ export class AgentSessionService implements ClientSessionService {
   private syncConfiguration(chat: AgentChat | undefined, provider: AgentProviderSnapshot | undefined, native: ClientSessionSnapshot): void {
     const remoteCodex = provider?.agentId === 'codex'
     const nativeModels = native.models ?? native.harness?.codex.models ?? []
-    const defaults = remoteCodex ? configuredDefaults(native.harness) : undefined
+    const inherited = remoteCodex ? structuredClone(configuredDefaults(native.harness)) : undefined
+    if (inherited?.model && !nativeModels.some((model) => model.id === inherited.model)) {
+      delete inherited.model
+      delete inherited.effort
+    }
+    const saved = modelDefaults(this.host.snapshot().snapshot?.extensions[MODEL_DEFAULTS_STATE])?.choices[this.providerId]
+    const defaults = { ...inherited, ...saved }
     const configurationKey = chat ? `${this.threadId}:${chat.configurationRevision ?? 0}`
       : JSON.stringify([this.providerId, this.threadId, provider?.configOptions, remoteCodex ? nativeModels : [], defaults, [...this.draftConfig]])
     if (configurationKey === this.configurationKey) return
@@ -187,7 +207,7 @@ export class AgentSessionService implements ClientSessionService {
     if (!chat && !this.threadId) {
       config = (provider?.configOptions ?? []).filter((option) => option.category === 'model' || option.category === 'thought_level')
       const modelId = config.find((option) => option.category === 'model')?.id
-      config = draftAgentConfig(provider?.agentId ?? provider?.id ?? '', config, modelId ? this.draftConfig.get(modelId) : undefined)
+      config = draftAgentConfig(provider?.agentId ?? provider?.id ?? '', config, (modelId ? this.draftConfig.get(modelId) : undefined) ?? defaults.model)
       if (remoteCodex && nativeModels.length) {
         const selected = nativeModels.find((model) => model.id === this.draftConfig.get('model'))
           ?? nativeModels.find((model) => model.id === defaults?.model)
@@ -198,9 +218,13 @@ export class AgentSessionService implements ClientSessionService {
           options: (selected.supportedReasoningEfforts ?? []).map((effort) => ({ value: effort.reasoningEffort, name: effort.description ?? effort.reasoningEffort })) }]
       }
       config = config.map((option) => {
+        const agentDefault = modelId && this.draftConfig.get(modelId) === 'default'
+          && config.find((candidate) => candidate.id === modelId)?.options.some((candidate) => candidate.value === 'default' && candidate.name === 'Agent default')
         const value = this.draftConfig.get(option.id)
-          ?? (option.category === 'model' ? defaults?.model : defaults?.effort)
-        return value && option.options.some((candidate) => candidate.value === value) ? { ...option, currentValue: value } : option
+          ?? (option.category === 'thought_level' && agentDefault ? undefined
+            : option.category === 'model' ? defaults.model : defaults.effort)
+        const selected = value && resolveDraftConfigValue(provider?.agentId ?? provider?.id ?? '', option, value)
+        return selected ? { ...option, currentValue: selected } : option
       })
     }
     this.configuration = config
@@ -216,6 +240,7 @@ export class AgentSessionService implements ClientSessionService {
   setProvider(id: string): void {
     if ((this.state.threadId && this.state.activities.length > 0) || this.state.turn.tag !== 'idle' || !this.state.providers?.some((provider) => provider.id === id)) return
     this.generation++
+    this.providerSelectionChanged = true
     this.threadId = undefined
     this.chat = undefined
     this.startupPrompt = undefined
@@ -230,14 +255,17 @@ export class AgentSessionService implements ClientSessionService {
     if (this.providerId === 'codex') await this.native.loadModels?.()
   }
   setModel(model: string | undefined): void {
+    this.providerSelectionChanged = true
     if (this.providerId === 'codex') this.native.setModel(model)
     else { const option = this.configuration.find((option) => option.category === 'model'); if (option && model) this.setAgentConfig(option.id, model) }
   }
   setEffort(effort: string | undefined): void {
+    this.providerSelectionChanged = true
     if (this.providerId === 'codex') this.native.setEffort(effort)
     else { const option = this.configuration.find((option) => option.category === 'thought_level'); if (option && effort) this.setAgentConfig(option.id, effort) }
   }
   setAgentConfig(configId: string, value: string): void {
+    this.providerSelectionChanged = true
     const id = this.threadId
     if (!id) {
       if (this.creating || this.sending) return
@@ -266,6 +294,7 @@ export class AgentSessionService implements ClientSessionService {
   }
 
   async ensureThread(workspace?: string): Promise<string> {
+    this.providerSelectionChanged = true
     if (this.providerId === 'codex') return this.native.ensureThread(workspace)
     if (this.threadId) return this.threadId
     if (this.creating) return this.creating
@@ -274,10 +303,37 @@ export class AgentSessionService implements ClientSessionService {
     const provider = this.catalog().providers.find((provider) => provider.id === providerId)
     const agentId = provider?.agentId ?? providerId
     const remoteCodex = agentId === 'codex'
+    const saved = modelDefaults(this.host.snapshot().snapshot?.extensions[MODEL_DEFAULTS_STATE])?.choices[providerId]
+    const modelOption = this.configuration.find((option) => option.category === 'model')
+    const explicitModel = modelOption && this.draftConfig.has(modelOption.id)
+    const defaultModel = modelOption?.currentValue === 'default'
+      && modelOption?.options.some((choice) => choice.value === 'default' && choice.name === 'Agent default')
+    const effortOption = this.configuration.find((option) => option.category === 'thought_level')
+    const inheritEffort = !explicitModel || (!defaultModel && effortOption?.options.some((choice) => choice.value === saved?.effort))
     const selections = this.configuration.flatMap((option) => {
-      const value = this.draftConfig.get(option.id) ?? (remoteCodex ? option.currentValue || undefined : undefined)
+      const inherited = option.category === 'model' ? saved?.model
+        : option.category === 'thought_level' && inheritEffort ? saved?.effort : undefined
+      // Concrete values shown in a draft must also configure its first session.
+      // Agent default leaves the CLI's model and unselected reasoning unchanged.
+      const displayed = remoteCodex || option.category === 'model' || (modelOption && !defaultModel)
+        ? option.currentValue || undefined : undefined
+      const displayedDefault = displayed === 'default'
+        && option.options.some((choice) => choice.value === displayed && choice.name === 'Agent default')
+      const value = this.draftConfig.get(option.id) ?? inherited ?? (displayedDefault ? undefined : displayed)
+      if (option.category === 'model' && value === 'default'
+        && option.options.some((choice) => choice.value === value && choice.name === 'Agent default')) return []
       return value === undefined ? [] : [{ ...option, currentValue: value }]
     })
+    for (const [category, name, value] of [
+      ['model', 'Model', explicitModel ? undefined : saved?.model], ['thought_level', 'Reasoning', inheritEffort ? saved?.effort : undefined],
+    ] as const) {
+      if (value && !selections.some((option) => option.category === category)) {
+        selections.push({ id: category, category, name, currentValue: value, options: [{ value, name: value }] })
+      }
+    }
+    // A model change can replace its reasoning choices. Configure it first,
+    // regardless of the order in which the agent advertises its controls.
+    selections.sort((a, b) => Number(b.category === 'model') - Number(a.category === 'model'))
     const operation = this.host.call('agent-chats.create', { providerId,
       cwd: workspace ?? this.state.session.workspace, permissionMode: this.state.session.permissionMode,
     }).then(async (value) => {
@@ -289,7 +345,7 @@ export class AgentSessionService implements ClientSessionService {
       }
       const id = value.summary.id
       let config = (value as unknown as AgentChat).configOptions ?? []
-      // Apply the draft's settings, including inherited Codex defaults, before
+      // Apply explicit and inherited settings before
       // sending. A rejected choice leaves the prompt unsent and the actual options visible.
       for (const selection of selections) {
         const option = config.find((option) => option.category === selection.category)
@@ -316,6 +372,7 @@ export class AgentSessionService implements ClientSessionService {
   }
 
   async send(draft: ClientDraft): Promise<void> {
+    this.providerSelectionChanged = true
     if (this.providerId === 'codex') return this.native.send(draft)
     if (this.sending || (!this.creating && this.state.turn.tag !== 'idle')) throw new Error('Wait for this agent to finish or stop the turn first')
     const input = agentPromptInput(draft)
@@ -366,6 +423,10 @@ export class AgentSessionService implements ClientSessionService {
     this.problem = undefined
     this.requestedState = undefined
     this.draftConfig.clear()
+    this.providerSelectionChanged = false
+    const defaults = modelDefaults(this.host.snapshot().snapshot?.extensions[MODEL_DEFAULTS_STATE])
+    if (defaults) this.providerId = defaults.providerId === 'codex' || this.catalog().providers.some((provider) => provider.id === defaults.providerId)
+      ? defaults.providerId : 'codex'
     this.configuring = Promise.resolve()
     this.native.newThread(project)
     this.options.persist?.()
@@ -376,6 +437,7 @@ export class AgentSessionService implements ClientSessionService {
     return this.native.retargetNewThread(project)
   }
   async openThread(thread: ThreadSummary): Promise<void> {
+    this.providerSelectionChanged = true
     this.startupPrompt = undefined
     this.draftConfig.clear()
     this.configuring = Promise.resolve()

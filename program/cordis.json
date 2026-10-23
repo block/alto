@@ -207,6 +207,14 @@
           "config": {}
         },
         {
+          "id": "model-defaults",
+          "name": "Model Defaults",
+          "description": "Stores the agent, model, and reasoning choices used for new chats.",
+          "module": "plugins/model-defaults.ts",
+          "enabled": true,
+          "config": {}
+        },
+        {
           "id": "thread-status",
           "name": "Chat Status",
           "description": "Tracks running and recently completed work across chat pickers.",

@@ -27,6 +27,7 @@ import {
 import type {
   BrowserPlugin,
   ClientContributionProps,
+  ClientHostService,
   ClientOverlays,
   ClientProgramService,
   ClientSettingsIconProps,
@@ -76,8 +77,10 @@ import {
 import { PluginsPanel } from './ui/plugins.js'
 import { ProjectSettings } from './ui/project-settings.js'
 import { SettingsRadioMark, SettingsRow, SettingsSwitch } from './ui/settings.js'
+import { currentSessionModelSummary, ModelDefaultsSettings } from './ui/model-defaults.js'
 import defaultStyles from './ui/default.css'
 import inputRequestStyles from './ui/user-input.css'
+import modelDefaultsStyles from './ui/model-defaults.css'
 
 type BuiltInSettingsSection = 'general' | 'workspaces' | 'model' | 'plugins'
 type SettingsSection = BuiltInSettingsSection | string
@@ -89,7 +92,7 @@ const builtInSettings: ReadonlyArray<Readonly<{
 }>> = [
   { id: 'general', label: 'General', keywords: 'general behavior composer notifications permissions session defaults' },
   { id: 'workspaces', label: 'Workspaces', keywords: 'workspaces projects folders' },
-  { id: 'model', label: 'Model & reasoning', keywords: 'model reasoning effort' },
+  { id: 'model', label: 'Model & reasoning', keywords: 'model reasoning effort agent default codex claude gemini pi' },
   { id: 'plugins', label: 'Plugins', keywords: 'plugins extensions tools fibers' },
 ]
 
@@ -168,6 +171,7 @@ function ModalNavButton({
 function SettingsWorkspace({
   state,
   session,
+  host,
   initialSection,
   togglePlugin,
   program,
@@ -176,6 +180,7 @@ function SettingsWorkspace({
 }: {
   state: ClientSessionSnapshot
   session: ClientSessionService
+  host: ClientHostService
   initialSection: SettingsSection
   togglePlugin: (id: string, enabled: boolean) => Promise<unknown>
   program: ClientProgramService
@@ -187,9 +192,7 @@ function SettingsWorkspace({
   const extensionPages = useMemo(() => ui.settingsPages(), [ui, uiRevision])
   const [section, setSection] = useState<SettingsSection>(initialSection)
   const [query, setQuery] = useState('')
-  const selectedModel = state.harness?.codex.models.find((model) => model.id === state.session.model)
-    ?? state.harness?.codex.models.find((model) => model.isDefault)
-  const efforts = selectedModel?.supportedReasoningEfforts ?? []
+  const currentModel = currentSessionModelSummary(state)
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const visible = (label: string): boolean => !normalizedQuery
     || label.toLocaleLowerCase().includes(normalizedQuery)
@@ -261,7 +264,7 @@ function SettingsWorkspace({
             {visible('workspaces projects folders') && (
               <ModalNavButton active={section === 'workspaces'} icon={<Folder size={15} />} label="Workspaces" onClick={() => setSection('workspaces')} />
             )}
-            {visible('model reasoning effort') && (
+            {builtInVisible('model') && (
               <ModalNavButton active={section === 'model'} icon={<Gauge size={15} />} label="Model & reasoning" onClick={() => setSection('model')} />
             )}
             {personalPages.filter(extensionVisible).map(extensionNav)}
@@ -324,10 +327,10 @@ function SettingsWorkspace({
                     <code>{state.session.workspace || 'Not selected'}</code>
                   </SettingsRow>
                   <SettingsRow label="Current model" description="Model selected for the next turn">
-                    <span>{selectedModel?.displayName ?? 'Codex default'}</span>
+                    <span>{currentModel.model}</span>
                   </SettingsRow>
                   <SettingsRow label="Reasoning" description="Reasoning effort selected for the next turn">
-                    <span>{state.session.effort ?? selectedModel?.defaultReasoningEffort ?? 'Default'}</span>
+                    <span>{currentModel.effort}</span>
                   </SettingsRow>
                 </div>
               </section>
@@ -353,29 +356,7 @@ function SettingsWorkspace({
           )}
 
           {section === 'model' && (
-            <div className="settings-page">
-              <section className="settings-section">
-                <h2>Model</h2>
-                <div className="settings-card">
-                  <SettingsRow as="label" label="Default model" description="Used for new turns in this session">
-                    <select value={state.session.model ?? ''} onChange={(event) => session.setModel(event.target.value || undefined)}>
-                      <option value="">Codex default</option>
-                      {(state.harness?.codex.models ?? []).map((model) => (
-                        <option value={model.id} key={model.id}>{model.displayName}</option>
-                      ))}
-                    </select>
-                  </SettingsRow>
-                  <SettingsRow as="label" label="Reasoning effort" description="How deeply the model reasons before acting">
-                    <select value={state.session.effort ?? ''} onChange={(event) => session.setEffort(event.target.value || undefined)}>
-                      <option value="">Default</option>
-                      {efforts.map((effort) => (
-                        <option value={effort.reasoningEffort} key={effort.reasoningEffort}>{effort.reasoningEffort}</option>
-                      ))}
-                    </select>
-                  </SettingsRow>
-                </div>
-              </section>
-            </div>
+            <ModelDefaultsSettings host={host} workspace={state.session.workspace} />
           )}
 
           {section === 'plugins' && (
@@ -399,6 +380,7 @@ function SettingsWorkspace({
 
 function ActiveSettingsWorkspace({
   session,
+  host,
   initialSection,
   togglePlugin,
   program,
@@ -406,6 +388,7 @@ function ActiveSettingsWorkspace({
   close,
 }: {
   session: ClientSessionService
+  host: ClientHostService
   initialSection: 'general' | 'plugins'
   togglePlugin: (id: string, enabled: boolean) => Promise<unknown>
   program: ClientProgramService
@@ -417,6 +400,7 @@ function ActiveSettingsWorkspace({
     <SettingsWorkspace
       state={state}
       session={session}
+      host={host}
       initialSection={initialSection}
       togglePlugin={togglePlugin}
       program={program}
@@ -428,12 +412,14 @@ function ActiveSettingsWorkspace({
 
 function SettingsSurface({
   session,
+  host,
   overlays,
   togglePlugin,
   program,
   ui,
 }: ClientSurfaceProps & {
   session: ClientSessionService
+  host: ClientHostService
   overlays: ClientOverlays
   togglePlugin: (id: string, enabled: boolean) => Promise<unknown>
   program: ClientProgramService
@@ -446,6 +432,7 @@ function SettingsSurface({
   return open ? (
     <ActiveSettingsWorkspace
       session={session}
+      host={host}
       initialSection="general"
       togglePlugin={togglePlugin}
       program={program}
@@ -457,12 +444,14 @@ function SettingsSurface({
 
 function PluginsSurface({
   session,
+  host,
   overlays,
   togglePlugin,
   program,
   ui,
 }: ClientSurfaceProps & {
   session: ClientSessionService
+  host: ClientHostService
   overlays: ClientOverlays
   togglePlugin: (id: string, enabled: boolean) => Promise<unknown>
   program: ClientProgramService
@@ -476,6 +465,7 @@ function PluginsSurface({
   return open ? (
     <ActiveSettingsWorkspace
       session={session}
+      host={host}
       initialSection="plugins"
       togglePlugin={togglePlugin}
       program={program}
@@ -719,6 +709,7 @@ const uiSurfacesClient: BrowserPlugin = (ctx) => {
     <SettingsSurface
       {...props}
       session={session}
+      host={ctx.clientHost}
       overlays={overlays}
       togglePlugin={togglePlugin}
       program={ctx.clientProgram}
@@ -729,6 +720,7 @@ const uiSurfacesClient: BrowserPlugin = (ctx) => {
     <PluginsSurface
       {...props}
       session={session}
+      host={ctx.clientHost}
       overlays={overlays}
       togglePlugin={togglePlugin}
       program={ctx.clientProgram}
@@ -747,6 +739,7 @@ const uiSurfacesClient: BrowserPlugin = (ctx) => {
 
   ui.registerStyle(ctx, 'default-interface', String(defaultStyles))
   ui.registerStyle(ctx, 'user-input-requests', String(inputRequestStyles))
+  ui.registerStyle(ctx, 'model-defaults', String(modelDefaultsStyles))
   ui.registerContributionRenderer(ctx, ContributionRenderer)
   ui.registerComponent(ctx, CONVERSATION_COMPONENT, ConversationComponent)
   ui.registerSurface(ctx, 'default-settings', Settings)

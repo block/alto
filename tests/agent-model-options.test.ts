@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { draftAgentConfig, initialAgentConfig, resolveDraftConfigValue } from '../program/plugins/agent-model-options.js'
+import { draftAgentConfig, initialAgentConfig, legacyAgentConfig, resolveDraftConfigValue } from '../program/plugins/agent-model-options.js'
 import type { AgentConfigOption } from '../src/server/services/agent-registry.js'
 
 describe('Claude draft model choices', () => {
@@ -57,5 +57,52 @@ describe('Claude draft model choices', () => {
     expect(config.find(option => option.category === 'thought_level')?.options.map(option => option.value)).toContain('max')
     expect(draftAgentConfig('claude', initialAgentConfig('claude'), 'haiku').some(option => option.category === 'thought_level')).toBe(false)
     expect(known).toHaveLength(1)
+  })
+})
+
+describe('Gemini draft model choices', () => {
+  it('offers explicit Argon and CLI model choices without inventing reasoning settings', () => {
+    const config = initialAgentConfig('gemini')
+    expect(config).toHaveLength(1)
+    expect(config[0]).toMatchObject({ id: '__model', category: 'model', currentValue: 'default' })
+    expect(config[0]?.options.map(option => option.value)).toEqual([
+      'default', 'gemini-4-argon', 'auto', 'gemini-3.1-pro-preview', 'gemini-3-pro-preview',
+      'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-3.5-flash', 'gemini-3.8-flash',
+      'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite',
+    ])
+    expect(draftAgentConfig('gemini', config, 'gemini-4-argon')).toEqual(config)
+    expect(resolveDraftConfigValue('gemini', config[0]!, 'gemini-4-argon')).toBe('gemini-4-argon')
+    expect(resolveDraftConfigValue('gemini', config[0]!, 'unknown')).toBeUndefined()
+    config[0]!.options[1]!.name = 'Changed'
+    expect(initialAgentConfig('gemini')[0]?.options[1]?.name).toBe('Gemini 4 Argon')
+  })
+
+  it('extends only a legacy Gemini catalog and retains the agent-provided labels', () => {
+    const config: AgentConfigOption[] = [{ id: '__model', name: 'Model', category: 'model', currentValue: 'auto', options: [
+      { value: 'auto', name: 'Automatic selection', description: 'Agent-provided description' },
+    ] }]
+    const extended = legacyAgentConfig('gemini', config)
+    expect(extended[0]?.options[0]).toEqual({ value: 'auto', name: 'Automatic selection', description: 'Agent-provided description' })
+    expect(extended[0]?.options).toContainEqual({ value: 'gemini-4-argon', name: 'Gemini 4 Argon' })
+    expect(extended[0]?.options.some(option => option.value === 'default')).toBe(false)
+    const count = extended[0]!.options.length
+    expect(legacyAgentConfig('gemini', extended)[0]?.options).toHaveLength(count)
+    expect(legacyAgentConfig('pi', [])).toEqual([])
+    expect(legacyAgentConfig('gemini', [])).toEqual([])
+  })
+})
+
+describe('learned agent catalogs', () => {
+  it.each(['claude', 'gemini', 'pi'])('keeps an empty learned %s catalog authoritative', agentId => {
+    expect(initialAgentConfig(agentId, [])).toEqual([])
+  })
+
+  it('preserves learned non-model options instead of adding a fallback catalog', () => {
+    const config: AgentConfigOption[] = [{ id: 'mode', name: 'Mode', category: 'mode', currentValue: 'a',
+      options: [{ value: 'a', name: 'A' }] }]
+    const learned = initialAgentConfig('gemini', config)
+    expect(learned).toEqual(config)
+    learned[0]!.currentValue = 'changed'
+    expect(config[0]?.currentValue).toBe('a')
   })
 })

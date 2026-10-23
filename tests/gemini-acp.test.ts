@@ -4,6 +4,7 @@ import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import acpPlugin, { AcpProcessProvider, type AcpProcessProviderOptions } from '../program/plugins/acp-provider.js'
 import { configOptions } from '../program/plugins/acp-format.js'
+import { initialAgentConfig } from '../program/plugins/agent-model-options.js'
 import { entriesOf, parseProgramProfile } from '../src/server/program-profile.js'
 import { agentRegistryPlugin, type AgentEvent } from '../src/server/services/agent-registry.js'
 
@@ -56,9 +57,11 @@ describe('Gemini ACP integration', () => {
     cleanup.push(() => registry.dispose())
     const fiber = await root.plugin(acpPlugin, entry.config as unknown as AcpProcessProviderOptions)
     cleanup.push(() => fiber.dispose())
-    expect(root.agents.provider('gemini').snapshot()).toMatchObject({
-      label: 'Gemini', protocol: 'acp', status: 'stopped', activeSessionIds: [], configOptions: [],
+    const provider = root.agents.provider('gemini').snapshot()
+    expect(provider).toMatchObject({
+      label: 'Gemini', protocol: 'acp', status: 'stopped', activeSessionIds: [],
     })
+    expect(provider.configOptions).toEqual(initialAgentConfig('gemini'))
     await fiber.dispose()
     expect(() => root.agents.provider('gemini')).toThrow()
   })
