@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { readFile } from 'node:fs/promises'
 import type { HarnessPlugin } from '../../src/server/plugin-api.js'
 import { readProgramChange } from './staged-program-files.js'
 
@@ -41,6 +42,16 @@ const changeInputSchema = (projectRoot: string) => ({
 
 const controlPlane: HarnessPlugin = (ctx) => {
   const program = ctx.program
+
+  ctx.tools.register(ctx, {
+    name: 'cordis_authoring_skill',
+    description: 'Load the alto-authoring skill before modifying Alto plugins, UI, shell, or Cordis composition. Returns the full authoring contract; inspect cordis_runtime_status separately for live state.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+  }, () => readFile(path.join(program.projectRoot, 'program', 'skills', 'alto-authoring', 'SKILL.md'), 'utf8'))
 
   ctx.tools.register(ctx, {
     name: 'cordis_runtime_status',

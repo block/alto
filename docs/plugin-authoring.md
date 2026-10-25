@@ -1,6 +1,13 @@
 # Plugin authoring contract
 
-Alto supplies this contract together with the slots and outlets from the current live shell. Codex context entries stay within app-server's 4,000-byte limit, and local ACP agents receive the same prepared context through their provider. Unchanged context is deduplicated. The current program remains authoritative: call `cordis_runtime_status` before choosing a slot, outlet, or contribution ID.
+Alto's compact application context points agents to the `alto-authoring` skill.
+Before changing Alto itself, invoke `cordis_authoring_skill` through the `cordis`
+dispatcher to load `program/skills/alto-authoring/SKILL.md`. The same loader works
+for Codex and local ACP agents without depending on their native skill discovery.
+The detailed contract and live shell snapshot are not injected into ordinary
+turns. Call `cordis_runtime_status` for current slots, outlets, and contribution
+IDs before choosing placement. Codex context entries stay within app-server's
+4,000-byte limit, and unchanged ACP application context is deduplicated.
 
 When replacement files are already staged, invoke `cordis_reprogram` with `files: [{ path: 'plugins/example.ts', sourcePath: 'example.ts' }]`. Describe the tool to find its staging directory, then write the replacement there with ordinary file tools. `sourcePath` is relative to that directory and is mutually exclusive with inline `content`. Alto reads the complete contents and preserves the same approval, activation, and rollback behavior. Do not edit live program files directly.
 
