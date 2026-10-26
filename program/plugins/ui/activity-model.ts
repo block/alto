@@ -3,6 +3,7 @@ import { readUserMessage } from '../../../src/shared/user-message.js'
 import type { RpcNotification } from '../../../src/shared/protocol.js'
 import { agentMessageMetadata, fileChangeKind, isRecord } from '../../../src/shared/protocol.js'
 import { now, pretty, recordAt, stringValue } from './values.js'
+import { lineChanges } from './file-change-stats.js'
 import { activityScope, canonicalActivityId, mergeTranscriptActivity, type ActivityItem, type FileChangeEntry } from './transcript.js'
 export type { ActivityItem, FileChangeEntry } from './transcript.js'
 
@@ -11,19 +12,6 @@ export interface FileChangeSummary {
   additions: number
   deletions: number
   changes: FileChangeEntry[]
-}
-
-function lineChanges(diff: string, kind: ReturnType<typeof fileChangeKind>): { additions: number; deletions: number } {
-  const contentLines = diff ? diff.replace(/\n$/u, '').split('\n').length : 0
-  if (kind === 'add') return { additions: contentLines, deletions: 0 }
-  if (kind === 'delete') return { additions: 0, deletions: contentLines }
-  let additions = 0
-  let deletions = 0
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('+') && !line.startsWith('+++')) additions += 1
-    if (line.startsWith('-') && !line.startsWith('---')) deletions += 1
-  }
-  return { additions, deletions }
 }
 
 export function fileChanges(value: unknown): FileChangeEntry[] {

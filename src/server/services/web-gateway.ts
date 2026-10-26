@@ -373,9 +373,17 @@ export class WebGateway {
       if (this.ctx.program.isActivating()) return
       this.broadcast({ type: 'ui.updated', payload: snapshot })
     })
-    this.ctx.on('clientExtensions/changed', (snapshot) => {
+    this.ctx.on('clientExtensions/changed', (snapshot, name) => {
       if (this.ctx.program.isActivating()) return
-      this.broadcast({ type: 'extensions.updated', payload: snapshot })
+      // Sending every saved chat for each small state change can overflow the
+      // socket buffer and make every pane repeatedly reconnect and resume.
+      if (name === undefined) {
+        this.broadcast({ type: 'extensions.updated', payload: snapshot })
+      } else if (Object.hasOwn(snapshot, name)) {
+        this.broadcast({ type: 'extensions.updated', partial: true, payload: { [name]: snapshot[name]! } })
+      } else {
+        this.broadcast({ type: 'extensions.updated', partial: true, payload: {}, removed: [name] })
+      }
     })
     this.ctx.codex.on('status', (snapshot: CodexSnapshot) => {
       this.broadcast({ type: 'codex.status', payload: snapshot })

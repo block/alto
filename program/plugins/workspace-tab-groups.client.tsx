@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { clientStyles, type BrowserPlugin, type ClientUiService } from '../../src/client/plugin-api.js'
 import type { WorkspaceLayoutState } from './workspace-layout-state.js'
 import type { WorkspaceTabStripProps } from './workspace-layout-api.js'
-import { assignTabToGroup, createTabGroup, dropWorkspaceTabs, TAB_GROUP_COLORS, ungroupTabs, updateTabGroup, type WorkspaceTabDestination, type WorkspaceTabDrag } from './workspace-tab-groups.js'
+import { assignTabToGroup, createTabGroup, dropWorkspaceTabs, tabGroupShortcutTargets, TAB_GROUP_COLORS, ungroupTabs, updateTabGroup, type WorkspaceTabDestination, type WorkspaceTabDrag } from './workspace-tab-groups.js'
 import styles from './workspace-tab-groups.css'
 
 type GroupMenu = { kind: 'tab' | 'group'; id: string; x: number; y: number }
@@ -200,6 +200,7 @@ export function WorkspaceTabGroups({ layout, change, rootRef, ui, beginDrag, ren
     controls[(index + direction + controls.length) % controls.length]?.focus()
   }
 
+  const shortcuts = tabGroupShortcutTargets(layout)
   const seen = new Set<string>()
   return <div className="workspace-tabs workspace-tabs-with-groups" role="tablist" aria-label="Workspaces"
     onDragStartCapture={(event) => {
@@ -229,18 +230,20 @@ export function WorkspaceTabGroups({ layout, change, rootRef, ui, beginDrag, ren
       change((current) => dropWorkspaceTabs(current, source, destination))
       clearDrag()
     }}>
-    {layout.views.map((view, index) => {
+    {layout.views.map((view) => {
       const group = layout.groups?.find((candidate) => candidate.id === view.groupId)
       const first = group && !seen.has(group.id)
       if (group) seen.add(group.id)
       const members = group ? layout.views.filter((candidate) => candidate.groupId === group.id) : []
       const active = members.some((member) => member.id === layout.activeViewId)
+      const shortcutIndex = shortcuts.findIndex((target) => group ? target.groupId === group.id : target.id === view.id)
       return <Fragment key={view.id}>
         {first && group && <button
           type="button"
           className={'workspace-tab workspace-tab-group-label' + (active && group.collapsed ? ' is-active' : '')}
           data-group-color={group.color}
           data-workspace-group={group.id}
+          data-hotkey-action={shortcutIndex >= 0 && shortcutIndex < 9 ? `workspace.tab.select.${shortcutIndex + 1}` : undefined}
           data-tab-drop={preview?.targetKind === 'group' && preview.targetId === group.id ? preview.edge : undefined}
           aria-label={group.name + ' tab group, ' + members.length + (members.length === 1 ? ' tab' : ' tabs')}
           aria-expanded={!group.collapsed}
@@ -259,7 +262,7 @@ export function WorkspaceTabGroups({ layout, change, rootRef, ui, beginDrag, ren
             <ChevronRight size={12} className={group.collapsed ? '' : 'is-expanded'} />
           </span>
         </button>}
-        {renderTab(view, index, {
+        {renderTab(view, group ? -1 : shortcutIndex, {
           ...handlers('tab', view.id),
           ...(group ? {
             color: group.color,
@@ -334,7 +337,7 @@ export function WorkspaceTabGroups({ layout, change, rootRef, ui, beginDrag, ren
 
 const tabGroups: BrowserPlugin = (ctx) => {
   const Strip = (props: WorkspaceTabStripProps): ReactNode => <WorkspaceTabGroups {...props} ui={ctx.clientUi} />
-  ctx.clientWorkspaceLayout.registerTabStrip(ctx, { id: 'tab-groups', renderer: Strip })
+  ctx.clientWorkspaceLayout.registerTabStrip(ctx, { id: 'tab-groups', renderer: Strip, shortcutTargets: tabGroupShortcutTargets })
   ctx.clientUi.registerStyle(ctx, 'workspace-tab-groups', String(styles))
 }
 

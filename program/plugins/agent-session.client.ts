@@ -191,7 +191,10 @@ export class AgentSessionService implements ClientSessionService {
 
   private syncConfiguration(chat: AgentChat | undefined, provider: AgentProviderSnapshot | undefined, native: ClientSessionSnapshot): void {
     const remoteCodex = provider?.agentId === 'codex'
-    const nativeModels = native.models ?? native.harness?.codex.models ?? []
+    // Local model routes carry local provider configuration and authentication.
+    // Remote Codex must use only its own supported providers.
+    const nativeModels = (native.harness?.codex.models?.length ? native.harness.codex.models : native.models ?? [])
+      .filter((model) => !model.modelProvider)
     const inherited = remoteCodex ? structuredClone(configuredDefaults(native.harness)) : undefined
     if (inherited?.model && !nativeModels.some((model) => model.id === inherited.model)) {
       delete inherited.model

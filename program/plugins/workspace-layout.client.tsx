@@ -227,6 +227,7 @@ interface WorkspaceLayoutController {
   closeFocusedPane(): void
   cycleTabs(direction: 1 | -1): void
   selectTab(index: number): void
+  selectTabShortcut(index: number): void
   tabs(): readonly WorkspaceTabTarget[]
   moveActiveTab(direction: 1 | -1): void
   newTab(kind?: string, thread?: ThreadSummary, project?: LocalProject | null): void
@@ -359,6 +360,10 @@ export class WorkspaceLayoutRegistry implements ClientWorkspaceLayoutService {
 
   selectTab(index: number): void {
     this.controller?.selectTab(index)
+  }
+
+  selectTabShortcut(index: number): void {
+    this.controller?.selectTabShortcut(index)
   }
 
   tabs(): readonly WorkspaceTabTarget[] {
@@ -1563,6 +1568,7 @@ function WorkspaceLayoutControllerBridge({
   closeFocusedPane,
   cycleTabs,
   selectTab,
+  selectTabShortcut,
   tabs,
   moveActiveTab,
   newTab,
@@ -1592,6 +1598,7 @@ function WorkspaceLayoutControllerBridge({
   closeFocusedPane: () => void
   cycleTabs: (direction: 1 | -1) => void
   selectTab: (index: number) => void
+  selectTabShortcut: (index: number) => void
   tabs: () => readonly WorkspaceTabTarget[]
   moveActiveTab: (direction: 1 | -1) => void
   newTab: (kind?: string, thread?: ThreadSummary, project?: LocalProject | null) => void
@@ -1624,6 +1631,7 @@ function WorkspaceLayoutControllerBridge({
       closeFocusedPane,
       cycleTabs,
       selectTab,
+      selectTabShortcut,
       tabs,
       moveActiveTab,
       newTab,
@@ -1666,6 +1674,7 @@ function WorkspaceLayoutControllerBridge({
       resizeFocusedPane,
       restoreClosedTab,
       selectTab,
+      selectTabShortcut,
       tabs,
       splitFocused,
       togglePaneKind,
@@ -2823,6 +2832,15 @@ function WorkspaceLayout({
     if (view) setLayout((current) => activateWorkspaceTab(current, view.id))
   }
 
+  const selectTabShortcut = (index: number): void => {
+    registry.showPage()
+    setLayout((current) => {
+      const targets = registry.tabStrip()?.shortcutTargets?.(current) ?? current.views
+      const view = targets[index]
+      return view ? activateWorkspaceTab(current, view.id) : current
+    })
+  }
+
   const moveActiveTab = (direction: 1 | -1): void => {
     setLayout((current) => {
       const source = current.views.findIndex((view) => view.id === current.activeViewId)
@@ -2988,6 +3006,7 @@ function WorkspaceLayout({
         closeFocusedPane={closeFocusedPane}
         cycleTabs={cycleTabs}
         selectTab={selectTab}
+        selectTabShortcut={selectTabShortcut}
         tabs={() => layout.views.map((view) => ({
           id: view.id,
           title: view.name,
@@ -3061,7 +3080,7 @@ function WorkspaceLayout({
                 data-group-color={presentation.color}
                 data-tab-drop={presentation.dropIndicator}
                 onContextMenu={presentation.onContextMenu}
-                data-hotkey-action={index < 9 ? `workspace.tab.select.${index + 1}` : undefined}
+                data-hotkey-action={index >= 0 && index < 9 ? `workspace.tab.select.${index + 1}` : undefined}
                 tabIndex={view.id === layout.activeViewId ? 0 : -1}
                 aria-label={view.name}
                 aria-selected={active}
@@ -3314,18 +3333,25 @@ function WorkspaceLayoutSurface({
 const workspaceLayout: BrowserPlugin = (ctx) => {
   const registry = new WorkspaceLayoutRegistry()
   ctx.provide('clientWorkspaceLayout', registry)
+  // The published renderer can run while its replacement fiber activates.
+  // Capture services now so it never reads an inactive Cordis context.
+  const host = ctx.clientHost
+  const globalSession = ctx.clientSession
+  const sessionRouter = ctx.clientSessionRouter
+  const factory = ctx.clientSessionFactory
+  const ui = ctx.clientUi
   const Surface: ClientSurfaceRenderer = () => (
     <WorkspaceLayoutSurface
-      host={ctx.clientHost}
-      globalSession={ctx.clientSession}
-      sessionRouter={ctx.clientSessionRouter}
-      factory={ctx.clientSessionFactory}
-      ui={ctx.clientUi}
+      host={host}
+      globalSession={globalSession}
+      sessionRouter={sessionRouter}
+      factory={factory}
+      ui={ui}
       registry={registry}
     />
   )
-  ctx.clientUi.registerStyle(ctx, 'workspace-layout', `${String(paneToolbarCss)}\n${String(styles)}`)
-  ctx.clientUi.registerSurface(ctx, 'workspace-layout', Surface)
+  ui.registerStyle(ctx, 'workspace-layout', `${String(paneToolbarCss)}\n${String(styles)}`)
+  ui.registerSurface(ctx, 'workspace-layout', Surface)
   return () => registry.dispose()
 }
 

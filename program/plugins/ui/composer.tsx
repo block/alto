@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import {
+  Fragment,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -637,6 +638,7 @@ function PermissionIcon({ mode, size = 15 }: { mode: PermissionMode; size?: numb
 }
 
 export function Composer({
+  replyContext,
   toolbarActions,
   sendLabel,
   value,
@@ -682,6 +684,7 @@ export function Composer({
   onSubmit,
   onInterrupt,
 }: {
+  replyContext?: ReactNode
   toolbarActions?: ReactNode
   sendLabel?: string | undefined
   value: string
@@ -799,6 +802,7 @@ export function Composer({
     ?? models[0]
   const reasoningEffort = effort ?? selectedModel?.defaultReasoningEffort
   const reasoningOptions = selectedModel?.supportedReasoningEfforts ?? []
+  const agentModes = agentConfig.filter((option) => option.category === 'mode')
   const modelSummary = [selectedModel?.displayName ?? `${selection.label} default`, effortLabel(reasoningEffort)].join(' ')
 
   const wasAutoFocused = useRef(false)
@@ -1206,6 +1210,7 @@ export function Composer({
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       >
+        {replyContext}
         {pickerOpen && (
           <div className="skill-picker" id="composer-skill-picker" role="listbox" aria-label="Skills">
             {matchingSkills.map((skill, index) => (
@@ -1321,6 +1326,8 @@ export function Composer({
 
         {dragging && <div className="composer-drop-target">Drop files here</div>}
 
+        <div className="composer-toolbar">
+        <div className="composer-toolbar-context">
         {(capabilitySet.has('images') || capabilitySet.has('files')) && (
           <>
             <button
@@ -1356,7 +1363,7 @@ export function Composer({
               aria-label={`Permissions: ${permissionLabel(permissionMode)}`}
               aria-haspopup="menu"
               aria-expanded={permissionPickerOpen}
-              disabled={disabled || activeTurn}
+              disabled={disabled || (activeTurn && !agentModes.length)}
               onClick={() => {
                 setPermissionPickerOpen((open) => !open)
                 setModelPickerPage(undefined)
@@ -1370,6 +1377,7 @@ export function Composer({
 
             {permissionPickerOpen && (
               <div className="composer-permission-picker" role="menu" aria-label="Permissions">
+                {agentModes.length > 0 && <header className="composer-picker-header"><strong>Approvals</strong></header>}
                 {(providerId === 'codex' ? permissionOptions : [
                   { mode: 'ask' as const, label: 'Ask', description: 'Show permission requests from this agent.' },
                   { mode: 'full' as const, label: 'Full access', description: 'Approve permission requests from this agent automatically.' },
@@ -1380,6 +1388,7 @@ export function Composer({
                       type="button"
                       role="menuitemradio"
                       aria-checked={selected}
+                      disabled={activeTurn}
                       className={`mode-${option.mode}`}
                       key={option.mode}
                       onClick={() => {
@@ -1396,6 +1405,18 @@ export function Composer({
                     </button>
                   )
                 })}
+                {agentModes.map((option) => <Fragment key={option.id}>
+                  <div className="composer-picker-separator" />
+                  <header className="composer-picker-header"><strong>{selection.label} {option.name}</strong></header>
+                  {option.options.map((choice) => <button type="button" role="menuitemradio"
+                    key={choice.value} aria-checked={choice.value === option.currentValue}
+                    title={choice.description} disabled={!onAgentConfigChange}
+                    onClick={() => { onAgentConfigChange?.(option.id, choice.value); setPermissionPickerOpen(false) }}>
+                    <span className="permission-option-icon" aria-hidden="true" />
+                    <span className="permission-option-copy"><strong>{choice.name}</strong></span>
+                    {choice.value === option.currentValue && <Check size={15} />}
+                  </button>)}
+                </Fragment>)}
               </div>
             )}
           </div>
@@ -1506,7 +1527,9 @@ export function Composer({
           )}
           {toolbarActions}
         </div>
+        </div>
 
+        <div className="composer-toolbar-model">
         <div className="composer-model-control" ref={modelControl}>
           <button
             className="composer-model-trigger"
@@ -1554,7 +1577,7 @@ export function Composer({
                     <span>{effortLabel(reasoningEffort)}</span>
                     <ChevronRight size={16} />
                   </button>
-                  {agentConfig.filter((option) => option.category !== 'model' && option.category !== 'thought_level').map((option) => (
+                  {agentConfig.filter((option) => option.category !== 'model' && option.category !== 'thought_level' && option.category !== 'mode').map((option) => (
                     <button className="composer-picker-row" type="button" key={option.id} onClick={() => setModelPickerPage('config:' + option.id)}>
                       <span>{option.name}</span><span>{option.options.find((value) => value.value === option.currentValue)?.name}</span><ChevronRight size={16} />
                     </button>
@@ -1576,7 +1599,7 @@ export function Composer({
                 </>
               )}
 
-              {modelPickerPage.startsWith('config:') && agentConfig.filter((option) => 'config:' + option.id === modelPickerPage).map((option) => (
+              {modelPickerPage.startsWith('config:') && agentConfig.filter((option) => option.category !== 'mode' && 'config:' + option.id === modelPickerPage).map((option) => (
                 <div key={option.id}>
                   <header className="composer-picker-header"><button type="button" aria-label="Back" onClick={() => setModelPickerPage('root')}><ChevronLeft size={16} /></button><strong>{option.name}</strong></header>
                   <div className="composer-picker-options">{option.options.map((value) => <button type="button" key={value.value} role="menuitemradio"
@@ -1694,6 +1717,8 @@ export function Composer({
             <ArrowUp size={16} strokeWidth={1.8} />
           </button>
         )}
+        </div>
+        </div>
       </div>
     </footer>
   )

@@ -57,15 +57,32 @@ export function updateContent(update: acp.SessionUpdate): AgentPromptPart | unde
   return undefined
 }
 
-export function configOptions(response: { configOptions?: acp.SessionConfigOption[] | null; modes?: acp.SessionModeState | null }): AgentConfigOption[] {
-  if (response.configOptions?.length) return response.configOptions.flatMap((option) => option.type !== 'select' ? [] : [{
+// Older ACP agents, including Gemini CLI, use models and session/set_model.
+// The current SDK no longer declares that response field, but preserves it on
+// the wire. Keep the compatibility shape here rather than extending the SDK.
+export interface AcpConfigResponse {
+  configOptions?: acp.SessionConfigOption[] | null
+  modes?: acp.SessionModeState | null
+  models?: {
+    currentModelId: string
+    availableModels: Array<{ modelId: string; name: string; description?: string | null }>
+  } | null
+}
+
+export function configOptions(response: AcpConfigResponse): AgentConfigOption[] {
+  if (response.configOptions != null) return response.configOptions.flatMap((option) => option.type !== 'select' ? [] : [{
     id: option.id, name: option.name, ...(option.category ? { category: option.category } : {}),
     currentValue: option.currentValue,
     options: option.options.flatMap((value) => 'group' in value ? value.options : [value])
       .map((value) => ({ value: value.value, name: value.name, ...(value.description ? { description: value.description } : {}) })),
   }])
-  return response.modes ? [{ id: '__mode', name: 'Mode', category: 'mode', currentValue: response.modes.currentModeId,
-    options: response.modes.availableModes.map((mode) => ({ value: mode.id, name: mode.name })) }] : []
+  const options: AgentConfigOption[] = []
+  if (response.models) options.push({ id: '__model', name: 'Model', category: 'model', currentValue: response.models.currentModelId,
+    options: response.models.availableModels.map((model) => ({ value: model.modelId, name: model.name,
+      ...(model.description ? { description: model.description } : {}) })) })
+  if (response.modes) options.push({ id: '__mode', name: 'Mode', category: 'mode', currentValue: response.modes.currentModeId,
+    options: response.modes.availableModes.map((mode) => ({ value: mode.id, name: mode.name })) })
+  return options
 }
 
 export function toolFiles(content: acp.ToolCallContent[] | null | undefined) {
@@ -79,5 +96,44 @@ export function toolContent(content: acp.ToolCallContent[] | null | undefined): 
     if (part.type === 'content' && part.content.type === 'text') return [part.content.text]
     return []
   }).join('\n').slice(0, 40_000)
+}
+
+export interface AcpToolCall {
+  title: string
+  kind?: acp.ToolKind
+  output: string
+}
+
+const toolSummaries: Partial<Record<acp.ToolKind, string>> = {
+  read: 'Read files',
+  edit: 'Edited a file',
+  delete: 'Deleted a file',
+  move: 'Moved a file',
+  search: 'Searched files',
+  execute: 'Ran a command',
+  fetch: 'Fetched from the web',
+}
+
+export function mergeToolCall(previous: AcpToolCall | undefined, update: acp.ToolCall | acp.ToolCallUpdate): AcpToolCall {
+  const kind = update.kind ?? previous?.kind
+  return {
+    title: update.title ?? previous?.title ?? 'Tool call',
+    ...(kind ? { kind } : {}),
+    output: update.content ? toolContent(update.content) ?? '' : previous?.output ?? '',
+  }
+}
+
+// ACP agents put the full command or path in the title. Like App Server items,
+// the transcript row shows a summary and keeps the title with the output.
+export function toolCallFields(call: AcpToolCall, update: acp.ToolCall | acp.ToolCallUpdate) {
+  const summary = (call.kind && toolSummaries[call.kind]) ?? call.title
+  return {
+    toolCallId: update.toolCallId,
+    title: summary,
+    content: summary === call.title ? call.output : [call.title, call.output].filter(Boolean).join('\n\n'),
+    ...(update.content ? { files: toolFiles(update.content) ?? [] } : {}),
+    ...(update.status ? { status: update.status } : {}),
+    ...(call.kind ? { kind: call.kind } : {}),
+  }
 }
 

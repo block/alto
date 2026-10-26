@@ -68,6 +68,7 @@ export interface WorkspaceTabStripProps {
   change: Dispatch<SetStateAction<WorkspaceLayoutState>>
   rootRef: RefObject<HTMLDivElement | null>
   beginDrag(viewId: string | undefined): void
+  /** Use -1 for tabs without a numbered shortcut. */
   renderTab(view: WorkspaceView, index: number, presentation?: WorkspaceTabPresentation): ReactNode
   children: ReactNode
   tabActions?: readonly WorkspaceTabAction[]
@@ -77,6 +78,8 @@ export interface WorkspaceTabStripProps {
 export interface WorkspaceTabStrip {
   id: string
   renderer: ComponentType<WorkspaceTabStripProps>
+  /** Tabs targeted by numbered shortcuts, in the order shown by this strip. */
+  shortcutTargets?(layout: WorkspaceLayoutState): readonly WorkspaceView[]
 }
 
 export interface WorkspacePaneTarget {
@@ -176,6 +179,7 @@ export interface ClientWorkspaceLayoutService {
   closeFocusedPane(): void
   cycleTabs(direction: 1 | -1): void
   selectTab(index: number): void
+  selectTabShortcut(index: number): void
   tabs(): readonly WorkspaceTabTarget[]
   moveActiveTab(direction: 1 | -1): void
   /** Open a full-size tab; omit kind for the normal new-chat behavior. */

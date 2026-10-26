@@ -223,6 +223,41 @@ describe('browser host transport', () => {
     run.stop()
   })
 
+  it('merges extension changes without replacing other chats and resets them on full snapshots', async () => {
+    const host = new BrowserHost()
+    const run = await startHost(host)
+    const snapshot = {
+      codex: { status: 'ready' as const, models: [], activeThreadIds: [] },
+      program: { revision: 0, profileText: '', plugins: [], files: [], tools: [], proposals: [] },
+      projects: { revision: 0, projects: [] },
+      ui: { regions: [], surfaces: [], contributions: [] },
+      extensions: { saved: { text: 'Retained chat' }, progress: { value: 0 } },
+      pendingRequests: [],
+      server: { port: 4317, host: '127.0.0.1', projectRoot: '/tmp/project' },
+    }
+    const receive = (event: HarnessEvent): void => run.socket.emit('message', { data: JSON.stringify(event) })
+    receive({ type: 'snapshot', payload: snapshot })
+    const saved = host.snapshot().snapshot!.extensions.saved
+    receive({ type: 'extensions.updated', partial: true, payload: { progress: { value: 1 } } })
+    expect(host.snapshot().snapshot!.extensions).toEqual({ saved, progress: { value: 1 } })
+    expect(host.snapshot().snapshot!.extensions.saved).toBe(saved)
+    receive({ type: 'extensions.updated', partial: true, payload: { progress: null } })
+    expect(host.snapshot().snapshot!.extensions.progress).toBeNull()
+    receive({ type: 'extensions.updated', partial: true, payload: {}, removed: ['progress'] })
+    expect(host.snapshot().snapshot!.extensions).toEqual({ saved })
+    receive({ type: 'extensions.updated', partial: true, payload: { progress: { value: 2 } } })
+    expect(host.snapshot().snapshot!.extensions).toEqual({ saved, progress: { value: 2 } })
+    expect(host.snapshot().connectionEpoch).toBe(1)
+
+    receive({ type: 'extensions.updated', payload: { replacement: true } })
+    expect(host.snapshot().snapshot!.extensions).toEqual({ replacement: true })
+    receive({ type: 'extensions.updated', partial: true, payload: { temporary: true } })
+    receive({ type: 'snapshot', payload: snapshot })
+    expect(host.snapshot().snapshot!.extensions).toEqual(snapshot.extensions)
+    expect(host.snapshot().connectionEpoch).toBe(2)
+    run.stop()
+  })
+
   it('bounds the replay journal by retained payload size', async () => {
     const host = new BrowserHost()
     const run = await startHost(host)

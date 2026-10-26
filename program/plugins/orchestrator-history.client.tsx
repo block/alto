@@ -13,10 +13,23 @@ export function mergeAgentHistory(older: ThreadMessage[], newer: ThreadMessage[]
 }
 function Traces({ traces }: { traces: ThreadTrace[] | undefined }): ReactNode {
   if (!traces?.length) return null
-  return <div className="agent-history-traces">{traces.map((trace) => <details key={trace.id}>
+  const entries = traces.map((trace) => <details key={trace.id}>
     <summary>{trace.title}</summary>
     {trace.kind === 'reasoning' ? <p>{trace.text}</p> : <pre>{trace.text}</pre>}
-  </details>)}</div>
+  </details>)
+  if (traces.length === 1) return <div className="agent-history-traces">{entries}</div>
+  const tools = traces.filter((trace) => trace.kind === 'tool' || trace.kind === 'command').length
+  const thinking = traces.filter((trace) => trace.kind === 'reasoning').length
+  const updates = traces.length - tools - thinking
+  const label = [
+    tools && `${tools} tool ${tools === 1 ? 'call' : 'calls'}`,
+    thinking && `${thinking} thinking ${thinking === 1 ? 'step' : 'steps'}`,
+    updates && `${updates} ${updates === 1 ? 'update' : 'updates'}`,
+  ].filter(Boolean).join(' · ')
+  return <div className="agent-history-traces"><details className="agent-history-trace-group">
+    <summary title={label}><span>{label}</span></summary>
+    <div className="agent-history-trace-items">{entries}</div>
+  </details></div>
 }
 export const AgentHistoryMessage = memo(function AgentHistoryMessage({ message, markdown }: { message: ThreadMessage; markdown: ClientMarkdownService }): ReactNode {
   const state = useSyncExternalStore(markdown.subscribe, markdown.snapshot, markdown.snapshot)

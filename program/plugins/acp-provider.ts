@@ -1,6 +1,6 @@
 import { claudeSystemContext, claudeContextMeta, contextUpdates, type AgentContext } from './acp-context.js'
-import { promptBlock, updateContent, configOptions, toolFiles, toolContent } from './acp-format.js'
-import { initialAgentConfig } from './agent-model-options.js'
+import { promptBlock, updateContent, configOptions, mergeToolCall, toolCallFields, type AcpConfigResponse, type AcpToolCall } from './acp-format.js'
+import { initialAgentConfig, legacyAgentConfig } from './agent-model-options.js'
 import { randomUUID } from 'node:crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import path from 'node:path'
@@ -45,6 +45,8 @@ export interface AcpProcessProviderOptions {
   cwd?: string
   env?: Record<string, string>
   setupHint?: string
+  /** Draft choices until the agent returns its authoritative session configuration. */
+  initialConfig?: AgentConfigOption[]
   clientVersion?: string
   openConnection?: AcpConnectionFactory
 }
@@ -52,6 +54,7 @@ export interface AcpProcessProviderOptions {
 interface AcpSessionRecord extends AgentSession {
   options: AgentSessionOptions
   context: AgentContext
+  legacyConfig: boolean
 }
 
 interface AcpProviderConfig {
@@ -62,6 +65,7 @@ interface AcpProviderConfig {
   cwd?: string
   env?: Record<string, string>
   setupHint?: string
+  initialConfig?: AgentConfigOption[]
 }
 
 function now(): string {
@@ -144,10 +148,11 @@ export class AcpProcessProvider implements AgentProvider {
   }
   private sessions = new Map<string, AcpSessionRecord>()
   private readonly replayUpdates = new Map<string, acp.SessionNotification[]>()
+  private knownConfig: AgentConfigOption[] | undefined
   private children = new Map<string, { root: string; parent: string; canStop: boolean; kind: 'subagent' | 'background'; terminal: boolean; permissionMode: PermissionMode; turnId?: string }>()
   private activeTurns = new Map<string, string>()
   private completions = new Map<string, Promise<void>>()
-  private toolTitles = new Map<string, string>()
+  private toolCalls = new Map<string, AcpToolCall>()
   private listeners = new Set<AgentEventListener>()
   private opened: AcpOpenedConnection | undefined
   private startPromise: Promise<void> | undefined
@@ -181,7 +186,7 @@ export class AcpProcessProvider implements AgentProvider {
       status: this.status,
       capabilities: structuredClone(this.capabilities),
       activeSessionIds: [...this.sessions.keys()],
-      configOptions: initialAgentConfig(this.options.id, [...this.sessions.values()].at(-1)?.configOptions),
+      configOptions: initialAgentConfig(this.options.id, this.knownConfig ?? this.options.initialConfig),
       ...(this.version ? { version: this.version } : {}),
       ...(this.error ? { error: this.error } : {}),
     }
@@ -212,10 +217,12 @@ export class AcpProcessProvider implements AgentProvider {
       createdAt: now(),
       options: structuredClone(options),
       context,
-      configOptions: configOptions(response),
+      configOptions: this.sessionConfig(response),
+      legacyConfig: response.configOptions == null,
     }
     if (response.modes) this.capabilities.sessionModes = true
     this.sessions.set(session.id, session)
+    this.rememberConfig(session)
     this.emit({
       type: 'session.created',
       providerId: this.options.id,
@@ -392,8 +399,8 @@ export class AcpProcessProvider implements AgentProvider {
     this.sessions.delete(sessionId)
     this.finishChildren(sessionId, 'stopped')
     for (const [id, child] of this.children) if (child.root === sessionId) this.children.delete(id)
-    for (const key of this.toolTitles.keys()) {
-      if (key.startsWith(`${sessionId}:`)) this.toolTitles.delete(key)
+    for (const key of this.toolCalls.keys()) {
+      if (key.startsWith(`${sessionId}:`)) this.toolCalls.delete(key)
     }
     this.emit({
       type: 'session.closed',
@@ -424,7 +431,7 @@ export class AcpProcessProvider implements AgentProvider {
     this.children.clear()
     this.activeTurns.clear()
     this.completions.clear()
-    this.toolTitles.clear()
+    this.toolCalls.clear()
     if (opened) await opened.close()
     this.setStatus('stopped')
     this.stopping = false
@@ -559,7 +566,7 @@ export class AcpProcessProvider implements AgentProvider {
       ...(turnId ? { turnId } : {}),
       toolCallId: request.toolCall.toolCallId,
       title: request.toolCall.title
-        ?? this.toolTitles.get(toolKey(request.sessionId, request.toolCall.toolCallId))
+        ?? this.toolCalls.get(toolKey(request.sessionId, request.toolCall.toolCallId))?.title
         ?? 'Tool call',
       options: request.options.map((option) => ({
         id: option.optionId,
@@ -651,7 +658,9 @@ export class AcpProcessProvider implements AgentProvider {
     if (!session || !option || !option.options.some((candidate) => candidate.value === value)) throw new Error('Invalid agent configuration option')
     const lifecycle = this.lifecycle
     let updated: AgentConfigOption[] | undefined
-    if (configId === '__mode') {
+    if (session.legacyConfig && configId === '__model') {
+      await this.connection().agent.request('session/set_model', { sessionId, modelId: value })
+    } else if (session.legacyConfig && configId === '__mode') {
       await this.connection().agent.request(acp.methods.agent.session.setMode, { sessionId, modeId: value })
     } else {
       const response = await this.connection().agent.request(acp.methods.agent.session.setConfigOption, { sessionId, configId, value })
@@ -662,9 +671,19 @@ export class AcpProcessProvider implements AgentProvider {
     }
     if (updated) session.configOptions = updated
     else option.currentValue = value
+    this.rememberConfig(session)
     const options = session.configOptions ?? []
     this.emit({ type: 'config.updated', providerId: this.options.id, sessionId, configOptions: options, occurredAt: now() })
     return structuredClone(options)
+  }
+
+  private sessionConfig(response: AcpConfigResponse): AgentConfigOption[] {
+    const config = configOptions(response)
+    return response.configOptions == null ? legacyAgentConfig(this.options.id, config) : config
+  }
+
+  private rememberConfig(session: AcpSessionRecord): void {
+    this.knownConfig = structuredClone(session.configOptions ?? [])
   }
 
   private cancelPermissions(sessionId: string): void {
@@ -727,8 +746,9 @@ export class AcpProcessProvider implements AgentProvider {
       // A resumed Claude session may retain its original system prompt. Send
       // current context once with the next prompt even when append was supplied.
       const session: AcpSessionRecord = { context: {}, id: sessionId, providerId: this.options.id, cwd: options.cwd,
-        createdAt: now(), options: structuredClone(options), configOptions: configOptions(response) }
+        createdAt: now(), options: structuredClone(options), configOptions: this.sessionConfig(response), legacyConfig: response.configOptions == null }
       this.sessions.set(sessionId, session)
+      this.rememberConfig(session)
       this.replayUpdates.delete(sessionId)
       const base = { providerId: this.options.id, sessionId, occurredAt: now() }
       this.emit({ ...base, type: 'session.replay', phase: 'started' })
@@ -761,11 +781,13 @@ export class AcpProcessProvider implements AgentProvider {
     }
     if (update.sessionUpdate === 'config_option_update') {
       session.configOptions = configOptions(update)
+      session.legacyConfig = false
+      this.rememberConfig(session)
       this.emit({ ...base, type: 'config.updated', configOptions: session.configOptions }); return
     }
     if (update.sessionUpdate === 'current_mode_update') {
       const mode = session.configOptions?.find((option) => option.category === 'mode')
-      if (mode) { mode.currentValue = update.currentModeId; this.emit({ ...base, type: 'config.updated', configOptions: session.configOptions! }) }
+      if (mode) { mode.currentValue = update.currentModeId; this.rememberConfig(session); this.emit({ ...base, type: 'config.updated', configOptions: session.configOptions! }) }
       return
     }
     if (update.sessionUpdate === 'usage_update') {
@@ -794,36 +816,16 @@ export class AcpProcessProvider implements AgentProvider {
       return
     }
 
-    if (update.sessionUpdate === 'tool_call') {
-      this.toolTitles.set(toolKey(notification.sessionId, update.toolCallId), update.title)
-      this.emit({
-        type: 'tool.started',
-        providerId: this.options.id,
-        sessionId: notification.sessionId,
-        ...(turnId ? { turnId } : {}),
-        toolCallId: update.toolCallId,
-        title: update.title,
-        ...(update.content ? { content: toolContent(update.content) ?? '', files: toolFiles(update.content) ?? [] } : {}),
-        ...(update.status ? { status: update.status } : {}),
-        ...(update.kind ? { kind: update.kind } : {}),
-        occurredAt,
-      })
-      return
-    }
-
-    if (update.sessionUpdate === 'tool_call_update') {
+    if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
       const key = toolKey(notification.sessionId, update.toolCallId)
-      if (update.title) this.toolTitles.set(key, update.title)
+      const call = mergeToolCall(update.sessionUpdate === 'tool_call' ? undefined : this.toolCalls.get(key), update)
+      this.toolCalls.set(key, call)
       this.emit({
-        type: 'tool.updated',
+        type: update.sessionUpdate === 'tool_call' ? 'tool.started' : 'tool.updated',
         providerId: this.options.id,
         sessionId: notification.sessionId,
         ...(turnId ? { turnId } : {}),
-        toolCallId: update.toolCallId,
-        title: update.title ?? this.toolTitles.get(key) ?? 'Tool call',
-        ...(update.content ? { content: toolContent(update.content) ?? '', files: toolFiles(update.content) ?? [] } : {}),
-        ...(update.status ? { status: update.status } : {}),
-        ...(update.kind ? { kind: update.kind } : {}),
+        ...toolCallFields(call, update),
         occurredAt,
       })
       return
@@ -876,6 +878,7 @@ const plugin: HarnessPlugin<AcpProviderConfig> = (ctx: Context, config) => {
     ...(config.cwd ? { cwd: config.cwd } : {}),
     ...(config.env ? { env: { ...config.env } } : {}),
     ...(config.setupHint ? { setupHint: config.setupHint } : {}),
+    ...(config.initialConfig ? { initialConfig: structuredClone(config.initialConfig) } : {}),
   })
   ctx.agents.register(ctx, provider)
 

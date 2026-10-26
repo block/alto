@@ -110,3 +110,32 @@
   white-space: pre-wrap;
 }
 .input-question-answer > svg { flex: none; margin-top: .25em; color: var(--accent); }
+
+.input-question-composer { display: grid; justify-items: start; gap: var(--space-1); margin-top: var(--space-2); }
+.input-question-composer > button {
+  --alto-button-height: var(--control-default);
+  --alto-button-font-size: var(--type-label);
+  --alto-button-padding: var(--space-1) var(--space-3);
+}
+.composer-question-reply {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  margin: 0;
+  color: var(--text);
+  background: var(--panel);
+  border-radius: var(--radius-row);
+  font-size: var(--type-label);
+  line-height: var(--line-body);
+}
+.composer-question-reply-label { display: flex; min-width: 0; gap: var(--space-2); }
+.composer-question-reply-label > span:first-child { color: var(--muted); flex: none; }
+.composer-question-reply-label > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-question-reply > button { --alto-icon-button-size: var(--control-compact); }
+.composer-question-reply > .input-request-error { grid-column: 1 / -1; }

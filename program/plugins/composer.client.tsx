@@ -1,5 +1,9 @@
 import { ComposerActions } from './composer-actions.js'
 import { ComposerDrafts } from './composer-drafts.js'
+import { X } from 'lucide-react'
+import { clientStyles } from '../../src/client/plugin-api.js'
+import { QUESTION_REPLY_COMPONENT, type QuestionReplyButtonProps } from './chat-surfaces-api.js'
+import { ComposerReplies } from './composer-replies.js'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { isRecord, type ChatAttachment, type ChatImage } from '../../src/shared/protocol.js'
 import type { BrowserPlugin, ClientSubmitMode, ClientSurfaceProps, ClientUiService } from '../../src/client/plugin-api.js'
@@ -111,8 +115,25 @@ function ComposerSettings({ controller }: { controller: ComposerPreferenceContro
   )
 }
 
+export function QuestionReplyButton({ threadId, id, title, submit, label, disabled, composer }: QuestionReplyButtonProps & { composer: ClientComposerService }): ReactNode {
+  const latestSubmit = useRef(submit)
+  latestSubmit.current = submit
+  const cancel = useRef<(() => void) | undefined>(undefined)
+  useEffect(() => () => cancel.current?.(), [threadId, id])
+  return <button type="button" className={clientStyles.button + ' ghost'} disabled={disabled || !threadId}
+    onClick={() => {
+      if (!threadId || !composer.replies) return
+      cancel.current?.()
+      cancel.current = composer.replies.begin({
+        id, threadId, title, submit: (draft) => latestSubmit.current(draft),
+      })
+      composer.focus()
+    }}>{label}</button>
+}
+
 class ComposerService implements ClientComposerService {
   readonly actions = new ComposerActions()
+  readonly replies = new ComposerReplies()
   readonly drafts = new ComposerDrafts()
 
   appendToSession(session: ClientSessionService, text: string): boolean {
@@ -252,6 +273,7 @@ export function ComposerSurface({
   const state = useComposerSession(session)
   const preference = useSyncExternalStore(preferences.subscribe, preferences.snapshot)
   const immediateReply = state.turn.tag === 'running' && acceptsImmediateReply(state.harness, state.threadId)
+  const reply = useSyncExternalStore(composer.replies?.subscribe ?? (() => () => {}), () => composer.replies?.snapshot(state.threadId), () => undefined)
   const initialDraft = useRef(draftStore?.read())
   // Keep native contenteditable input out of React's render path. Revisions are
   // only needed when submit or error recovery explicitly replaces the draft.
@@ -291,7 +313,8 @@ export function ComposerSurface({
     setImages([])
     setAttachments([])
     try {
-      if (submitDraft) await submitDraft(draft, mode)
+      if (reply && state.threadId && composer.replies) await composer.replies.submit(state.threadId, draft)
+      else if (submitDraft) await submitDraft(draft, mode)
       else if (ui) {
         await ui.submit(draft, (forwarded) => session.send(forwarded), {
           mode,
@@ -312,7 +335,7 @@ export function ComposerSurface({
       }
       setImages((current) => current.length ? current : previousImages)
       setAttachments((current) => current.length ? current : previousAttachments)
-      throw error
+      if (!reply) throw error
     }
   }
 
@@ -327,7 +350,13 @@ export function ComposerSurface({
   return (
     <Composer
       toolbarActions={actions.map(({ id, component: Action }) => <Action key={id} session={session} />)}
-      sendLabel={immediateReply ? 'Send reply' : undefined}
+      sendLabel={reply ? 'Send answer' : immediateReply ? 'Send reply' : undefined}
+      replyContext={reply && <div className="composer-question-reply">
+        <div className="composer-question-reply-label"><span>Replying to</span><span title={reply.target.title}>{reply.target.title}</span></div>
+        <button type="button" className={clientStyles.iconButton} aria-label="Cancel question reply"
+          disabled={reply.sending} onClick={() => composer.replies?.cancel(reply.target.threadId)}><X size={14} /></button>
+        {reply.error && <div className="input-request-error" role="alert">{reply.error}</div>}
+      </div>}
       value={message.current}
       valueRevision={messageRevision}
       images={images}
@@ -371,9 +400,9 @@ export function ComposerSurface({
         !state.connected
         || (state.turn.tag === 'idle' && state.canAcceptDirectInput === false)
       }
-      sending={state.turn.tag === 'sending'}
+      sending={state.turn.tag === 'sending' || Boolean(reply?.sending)}
       activeTurn={state.turn.tag === 'running'}
-      allowSubmitDuringTurn={allowSubmitDuringTurn ?? ui?.canSubmitDuringTurn() ?? false}
+      allowSubmitDuringTurn={Boolean(reply) || (allowSubmitDuringTurn ?? ui?.canSubmitDuringTurn() ?? false)}
       onChange={(nextMessage) => {
         message.current = nextMessage
         draftStore?.write({ message: nextMessage, images, attachments })
@@ -412,6 +441,7 @@ const composerClient: BrowserPlugin<ComposerConfig> = (ctx, config) => {
     <ComposerSurface {...props} ui={ui} composer={composer} preferences={preferences} />
   )
   const Surface = (props: ClientSurfaceProps) => <Component {...props} session={ctx.clientSession} />
+  ui.registerComponent(ctx, QUESTION_REPLY_COMPONENT, (props: QuestionReplyButtonProps) => <QuestionReplyButton {...props} composer={composer} />)
   ui.registerComponent(ctx, COMPOSER_COMPONENT, Component)
   ui.registerSurface(ctx, 'default-composer', Surface)
   ui.registerSettingsPage(ctx, {
@@ -424,7 +454,7 @@ const composerClient: BrowserPlugin<ComposerConfig> = (ctx, config) => {
 composerClient.inject = ['clientUi', 'clientSession']
 composerClient.provide = 'clientComposer'
 composerClient.resources = {
-  provides: { surfaces: ['default-composer'], components: [COMPOSER_COMPONENT] },
+  provides: { surfaces: ['default-composer'], components: [COMPOSER_COMPONENT, QUESTION_REPLY_COMPONENT] },
 }
 
 export default composerClient

@@ -38,9 +38,16 @@ function uploadFrom(value: JsonValue | undefined): FileAttachmentUpload {
   }
 }
 
-function decodedBase64(value: string): Buffer {
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+function decodedBase64(value: string, maxBytes: number): Buffer {
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
+  // Repeating a regex group for every four characters can overflow V8's stack
+  // on large attachments. Scan the alphabet separately from length and padding.
+  if (value.length % 4 !== 0 || /[^A-Za-z0-9+/]/.test(value.slice(0, value.length - padding))) {
     throw new Error('The attachment payload is not valid base64')
+  }
+  const byteLength = value.length / 4 * 3 - padding
+  if (byteLength > maxBytes) {
+    throw new Error(`Files are limited to ${Math.floor(maxBytes / 1024 / 1024)} MB`)
   }
   return Buffer.from(value, 'base64')
 }
@@ -50,10 +57,7 @@ export async function storeFileAttachment(
   upload: FileAttachmentUpload,
   maxBytes = DEFAULT_MAX_ATTACHMENT_BYTES,
 ): Promise<ChatAttachment> {
-  const bytes = decodedBase64(upload.data)
-  if (bytes.length > maxBytes) {
-    throw new Error(`Files are limited to ${Math.floor(maxBytes / 1024 / 1024)} MB`)
-  }
+  const bytes = decodedBase64(upload.data, maxBytes)
 
   const name = safeFilename(upload.name)
   const directory = path.join(root, randomUUID())

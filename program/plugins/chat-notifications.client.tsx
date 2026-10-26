@@ -2,6 +2,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from 'react'
+import type { Context } from 'cordis'
 import type {
   BrowserPlugin,
 } from '../../src/client/plugin-api.js'
@@ -16,6 +17,7 @@ import type {
   ClientThreadStatusSnapshot,
 } from './thread-status-api.js'
 import { ORCHESTRATOR_STATE, type OrchestratorSnapshot } from './orchestrator-api.js'
+import type { ClientNotification, ClientNotificationsService } from './chat-notifications-api.js'
 import styles from './chat-notifications.css'
 import { SettingsRow, SettingsSwitch } from './ui/settings.js'
 
@@ -121,9 +123,10 @@ export function completionNotificationTarget(threadId: string, session: ClientSe
   }
 }
 
-export class ChatNotificationsController {
+export class ChatNotificationsController implements ClientNotificationsService {
   private readonly listeners = new Set<() => void>()
   private readonly notifications = new Set<Notification>()
+  private readonly completionSuppressions = new Map<string, Set<symbol>>()
   private preference: NotificationPreference
   private previousStatus: ClientThreadStatusSnapshot
   private state: ChatNotificationsSnapshot
@@ -168,8 +171,39 @@ export class ChatNotificationsController {
       window.removeEventListener('focus', this.refreshPermission)
       for (const notification of this.notifications) notification.close()
       this.notifications.clear()
+      this.completionSuppressions.clear()
       this.listeners.clear()
     }
+  }
+
+  suppressCompletion(owner: Context, threadId: string): () => void {
+    return owner.effect(() => {
+      const claims = this.completionSuppressions.get(threadId) ?? new Set<symbol>()
+      const claim = Symbol(threadId)
+      claims.add(claim)
+      this.completionSuppressions.set(threadId, claims)
+      return () => {
+        claims.delete(claim)
+        if (!claims.size && this.completionSuppressions.get(threadId) === claims) {
+          this.completionSuppressions.delete(threadId)
+        }
+      }
+    }, `clientNotifications.suppressCompletion(${JSON.stringify(threadId)})`)
+  }
+
+  async notify(request: ClientNotification): Promise<void> {
+    if (!this.canNotify(request.threadId)) return
+    const thread = this.conversation.snapshot().threads.find((candidate) => candidate.id === request.threadId)
+    this.showNotification(request, thread)
+  }
+
+  private canNotify(threadId: string): boolean {
+    return this.active
+      && this.state.enabled
+      && notificationPermission() === 'granted'
+      && (this.preference.notifyCurrentChat
+        || threadId !== this.conversation.snapshot().threadId
+        || !visibleAndFocused())
   }
 
   async setEnabled(enabled: boolean): Promise<void> {
@@ -217,7 +251,7 @@ export class ChatNotificationsController {
   }
 
   private async showCompletion(threadId: string): Promise<void> {
-    if (!this.active || !this.state.enabled || notificationPermission() !== 'granted') return
+    if (!this.canNotify(threadId) || this.completionSuppressions.has(threadId)) return
 
     let session = this.conversation.snapshot()
     if (isSubagentThread(threadId, session)) return
@@ -229,22 +263,21 @@ export class ChatNotificationsController {
       } catch {
         return
       }
-      if (!this.active || !this.state.enabled || notificationPermission() !== 'granted') return
+      if (!this.canNotify(threadId) || this.completionSuppressions.has(threadId)) return
       session = this.conversation.snapshot()
     }
     const target = completionNotificationTarget(threadId, session)
     if (!target) return
-    if (
-      !this.preference.notifyCurrentChat
-      && threadId === session.threadId
-      && visibleAndFocused()
-    ) return
+    this.showNotification({ ...target, tag: `alto-chat-finished-${target.threadId}` }, target.thread)
+  }
 
+  private showNotification(request: ClientNotification, thread?: ThreadSummary): void {
+    const { threadId, title, body, tag } = request
     let notification: Notification
     try {
-      notification = new window.Notification(target.title, {
-        body: target.body,
-        tag: `alto-chat-finished-${target.threadId}`,
+      notification = new window.Notification(title, {
+        body,
+        tag,
         silent: !this.preference.playSound,
       })
     } catch (error) {
@@ -261,7 +294,7 @@ export class ChatNotificationsController {
     notification.onclick = () => {
       notification.close()
       window.focus()
-      void this.openThread(target.threadId, target.thread)
+      void this.openThread(threadId, thread)
     }
   }
 
@@ -398,6 +431,7 @@ const chatNotificationsClient: BrowserPlugin<ChatNotificationsConfig> = (ctx, co
   )
   const Settings = () => <NotificationsSettings controller={controller} />
 
+  ctx.provide('clientNotifications', controller)
   ctx.effect(() => controller.activate(), 'chat-notifications.activate')
   ctx.clientUi.registerStyle(ctx, 'chat-notifications', String(styles))
   ctx.clientUi.registerSettingsPage(ctx, {
@@ -416,5 +450,6 @@ chatNotificationsClient.inject = [
   'clientUi',
   'clientWorkspaceLayout',
 ]
+chatNotificationsClient.provide = 'clientNotifications'
 
 export default chatNotificationsClient

@@ -1,6 +1,7 @@
 import type { ComposerActions } from './composer-actions.js'
 import type { ComposerDrafts } from './composer-drafts.js'
 import type { ClientSessionService } from './session-api.js'
+import type { ComposerReplies } from './composer-replies.js'
 import type { ChatAttachment } from '../../src/shared/protocol.js'
 
 export interface ClientComposerFocusOptions {
@@ -19,6 +20,7 @@ export interface ClientAttachmentProviderRegistration {
 
 export interface ClientComposerService {
   actions: ComposerActions
+  replies?: ComposerReplies
   drafts?: ComposerDrafts
 
   /** Add text to a specific pane's draft without submitting it. */

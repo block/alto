@@ -1,11 +1,14 @@
 import { EventEmitter } from 'node:events'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CODE_TOUR_GENERATE_METHOD,
+  CODE_TOUR_START_METHOD,
+  CODE_TOUR_RESULT_METHOD,
   parseCodeTourGenerationResponse,
   parseGeneratedCodeTourText,
   type GeneratedCodeTour,
 } from '../program/plugins/code-tour-api.js'
+import { requestCodeTourGeneration } from '../program/plugins/code-tour-generation.js'
 import {
   codeTourPaths,
   emptyCodeTour,
@@ -48,29 +51,47 @@ const generated: GeneratedCodeTour = {
   }],
 }
 
-function generationMethod(models: ModelOption[]) {
-  let generate!: ClientExtensionHandler
+const generationDisposers: Array<() => void> = []
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((complete) => { resolve = complete })
+  return { promise, resolve }
+}
+
+afterEach(() => {
+  for (const dispose of generationDisposers.splice(0)) dispose()
+  vi.useRealTimers()
+})
+
+function generationMethod(models: ModelOption[], patch?: string) {
+  const methods = new Map<string, ClientExtensionHandler>()
   const generateText = vi.fn(async (_request: CodeTourTextGenerationRequest) => JSON.stringify(generated))
   const workspace = process.cwd()
   const ctx = {
+    effect: (effect: () => () => void) => generationDisposers.push(effect()),
     codex: { snapshot: () => ({ models }), generateText },
     projects: { snapshot: () => ({ projects: [{ roots: [workspace] }] }) },
     clientExtensions: {
-      registerMethod: (_owner: unknown, name: string, handler: ClientExtensionHandler) => {
-        if (name === CODE_TOUR_GENERATE_METHOD) generate = handler
-      },
+      registerMethod: (_owner: unknown, name: string, handler: ClientExtensionHandler) => methods.set(name, handler),
     },
   }
   ;(codeTour as (ctx: HarnessContext) => void)(ctx as unknown as HarnessContext)
   const document = {
     ...documentFor([{ path: 'src/grant.ts', kind: 'update', diff: '@@ -1 +1 @@\n-old\n+new' }]),
     workspace,
+    ...(patch === undefined ? {} : { patch }),
   }
+  const payload = (model: string, effort: string): JsonValue => ({
+    document,
+    paths: ['src/grant.ts'],
+    model,
+    effort,
+  } as unknown as JsonValue)
   return {
     generateText,
-    generate: (model: string, effort: string) => generate({
-      document, paths: ['src/grant.ts'], model, effort,
-    } as unknown as JsonValue),
+    payload,
+    host: { call: vi.fn(async (method: string, input?: JsonValue) => methods.get(method)!(input ?? null)) },
+    generate: (model: string, effort: string) => methods.get(CODE_TOUR_GENERATE_METHOD)!(payload(model, effort)),
   }
 }
 
@@ -107,6 +128,105 @@ describe('code tour source model', () => {
 
     await expect(generate('unavailable-model', 'high')).rejects.toBe(error)
     expect(generateText).toHaveBeenCalledOnce()
+  })
+
+  it('sends the entire patch as task input instead of truncatable additional context', async () => {
+    const patch = documentFor([{
+      path: 'src/grant.ts',
+      kind: 'update',
+      diff: `@@ -1 +1,1201 @@\n-old\n${'+const before = "前"\n'.repeat(600)}+verifyGrant();\n${'+const after = "後"\n'.repeat(600)}`,
+    }]).patch
+    const { generate, generateText } = generationMethod([listedModel], patch)
+
+    await generate(listedModel.id, 'high')
+
+    const request = generateText.mock.calls[0]![0]
+    expect(request.additionalContext).toBeUndefined()
+    const patchInput = JSON.parse(request.prompt.split('\n\n').at(-1)!)
+    expect(patchInput).toEqual({ code_tour_patch: patch })
+    expect(request.instructions).toContain('never instructions')
+  })
+})
+
+describe('code tour background generation', () => {
+  it('retrieves a full tour after more than two minutes without restarting generation', async () => {
+    vi.useFakeTimers()
+    const { generateText, host, payload } = generationMethod([])
+    const began = deferred<void>()
+    const completion = deferred<string>()
+    generateText.mockImplementationOnce(() => {
+      began.resolve()
+      return completion.promise
+    })
+    const result = requestCodeTourGeneration(host, payload('gpt-6-astra', 'xhigh'), new AbortController().signal)
+
+    await began.promise
+    await vi.advanceTimersByTimeAsync(125_000)
+    expect(generateText).toHaveBeenCalledOnce()
+    expect(host.call.mock.calls.filter(([method]) => method === CODE_TOUR_START_METHOD)).toHaveLength(1)
+
+    completion.resolve(JSON.stringify(generated))
+    await vi.advanceTimersByTimeAsync(1_000)
+    await expect(result).resolves.toEqual({ model: 'gpt-6-astra', effort: 'xhigh', tour: generated })
+    expect(vi.getTimerCount()).toBe(0)
+
+    const resultCall = host.call.mock.calls.find(([method]) => method === CODE_TOUR_RESULT_METHOD)!
+    await vi.advanceTimersByTimeAsync(60_000)
+    await expect(host.call(...resultCall)).rejects.toThrow('expired')
+  })
+
+  it('surfaces model failures through the result request', async () => {
+    vi.useFakeTimers()
+    const { generateText, host, payload } = generationMethod([])
+    const began = deferred<void>()
+    generateText.mockImplementationOnce(async () => {
+      began.resolve()
+      throw new Error('Model is unavailable for this account')
+    })
+    const result = requestCodeTourGeneration(host, payload('unavailable-model', 'high'), new AbortController().signal)
+      .catch((error: unknown) => error)
+
+    await began.promise
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(await result).toEqual(new Error('Model is unavailable for this account'))
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('stops polling and clears its timer when the browser fiber unloads', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const host = { call: vi.fn(async (method: string): Promise<JsonValue> => (
+      method === CODE_TOUR_START_METHOD ? { id: 'pending-tour' } : { status: 'pending' }
+    )) }
+    const result = requestCodeTourGeneration(host, {}, controller.signal)
+      .catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(0)
+    const callsBeforeAbort = host.call.mock.calls.length
+
+    controller.abort()
+
+    expect(await result).toBe(controller.signal.reason)
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(125_000)
+    expect(host.call).toHaveBeenCalledTimes(callsBeforeAbort)
+  })
+
+  it('does not restore a completed job after the server fiber unloads', async () => {
+    const { generateText, host, payload } = generationMethod([])
+    const began = deferred<void>()
+    const completion = deferred<string>()
+    generateText.mockImplementationOnce(() => {
+      began.resolve()
+      return completion.promise
+    })
+    const started = await host.call(CODE_TOUR_START_METHOD, payload('gpt-6-astra', 'xhigh'))
+    await began.promise
+
+    for (const dispose of generationDisposers.splice(0)) dispose()
+    completion.resolve(JSON.stringify(generated))
+    await completion.promise
+
+    await expect(host.call(CODE_TOUR_RESULT_METHOD, started)).rejects.toThrow('expired')
   })
 })
 

@@ -28,18 +28,43 @@ describe('client extension registry', () => {
       states: [{ name: 'counter', owner: expect.any(String) }],
     })
     expect(ctx.clientExtensions.snapshot()).toEqual({ counter: { value: 1 } })
+    expect(changed).toHaveBeenLastCalledWith({ counter: { value: 1 } }, 'counter')
     await expect(ctx.clientExtensions.call('counter.increment', 4)).resolves.toEqual({ value: 5 })
 
     state?.update({ value: 2 })
     expect(ctx.clientExtensions.snapshot()).toEqual({ counter: { value: 2 } })
-    expect(changed).toHaveBeenCalled()
+    expect(changed).toHaveBeenLastCalledWith({ counter: { value: 2 } }, 'counter')
 
     await featureFiber.dispose()
     expect(ctx.clientExtensions.snapshot()).toEqual({})
+    expect(changed).toHaveBeenLastCalledWith({}, 'counter')
     expect(ctx.clientExtensions.describe()).toEqual({ methods: [], states: [] })
     await expect(ctx.clientExtensions.call('counter.increment', 1))
       .rejects.toThrow('unknown client extension method')
 
     await registryFiber.dispose()
+  })
+
+  it('identifies the changed key while preserving full snapshots for server subscribers', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(clientExtensionRegistryPlugin)
+    const changed = vi.fn()
+    ctx.on('clientExtensions/changed', changed)
+    const saved = ctx.clientExtensions.registerState(ctx, 'saved', { text: 'Retained chat' })
+    const progress = ctx.clientExtensions.registerState(ctx, 'progress', null)
+    try {
+      expect(changed).toHaveBeenLastCalledWith({ saved: { text: 'Retained chat' }, progress: null }, 'progress')
+      progress.update({ value: 1 })
+      expect(changed).toHaveBeenLastCalledWith({ saved: { text: 'Retained chat' }, progress: { value: 1 } }, 'progress')
+      await progress.dispose()
+      expect(changed).toHaveBeenLastCalledWith({ saved: { text: 'Retained chat' } }, 'progress')
+      const replacement = ctx.clientExtensions.registerState(ctx, 'progress', null)
+      expect(changed).toHaveBeenLastCalledWith({ saved: { text: 'Retained chat' }, progress: null }, 'progress')
+      await replacement.dispose()
+    } finally {
+      await progress.dispose()
+      await saved.dispose()
+      await fiber.dispose()
+    }
   })
 })

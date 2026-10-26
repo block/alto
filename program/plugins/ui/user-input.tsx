@@ -1,5 +1,7 @@
+import { QUESTION_REPLY_COMPONENT, type QuestionReplyButtonProps } from '../chat-surfaces-api.js'
+import { QuestionComposerContext } from './question-composer.js'
 import { Check } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { clientStyles } from '../../../src/client/plugin-api.js'
 import { isRecord, type PendingServerRequest } from '../../../src/shared/protocol.js'
 
@@ -44,6 +46,8 @@ export function UserInputRequest({ request, resolve, heading, submitLabel }: {
   submitLabel?: string
   resolve: (id: string | number, result: unknown) => Promise<void>
 }): ReactNode {
+  const composerContext = useContext(QuestionComposerContext)
+  const ReplyButton = composerContext?.ui.component<QuestionReplyButtonProps>(QUESTION_REPLY_COMPONENT)
   const questions = inputQuestions(request.params)
   const [answers, setAnswers] = useState<Record<string, AnswerDraft>>({})
   const [submitting, setSubmitting] = useState(false)
@@ -57,8 +61,8 @@ export function UserInputRequest({ request, resolve, heading, submitLabel }: {
     return () => { alive.current = false }
   }, [])
 
-  const answerFor = (question: InputQuestion): string => {
-    const draft = answers[question.id]
+  const answerFor = (question: InputQuestion, values = answers): string => {
+    const draft = values[question.id]
     if (!draft) return ''
     return !question.options.length || draft.custom ? draft.text : draft.option ?? ''
   }
@@ -71,8 +75,8 @@ export function UserInputRequest({ request, resolve, heading, submitLabel }: {
       [questionId]: { custom: false, text: '', ...current[questionId], ...patch },
     }))
   }
-  const submit = async (): Promise<void> => {
-    if (!complete || inFlight.current || submitted) return
+  const submit = async (values = answers, fromComposer = false): Promise<void> => {
+    if (!questions.length || !questions.every((question) => answerFor(question, values).trim()) || inFlight.current || submitted) return
     inFlight.current = true
     setSubmitting(true)
     setError('')
@@ -80,11 +84,12 @@ export function UserInputRequest({ request, resolve, heading, submitLabel }: {
       // The caller routes this either to a pending server request or to the
       // original chat for asynchronous questions.
       await resolve(request.id, {
-        answers: Object.fromEntries(questions.map((question) => [question.id, { answers: [answerFor(question)] }])),
+        answers: Object.fromEntries(questions.map((question) => [question.id, { answers: [answerFor(question, values)] }])),
       })
       if (alive.current) setSubmitted(true)
-    } catch {
+    } catch (error) {
       if (alive.current) setError('Could not send your answers. Please try again.')
+      if (fromComposer) throw error
     } finally {
       inFlight.current = false
       if (alive.current) setSubmitting(false)
@@ -125,7 +130,27 @@ export function UserInputRequest({ request, resolve, heading, submitLabel }: {
               <span>Something else</span>
             </label>}
           </div>}
-          {custom && <label className="input-question-custom">
+          {custom && ReplyButton && !question.isSecret
+            ? <div className="input-question-composer">
+                {draft?.text && <span className="input-question-answer">{draft.text}</span>}
+                <ReplyButton
+                  threadId={typeof request.params.threadId === 'string' ? request.params.threadId : composerContext?.session.snapshot().threadId}
+                  id={String(request.id) + ':' + question.id}
+                  title={question.question}
+                  label={draft?.text ? 'Edit in composer' : 'Reply in composer'}
+                  disabled={locked}
+                  submit={async (draft) => {
+                    if (!draft.text.trim()) throw new Error('Type an answer in the composer.')
+                    if (draft.images.length || draft.attachments.length || draft.skills.length) {
+                      throw new Error('Send a text answer here; attachments can be sent in a separate message.')
+                    }
+                    const values = { ...answers, [question.id]: { custom: true, text: draft.text } }
+                    setAnswers(values)
+                    await submit(values, true)
+                  }}
+                />
+              </div>
+            : custom && <label className="input-question-custom">
             <span>{question.options.length ? 'Your answer' : 'Answer'}</span>
             <input type={question.isSecret ? 'password' : 'text'} value={draft?.text ?? ''}
               autoComplete="off" spellCheck={!question.isSecret}
@@ -135,11 +160,11 @@ export function UserInputRequest({ request, resolve, heading, submitLabel }: {
       })}
       {!questions.length && <p role="alert">This question could not be displayed.</p>}
       {error && <p className="input-request-error" role="alert">{error}</p>}
-      <div className="input-request-actions">
+      {(!ReplyButton || complete || questions.some((question) => question.options.length > 0)) && <div className="input-request-actions">
         <button type="submit" className={clientStyles.button + ' primary'} disabled={!complete || locked}>
           {submitted ? 'Sent' : submitting ? 'Sending…' : submitLabel ?? (request.params.isBlocking === false ? 'Send answers' : 'Continue')}
         </button>
-      </div>
+      </div>}
     </form>
   )
 }

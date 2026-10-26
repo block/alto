@@ -14,6 +14,8 @@ async function check() {
       import {flushSync} from 'react-dom';
       import plugin from './program/plugins/workspace-layout.client';
       import groupsPlugin from './program/plugins/workspace-tab-groups.client';
+      import hotkeysPlugin from './program/plugins/hotkeys-workspace.client';
+      import {HotkeysService} from './program/plugins/hotkeys.client';
       import {parseWorkspaceLayout} from './program/plugins/workspace-layout-state';
       let saved={version:2,activeViewId:'a',views:['Alto','Incident','Design','Review','Notes'].map((name,i)=>{
         const id=String.fromCharCode(97+i);return {id,name,workspace:'/repo',focusedPaneId:'pane-'+id,root:{type:'pane',id:'pane-'+id,workspace:'/repo',kind:'test'}};
@@ -35,6 +37,12 @@ async function check() {
       const ctx={provide:(_name,value)=>{registry=value},clientUi:ui,clientHost:host,clientSession:session,
         clientSessionRouter:{setActive:()=>{},clearActive:()=>{}},clientSessionFactory:{create:()=>{throw new Error('Unexpected chat creation')}}};
       plugin(ctx);
+      const shortcuts=new Map();
+      const hotkeys=new HotkeysService(ui,{leader:'Alt'});
+      hotkeysPlugin({...ctx,clientWorkspaceLayout:registry,clientHotkeys:{registerAction:(_owner,action)=>{
+        shortcuts.set(action.id,action);return hotkeys.registerAction({effect:fn=>fn()},action);
+      }}});
+      window.shortcut=number=>flushSync(()=>shortcuts.get('workspace.tab.select.'+number).run());
       let groupEffects=[];
       const enableGroups=()=>groupsPlugin({...ctx,clientWorkspaceLayout:registry,effect:fn=>{const cleanup=fn();groupEffects.push(cleanup);return cleanup}});
       window.enableGroups=()=>flushSync(enableGroups);
@@ -54,6 +62,7 @@ async function check() {
       window.click=selector=>flushSync(()=>document.querySelector(selector).click());
       window.renameGroup=text=>flushSync(()=>{const el=document.querySelector('.workspace-tab-group-name input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,text);el.dispatchEvent(new Event('input',{bubbles:true}))});
       window.key=key=>flushSync(()=>document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true})));
+      window.renameTab=text=>flushSync(()=>{const el=document.querySelector('.workspace-tab-name-input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,text);el.dispatchEvent(new Event('input',{bubbles:true}))});
       let dragged,transfer;
       window.dragStart=source=>{flushSync(()=>{dragged=document.querySelector(source);transfer=new DataTransfer();dragged.dispatchEvent(new DragEvent('dragstart',{dataTransfer:transfer,bubbles:true,cancelable:true}))});const c=document.querySelector('.workspace-tab-drag-image');window.dragImageProbe=c?{corner:c.getContext('2d').getImageData(0,0,1,1).data[3],center:c.getContext('2d').getImageData(c.width/2,c.height/2,1,1).data[3],background:getComputedStyle(c).backgroundColor}:undefined};
       const dragEvent=(kind,target,fraction)=>{const to=document.querySelector(target),b=to.getBoundingClientRect();to.dispatchEvent(new DragEvent(kind,{dataTransfer:transfer,bubbles:true,cancelable:true,clientX:b.left+b.width*fraction,clientY:b.top+b.height/2}))};
@@ -62,7 +71,7 @@ async function check() {
       window.dragDrop=(target,fraction=0.5)=>{flushSync(()=>dragEvent('drop',target,fraction));window.dragCancel()};
       window.drop=(source,target,fraction=0.5)=>{window.dragStart(source);window.dragHover(target,fraction);window.dragDrop(target,fraction)};
       window.select=index=>flushSync(()=>registry.selectTab(index));
-      window.teardown=()=>flushSync(()=>root.unmount());
+      window.teardown=()=>{hotkeys.dispose();flushSync(()=>root.unmount())};
       window.boot();
     ` },
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
@@ -104,6 +113,15 @@ async function check() {
     await run(bundle.outputFiles[0].text)
     await settle()
     assert.equal((await run('inspect()')).mounts, 5)
+    await run("document.getElementById('draft-pane-a').focus();key('F2')")
+    assert.deepEqual(await run("({label:document.activeElement.getAttribute('aria-label'),selection:document.activeElement.value.slice(document.activeElement.selectionStart,document.activeElement.selectionEnd)})"), {label:'Rename Alto',selection:'Alto'})
+    await run("renameTab('My workspace');key('F2')")
+    assert.equal(await run('document.activeElement.value'),'My workspace','Pressing F2 again preserves the rename draft')
+    await run("key('Enter')")
+    assert.equal((await run('inspect()')).saved.views[0].name,'My workspace')
+    await run("document.getElementById('draft-pane-a').focus();key('F2');renameTab('Discard this');key('Escape')")
+    assert.equal((await run('inspect()')).saved.views[0].name,'My workspace')
+    await run("document.getElementById('draft-pane-a').focus();key('F2');renameTab('Alto');key('Enter')")
     await run("window.originalDraft=document.getElementById('draft-pane-a');originalDraft.value='Do not lose this draft';context('[data-workspace-tab=a]')")
     assert.equal((await run('inspect()')).overlay, 'workspace-tab-groups')
     await run("clickText('Add to new group');renameGroup('Release');key('Enter')")
@@ -122,9 +140,27 @@ async function check() {
     assert.equal((await run('inspect()')).activePanel, 'draft-pane-a')
     assert.equal(await run("originalDraft===document.getElementById('draft-pane-a') && originalDraft.value==='Do not lose this draft'"), true)
     assert.equal((await run('inspect()')).mounts, 5)
+    await run('shortcut(3)')
+    assert.equal((await run('inspect()')).activePanel, 'draft-pane-d', 'A collapsed group occupies one numbered slot')
+    assert.equal((await run('inspect()')).groups[0].expanded, 'false')
+    assert.deepEqual(await run("[...document.querySelectorAll('.workspace-tabs [data-hotkey-action^=\"workspace.tab.select.\"]')].map(el=>[el.dataset.workspaceGroup?'group':el.dataset.workspaceTab,el.dataset.hotkeyAction])"), [
+      ['group', 'workspace.tab.select.1'], ['b', 'workspace.tab.select.2'],
+      ['d', 'workspace.tab.select.3'], ['e', 'workspace.tab.select.4'],
+    ])
+    await run('shortcut(2)')
+    assert.equal((await run('inspect()')).activePanel, 'draft-pane-b')
+    await run('shortcut(1)')
+    assert.equal((await run('inspect()')).activePanel, 'draft-pane-a')
+    assert.equal((await run('inspect()')).groups[0].expanded, 'true')
     await run('select(1)')
     assert.equal((await run('inspect()')).groups[0].expanded, 'true')
     assert.equal((await run('inspect()')).activePanel, 'draft-pane-c')
+    await run('shortcut(1)')
+    assert.equal((await run('inspect()')).activePanel, 'draft-pane-c', 'The group shortcut keeps its current tab selected')
+    await run('shortcut(3)')
+    assert.equal((await run('inspect()')).activePanel, 'draft-pane-d', 'Expanded groups keep the same numbered slot')
+    await run('select(1);shortcut(9)')
+    assert.equal((await run('inspect()')).activePanel, 'draft-pane-c', 'The ordinary tab selector still reaches individual group members')
     await run("drop('[data-workspace-tab=b]','[data-workspace-group]')")
     assert.equal((await run('inspect()')).saved.views.find(view => view.id === 'b').groupId, groupId)
     assert.equal((await run('inspect()')).mounts, 5)
@@ -180,6 +216,17 @@ async function check() {
         }
         await run("key('Escape')")
         assert.equal((await run('inspect()')).overlay, undefined)
+        await run("select(0);click('[data-workspace-group]')")
+        await finishMotion()
+        assert.equal((await run('inspect()')).groups[0].expanded,'false')
+        await run("document.getElementById('draft-pane-a').focus();key('F2')")
+        await finishMotion()
+        assert.equal((await run('inspect()')).groups[0].expanded,'true')
+        assert.equal(await run('document.activeElement.className'),'workspace-tab-name-input')
+        const renameBounds=await run("(()=>{const r=document.activeElement.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,height:document.querySelector('.workspace-tabbar').getBoundingClientRect().height}})()")
+        assert.ok(renameBounds.width>0 && renameBounds.left>=0 && renameBounds.right<=width,JSON.stringify(renameBounds))
+        assert.equal(renameBounds.height,52)
+        await run("key('Escape')")
         await finishMotion()
         const expanded=await motionMetrics()
         assert.ok(expanded.widths.every(width=>width>0))

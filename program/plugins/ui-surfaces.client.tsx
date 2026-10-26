@@ -1,4 +1,5 @@
 import { RemoteSessionStartup } from './ui/remote-startup.js'
+import { QuestionComposerContext } from './ui/question-composer.js'
 import { threadIntervention } from './ui/turn-intervention.js'
 import {
   ArrowDown,
@@ -503,30 +504,26 @@ function CodeBlockDispatcher({
   return <pre><code className={className}>{props.code}</code></pre>
 }
 
-export function conversationWindowActive(
+export function conversationWindowVisible(
   visibilityState: DocumentVisibilityState,
-  focused: boolean,
 ): boolean {
-  return visibilityState === 'visible' && focused
+  return visibilityState === 'visible'
 }
 
-function conversationWindowActiveSnapshot(): boolean {
+function conversationWindowVisibleSnapshot(): boolean {
   if (typeof document === 'undefined') return true
-  return conversationWindowActive(document.visibilityState, document.hasFocus())
+  // Native browser and terminal panes can take focus while chats stay onscreen.
+  return conversationWindowVisible(document.visibilityState)
 }
 
-function conversationWindowActiveServerSnapshot(): boolean {
+function conversationWindowVisibleServerSnapshot(): boolean {
   return true
 }
 
-function subscribeConversationWindowActivity(listener: () => void): () => void {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return () => undefined
-  window.addEventListener('focus', listener)
-  window.addEventListener('blur', listener)
+function subscribeConversationWindowVisibility(listener: () => void): () => void {
+  if (typeof document === 'undefined') return () => undefined
   document.addEventListener('visibilitychange', listener)
   return () => {
-    window.removeEventListener('focus', listener)
-    window.removeEventListener('blur', listener)
     document.removeEventListener('visibilitychange', listener)
   }
 }
@@ -545,12 +542,12 @@ export function ConversationSurface({
   showUnscopedRequests?: boolean
   visible?: boolean
 }): ReactNode {
-  const windowActive = useSyncExternalStore(
-    subscribeConversationWindowActivity,
-    conversationWindowActiveSnapshot,
-    conversationWindowActiveServerSnapshot,
+  const windowVisible = useSyncExternalStore(
+    subscribeConversationWindowVisibility,
+    conversationWindowVisibleSnapshot,
+    conversationWindowVisibleServerSnapshot,
   )
-  const activityVisible = visible && windowActive
+  const activityVisible = visible && windowVisible
   const state = useVisibleSession(session, activityVisible)
   const markdownState = useSyncExternalStore(markdown.subscribe, markdown.snapshot)
   useSyncExternalStore(ui.subscribe, ui.snapshot)
@@ -621,7 +618,7 @@ export function ConversationSurface({
   }
 
   return (
-    <div className={`conversation-stage shell-conversation${windowActive ? '' : ' is-window-inactive'}`}>
+    <div className={`conversation-stage shell-conversation${windowVisible ? '' : ' is-window-hidden'}`}>
       <div
         className="conversation-feed"
         ref={feedRef}
@@ -681,10 +678,14 @@ const uiSurfacesClient: BrowserPlugin = (ctx) => {
   const session = ctx.clientSession
   const ui = ctx.clientUi
   const markdown = ctx.clientMarkdown
+  // These renderers remain mounted while a replacement fiber activates.
+  // Read services now; their old Cordis context is inactive during that gap.
+  const host = ctx.clientHost
+  const program = ctx.clientProgram
 
   const overlays = ui.overlays
   const togglePlugin = (id: string, enabled: boolean): Promise<unknown> => (
-    ctx.clientHost.command('program.plugin.setEnabled', { id, enabled })
+    host.command('program.plugin.setEnabled', { id, enabled })
   )
   ctx.effect(() => {
     const shortcut = (event: globalThis.KeyboardEvent): void => {
@@ -709,10 +710,10 @@ const uiSurfacesClient: BrowserPlugin = (ctx) => {
     <SettingsSurface
       {...props}
       session={session}
-      host={ctx.clientHost}
+      host={host}
       overlays={overlays}
       togglePlugin={togglePlugin}
-      program={ctx.clientProgram}
+      program={program}
       ui={ui}
     />
   )
@@ -720,21 +721,25 @@ const uiSurfacesClient: BrowserPlugin = (ctx) => {
     <PluginsSurface
       {...props}
       session={session}
-      host={ctx.clientHost}
+      host={host}
       overlays={overlays}
       togglePlugin={togglePlugin}
-      program={ctx.clientProgram}
+      program={program}
       ui={ui}
     />
   )
   const Conversation = (props: ClientSurfaceProps) => (
-    <ConversationSurface {...props} session={session} markdown={markdown} ui={ui} />
+    <QuestionComposerContext.Provider value={{ ui, session }}>
+      <ConversationSurface {...props} session={session} markdown={markdown} ui={ui} />
+    </QuestionComposerContext.Provider>
   )
   const ConversationComponent = (props: ConversationComponentProps) => (
-    <ConversationSurface {...props} markdown={markdown} ui={ui} />
+    <QuestionComposerContext.Provider value={{ ui, session: props.session }}>
+      <ConversationSurface {...props} markdown={markdown} ui={ui} />
+    </QuestionComposerContext.Provider>
   )
   const ContributionRenderer = (props: ClientContributionProps) => (
-    <Contribution {...props} command={ctx.clientHost.command} />
+    <Contribution {...props} command={host.command} />
   )
 
   ui.registerStyle(ctx, 'default-interface', String(defaultStyles))

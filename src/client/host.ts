@@ -67,8 +67,13 @@ function updateHarnessSnapshot(
       return current ? { ...current, projects: event.payload } : current
     case 'ui.updated':
       return current ? { ...current, ui: event.payload } : current
-    case 'extensions.updated':
-      return current ? { ...current, extensions: event.payload } : current
+    case 'extensions.updated': {
+      if (!current) return current
+      if (!event.partial) return { ...current, extensions: event.payload }
+      const extensions = { ...current.extensions, ...event.payload }
+      for (const name of event.removed ?? []) delete extensions[name]
+      return { ...current, extensions }
+    }
     case 'codex.serverRequest':
       return current ? {
         ...current,

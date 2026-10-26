@@ -1,6 +1,5 @@
 import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
-import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import type {
   RpcId,
@@ -121,9 +120,27 @@ export class AppServerClient extends EventEmitter {
   }
 
   private attachProcess(child: AppServerProcess): void {
-    const lines = createInterface({ input: child.stdout })
-    lines.on('line', (line) => {
-      if (this.process === child) this.handleLine(line)
+    // JSON-RPC frames end at LF. readline also splits on U+2028/U+2029,
+    // which are valid, unescaped characters inside JSON strings.
+    let buffered = ''
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      if (this.process !== child) return
+      let start = 0
+      let newline: number
+      while ((newline = chunk.indexOf('\n', start)) !== -1) {
+        if (this.process !== child) return
+        this.handleLine(buffered + chunk.slice(start, newline))
+        buffered = ''
+        start = newline + 1
+      }
+      buffered += chunk.slice(start)
+    })
+    child.stdout.once('end', () => {
+      // Preserve a complete final response even if the process omits its LF.
+      // An incomplete response is diagnosed here; process exit rejects it.
+      if (this.process === child && buffered) this.handleLine(buffered)
+      buffered = ''
     })
 
     child.stderr.on('data', (chunk: Buffer | string) => {
@@ -154,7 +171,9 @@ export class AppServerClient extends EventEmitter {
     try {
       message = JSON.parse(line)
     } catch {
-      this.emit('stderr', `Invalid app-server JSON: ${line}`)
+      const preview = line.slice(0, 4096)
+      const omitted = line.length > preview.length ? `… [${line.length} characters total]` : ''
+      this.emit('stderr', `Invalid app-server JSON: ${preview}${omitted}`)
       return
     }
 

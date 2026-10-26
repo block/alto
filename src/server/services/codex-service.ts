@@ -5,6 +5,7 @@ import type { Context, Plugin } from 'cordis'
 import type {
   CodexSessionDefaults,
   LocalProject,
+  JsonValue,
   ModelOption,
   PendingServerRequest,
   PermissionMode,
@@ -122,6 +123,13 @@ export interface CodexSnapshot {
   threadStates: Record<string, ThreadRuntimeState>
   threadSettings: Record<string, ThreadSessionSettings>
   defaults?: CodexSessionDefaults
+}
+
+export interface CodexModelRoute {
+  model: ModelOption
+  modelProvider: string
+  /** Supported native App Server configuration overrides for this provider. */
+  config: Record<string, JsonValue>
 }
 
 export interface CodexServiceOptions extends AppServerClientOptions {
@@ -346,6 +354,7 @@ export function codexSessionDefaults(
 
   return {
     permissionMode,
+    ...(typeof config.model_provider === 'string' ? { modelProvider: config.model_provider } : {}),
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {}),
   }
@@ -410,7 +419,9 @@ export class CodexService extends EventEmitter {
   private readonly threadStates = new Map<string, ThreadRuntimeState>()
   private readonly threadSettings = new Map<string, ThreadSessionSettings>()
   private readonly ephemeralThreadIds = new Set<string>()
+  private readonly modelRoutes = new Map<string, CodexModelRoute>()
   private projectSync: Promise<void> | undefined
+  private defaultModelProvider = 'openai'
   private state: CodexSnapshot = {
     status: 'stopped',
     models: [],
@@ -431,6 +442,52 @@ export class CodexService extends EventEmitter {
       ...(options.createProcess ? { createProcess: options.createProcess } : {}),
     })
     this.attachClient()
+  }
+
+  /** Add one configured model/provider without replacing the native catalog or defaults. */
+  registerModelRoute(value: CodexModelRoute): () => void {
+    if (!value.model.id || !value.modelProvider || !isRecord(value.config)) {
+      throw new Error('A configured model, model provider, and native configuration are required')
+    }
+    if (this.modelRoutes.has(value.modelProvider)
+      || [...this.modelRoutes.values()].some((route) => route.model.id === value.model.id)
+      || this.state.models.some((model) => model.id === value.model.id)) {
+      throw new Error('Configured Codex model and provider must be unique')
+    }
+    const route = structuredClone(value)
+    this.modelRoutes.set(route.modelProvider, route)
+    this.emit('status', this.snapshot())
+    return () => {
+      if (this.modelRoutes.get(route.modelProvider) !== route) return
+      this.modelRoutes.delete(route.modelProvider)
+      this.emit('status', this.snapshot())
+    }
+  }
+
+  private modelRoute(model?: string, modelProvider?: string): CodexModelRoute | undefined {
+    const route = [...this.modelRoutes.values()].find((candidate) => candidate.model.id === model)
+    if (route && modelProvider && route.modelProvider !== modelProvider) {
+      throw new Error('The selected model belongs to a different Codex provider; start a new chat')
+    }
+    const providerRoute = modelProvider ? this.modelRoutes.get(modelProvider) : undefined
+    if (providerRoute && model && this.state.models.some((candidate) => candidate.id === model)) {
+      throw new Error('The selected model belongs to a different Codex provider; start a new chat')
+    }
+    return route ?? providerRoute
+  }
+
+  private routeConfig(route: CodexModelRoute | undefined, resume = false): Record<string, unknown> {
+    if (!route) return {}
+    const config = structuredClone(route.config)
+    if (resume) {
+      // Explicit model overrides make Codex skip the saved model and effort.
+      // Supply only the provider/catalog needed to restore those saved settings.
+      delete config.model
+      delete config.model_provider
+      delete config.model_reasoning_effort
+      return { config }
+    }
+    return { modelProvider: route.modelProvider, config }
   }
 
   private attachClient(): void {
@@ -500,6 +557,8 @@ export class CodexService extends EventEmitter {
       await this.refreshProjects().catch(() => undefined)
       checkRunning()
       const { error: _previousError, ...previous } = this.state
+      this.defaultModelProvider = isRecord(config) && typeof config.model_provider === 'string'
+        ? config.model_provider : 'openai'
       this.state = {
         ...previous,
         status: 'ready',
@@ -775,9 +834,12 @@ export class CodexService extends EventEmitter {
 
   async startThread(options: SessionOptions): Promise<ThreadStartResponse> {
     const permissions = permissionSettings(options.permissionMode, options.workspace)
+    const route = this.modelRoute(options.model, options.modelProvider)
     const response = await this.request<ThreadStartResponse>('thread/start', {
       cwd: options.workspace,
       model: options.model ?? null,
+      ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
+      ...this.routeConfig(route),
       sandbox: permissions.sandbox,
       approvalPolicy: permissions.approvalPolicy,
       approvalsReviewer: permissions.approvalsReviewer,
@@ -789,6 +851,13 @@ export class CodexService extends EventEmitter {
     }
     const summary = readThreadSummary(response.thread)
     this.rememberThreadWorkspace(response.thread.id, summary?.cwd || options.workspace, summary)
+    const settings = threadSessionSettings({
+      cwd: options.workspace, model: options.model,
+      modelProvider: route?.modelProvider ?? options.modelProvider ?? this.defaultModelProvider,
+      approvalPolicy: permissions.approvalPolicy, approvalsReviewer: permissions.approvalsReviewer,
+      sandbox: permissions.sandboxPolicy, ...response,
+    }, summary)
+    if (settings) this.threadSettings.set(response.thread.id, settings)
     return response
   }
 
@@ -798,6 +867,7 @@ export class CodexService extends EventEmitter {
     const started = await this.request<ThreadStartResponse>('thread/start', {
       cwd: request.workspace,
       model: request.model,
+      ...this.routeConfig(this.modelRoute(request.model)),
       sandbox: 'read-only',
       approvalPolicy: 'never',
       approvalsReviewer: 'user',
@@ -967,24 +1037,26 @@ export class CodexService extends EventEmitter {
     // thread/resume is optimized for turn state and can omit immutable thread
     // metadata such as gitInfo. Read that one thread directly when our cache is
     // incomplete instead of inferring its branch from the current checkout.
-    const metadataPromise = known?.gitInfo
+    const metadataPromise = known?.gitInfo && known.modelProvider
       ? Promise.resolve(known)
       : this.request<ThreadReadResponse>('thread/read', {
           threadId,
           includeTurns: false,
         }).then(({ thread }) => readThreadSummary(thread)).catch(() => known)
-    const [response, metadata] = await Promise.all([
-      this.request<ThreadResumeResponse>('thread/resume', {
-        threadId,
-        excludeTurns: true,
-        initialTurnsPage: {
-          limit: INITIAL_THREAD_TURN_LIMIT,
-          sortDirection: 'desc',
-          itemsView: 'full',
-        },
-      }),
-      metadataPromise,
-    ])
+    // Provider configuration belongs to the saved thread, never the current
+    // browser draft. Resolve it before resume so custom catalogs survive restart.
+    const metadata = await metadataPromise
+    const route = metadata?.modelProvider ? this.modelRoutes.get(metadata.modelProvider) : undefined
+    const response = await this.request<ThreadResumeResponse>('thread/resume', {
+      threadId,
+      ...this.routeConfig(route, true),
+      excludeTurns: true,
+      initialTurnsPage: {
+        limit: INITIAL_THREAD_TURN_LIMIT,
+        sortDirection: 'desc',
+        itemsView: 'full',
+      },
+    })
     const thread = response.thread
     const page = isRecord(response.initialTurnsPage) && Array.isArray(response.initialTurnsPage.data)
       ? response.initialTurnsPage.data
@@ -1056,6 +1128,13 @@ export class CodexService extends EventEmitter {
     // Capture this before crossing the App Server boundary. The caller may
     // update its composer settings while turn/start is still in flight.
     const permissionMode = options.permissionMode
+    const provider = this.threadSettings.get(threadId)?.modelProvider
+      ?? this.threadSummaries.get(threadId)?.modelProvider
+    const route = this.modelRoute(options.model, options.modelProvider)
+    if (provider && (route?.modelProvider ?? options.modelProvider
+      ?? (options.model ? this.defaultModelProvider : provider)) !== provider) {
+      throw new Error('This chat uses a different Codex model provider; start a new chat to switch providers')
+    }
     const draft: TurnDraft = {
       threadId,
       input,
@@ -1064,6 +1143,13 @@ export class CodexService extends EventEmitter {
       ...(options.effort ? { effort: options.effort } : {}),
     }
     const prepared = await this.ctx.turnProgram.prepare(draft)
+    if (prepared.model !== options.model) {
+      const preparedProvider = this.modelRoute(prepared.model)?.modelProvider
+        ?? (prepared.model ? this.defaultModelProvider : provider)
+      if (provider && preparedProvider !== provider) {
+        throw new Error('A turn plugin selected a different Codex model provider; start a new chat')
+      }
+    }
     this.rememberThreadWorkspace(threadId, prepared.cwd ?? options.workspace)
     // A trusted turn plugin may retarget the working directory (for example,
     // to another local worktree). Keep the sandbox rooted at the directory
@@ -1223,7 +1309,12 @@ export class CodexService extends EventEmitter {
       ...(version ? { version } : {}),
       ...(error ? { error } : {}),
       ...(defaults ? { defaults: structuredClone(defaults) } : {}),
-      models: this.state.models.map((model) => structuredClone(model)),
+      models: [
+        ...this.state.models.map((model) => structuredClone(model)),
+        ...[...this.modelRoutes.values()].map((route) => ({
+          ...structuredClone(route.model), modelProvider: route.modelProvider, isDefault: false,
+        })),
+      ],
       activeThreadIds: [...this.threadStates]
         .filter(([, state]) => state.status.type === 'active')
         .map(([threadId]) => threadId),

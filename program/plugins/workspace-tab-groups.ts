@@ -85,6 +85,18 @@ export function ungroupTabs(layout: WorkspaceLayoutState, id: string): Workspace
   return normalizeTabGroups({ ...layout, views: layout.views.map((view) => view.groupId === id ? withGroup(view, undefined) : view) })
 }
 
+export function tabGroupShortcutTargets(layout: WorkspaceLayoutState): WorkspaceView[] {
+  const groups = new Set(layout.groups?.map((group) => group.id))
+  const seen = new Set<string>()
+  const active = layout.views.find((view) => view.id === layout.activeViewId)
+  return layout.views.flatMap((view) => {
+    if (!view.groupId || !groups.has(view.groupId)) return [view]
+    if (seen.has(view.groupId)) return []
+    seen.add(view.groupId)
+    return [active?.groupId === view.groupId ? active : view]
+  })
+}
+
 export function activateWorkspaceTab(layout: WorkspaceLayoutState, id: string): WorkspaceLayoutState {
   const view = layout.views.find((candidate) => candidate.id === id)
   if (!view) return layout

@@ -16,6 +16,10 @@ export interface WorkspaceOpenPaneRequest {
   direction: WorkspacePaneDirection
   kind: string
   thread?: ThreadSummary
+  /** Focus an existing pane for this thread instead of opening a duplicate. */
+  reuseThread?: boolean
+  /** Open a full-size tab instead of splitting the anchor pane. */
+  newTab?: boolean
   workspace?: string
   projectId?: string
   /** Opaque, persisted resource identifier interpreted by the pane-kind plugin. */

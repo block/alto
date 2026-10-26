@@ -19,7 +19,6 @@ html[data-alto-theme='dark'] [data-group-color] {
   --workspace-tab-group-inset: var(--space-1);
   --workspace-tab-group-radius: calc(var(--radius-sm) + var(--workspace-tab-group-inset));
   gap: var(--workspace-tab-group-gap);
-  padding-top: var(--space-1);
 }
 
 /* Leave room between the frame and tab fills while bridging the tab gaps. */

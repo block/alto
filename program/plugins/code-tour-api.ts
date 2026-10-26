@@ -1,6 +1,8 @@
 import { isRecord, type JsonValue } from '../../src/shared/protocol.js'
 
 export const CODE_TOUR_GENERATE_METHOD = 'code-tour.generate'
+export const CODE_TOUR_START_METHOD = 'code-tour.start'
+export const CODE_TOUR_RESULT_METHOD = 'code-tour.result'
 export const CODE_TOUR_PANE_KIND = 'code-tour'
 
 export interface GeneratedCodeTourStop {

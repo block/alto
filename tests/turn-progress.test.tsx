@@ -10,11 +10,13 @@ import type {
   ClientSessionSnapshot,
 } from '../program/plugins/session-api.js'
 import type { FileReviewActionProps } from '../program/plugins/chat-surfaces-api.js'
+import { fileChanges } from '../program/plugins/ui/activity-model.js'
 import {
   numberDigits,
   TurnProgressService,
   TurnProgressView,
 } from '../program/plugins/turn-progress.client.js'
+import { lineChanges } from '../program/plugins/ui/file-change-stats.js'
 
 function sessionSnapshot(threadId = 'thread-a'): ClientSessionSnapshot {
   return {
@@ -65,6 +67,64 @@ describe('turn progress', () => {
 
     expect(html).not.toContain('class="turn-progress-details"')
     expect(html).toContain('class="turn-progress-file-details"')
+  })
+
+  it('counts changed lines beginning with diff header markers in the pill and transcript', () => {
+    const diff = [
+      '--- a/example.ts',
+      '+++ b/example.ts',
+      '@@ -1,2 +1,2 @@',
+      '---count',
+      '--- deleted marker',
+      '+++count',
+      '+++ added marker',
+    ].join('\n')
+    const host = {
+      journal: () => [{
+        type: 'codex.notification',
+        payload: {
+          method: 'item/fileChange/patchUpdated',
+          params: {
+            threadId: 'thread-a',
+            turnId: 'turn-a',
+            itemId: 'file-a',
+            changes: [{ path: '/tmp/project/example.ts', kind: { type: 'update' }, diff }],
+          },
+        },
+      }],
+      onEvent: () => () => undefined,
+    } as unknown as ClientHostService
+    const session = {
+      snapshot: () => sessionSnapshot(),
+      subscribe: () => () => undefined,
+    } as unknown as ClientSessionService
+    const service = new TurnProgressService(host, session)
+
+    try {
+      expect(service.snapshot()).toMatchObject({
+        visible: true,
+        filesChanged: 1,
+        additions: 2,
+        deletions: 2,
+      })
+      expect(service.snapshot().files).toEqual([{
+        path: '/tmp/project/example.ts',
+        kind: 'update',
+        diff,
+        additions: 2,
+        deletions: 2,
+      }])
+      expect(fileChanges({
+        changes: [{ path: '/tmp/project/example.ts', kind: { type: 'update' }, diff }],
+      })).toEqual(service.snapshot().files)
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('counts whole-file additions and deletions through the shared helper', () => {
+    expect(lineChanges('first\nsecond\n', 'add')).toEqual({ additions: 2, deletions: 0 })
+    expect(lineChanges('removed\nolder', 'delete')).toEqual({ additions: 0, deletions: 2 })
   })
 
   it('projects live plan and file-change notifications for the active chat', () => {

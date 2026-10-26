@@ -4,7 +4,7 @@ import {
   conversationScrollPlan,
   conversationShouldReleaseFollow,
   conversationShouldScrollUpdate,
-  conversationWindowActive,
+  conversationWindowVisible,
 } from '../program/plugins/ui-surfaces.client.js'
 import {
   CONVERSATION_FOLLOW_LATEST_EVENT,
@@ -99,10 +99,9 @@ describe('conversation streaming follow', () => {
   })
 })
 
-describe('conversation window activity', () => {
-  it('runs conversation updates only while Alto is visible and focused', () => {
-    expect(conversationWindowActive('visible', true)).toBe(true)
-    expect(conversationWindowActive('visible', false)).toBe(false)
-    expect(conversationWindowActive('hidden', true)).toBe(false)
+describe('conversation window visibility', () => {
+  it('runs conversation updates while Alto is visible', () => {
+    expect(conversationWindowVisible('visible')).toBe(true)
+    expect(conversationWindowVisible('hidden')).toBe(false)
   })
 })

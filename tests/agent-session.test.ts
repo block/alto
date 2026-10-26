@@ -37,6 +37,81 @@ function fixture() {
   return { session, native, call, extensions, update: () => listeners.forEach((listener) => listener()) }
 }
 
+describe('local ACP draft selections', () => {
+  function localDraft() {
+    const f = fixture()
+    const config: AgentConfigOption[] = [
+      { id: 'model', name: 'Model', category: 'model', currentValue: 'cached', options: [
+        { value: 'default', name: 'Agent default' }, { value: 'cached', name: 'Cached model' },
+        { value: 'chosen', name: 'Chosen model' }, { value: 'cli-default', name: 'CLI default model' },
+      ] },
+      { id: 'effort', name: 'Reasoning', category: 'thought_level', currentValue: 'xhigh',
+        options: ['low', 'medium', 'xhigh'].map(value => ({ value, name: value })) },
+    ]
+    const created = { ...structuredClone(chat), configOptions: structuredClone(config) }
+    created.configOptions[0]!.currentValue = 'cli-default'
+    created.configOptions[1]!.currentValue = 'low'
+    f.extensions['agent-chats'] = { providers: [{ id: 'pi', label: 'Pi', capabilities: {},
+      configOptions: config as unknown as JsonValue }], threads: [] }
+    f.call.mockImplementation(async (method, payload) => {
+      if (method === 'agent-chats.configure') {
+        const { configId, value } = payload as { configId: string; value: string }
+        created.configOptions.find(option => option.id === configId)!.currentValue = value
+        return { configOptions: structuredClone(created.configOptions) } as unknown as JsonValue
+      }
+      return structuredClone(created) as unknown as JsonValue
+    })
+    f.update()
+    f.session.setProvider('pi')
+    return { ...f, created }
+  }
+
+  it('applies untouched displayed model and reasoning before the first prompt', async () => {
+    const f = localDraft()
+    try {
+      expect(f.session.snapshot().session).toMatchObject({ model: 'cached', effort: 'xhigh' })
+      expect(f.call).not.toHaveBeenCalled()
+      await f.session.send(draft)
+      expect(f.call.mock.calls.map(([method]) => method)).toEqual([
+        'agent-chats.create', 'agent-chats.configure', 'agent-chats.configure', 'agent-chats.send',
+      ])
+      expect(f.call.mock.calls[1]).toEqual(['agent-chats.configure', { id, configId: 'model', value: 'cached' }])
+      expect(f.call.mock.calls[2]).toEqual(['agent-chats.configure', { id, configId: 'effort', value: 'xhigh' }])
+    } finally { f.session.dispose() }
+  })
+
+  it('applies explicit choices instead of the cached displayed values', async () => {
+    const f = localDraft()
+    try {
+      f.session.setModel('chosen')
+      f.session.setEffort('medium')
+      await f.session.send(draft)
+      expect(f.call.mock.calls[1]).toEqual(['agent-chats.configure', { id, configId: 'model', value: 'chosen' }])
+      expect(f.call.mock.calls[2]).toEqual(['agent-chats.configure', { id, configId: 'effort', value: 'medium' }])
+      expect(f.session.snapshot().session).toMatchObject({ model: 'chosen', effort: 'medium' })
+    } finally { f.session.dispose() }
+  })
+
+  it('leaves CLI model and reasoning unchanged when Agent default is chosen', async () => {
+    const f = localDraft()
+    try {
+      f.session.setModel('default')
+      await f.session.send(draft)
+      expect(f.call.mock.calls.map(([method]) => method)).toEqual(['agent-chats.create', 'agent-chats.send'])
+      expect(f.session.snapshot().session).toMatchObject({ model: 'cli-default', effort: 'low' })
+    } finally { f.session.dispose() }
+  })
+
+  it('does not silently send with a CLI default when the displayed model is unavailable', async () => {
+    const f = localDraft()
+    f.created.configOptions[0]!.options = [{ value: 'cli-default', name: 'CLI default model' }]
+    try {
+      await expect(f.session.send(draft)).rejects.toThrow('Model "Cached model" is unavailable')
+      expect(f.call.mock.calls.map(([method]) => method)).toEqual(['agent-chats.create'])
+    } finally { f.session.dispose() }
+  })
+})
+
 describe('provider-aware browser sessions', () => {
   it('offers local workspace skills to ACP chats and forwards the selected skill', async () => {
     const f = fixture()

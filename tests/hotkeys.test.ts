@@ -582,12 +582,14 @@ describe('hotkeys plugin', () => {
       available: () => true,
       canCloseActiveTab: () => false,
       closeActiveTab: vi.fn(),
+      renameActiveTab: vi.fn(),
       canRestoreClosedTab,
       restoreClosedTab: vi.fn(),
       canCloseFocusedPane,
       closeFocusedPane: vi.fn(),
       cycleTabs: vi.fn(),
       selectTab: vi.fn(),
+      selectTabShortcut: vi.fn(),
       moveActiveTab: vi.fn(),
       newTab: vi.fn(),
       splitFocused: vi.fn(),
@@ -608,6 +610,7 @@ describe('hotkeys plugin', () => {
     expect([...actions.keys()]).toEqual([
       'workspace.tab.new',
       'workspace.tab.close',
+      'workspace.tab.rename',
       'workspace.tab.restore',
       'workspace.pane.split-right',
       'workspace.pane.split-down',
@@ -641,6 +644,7 @@ describe('hotkeys plugin', () => {
       },
     })
     expect(actions.get('workspace.tab.close')?.enabled?.()).toBe(false)
+    expect(actions.get('workspace.tab.rename')?.binding).toEqual({ kind: 'global', key: 'F2' })
     expect(actions.get('workspace.tab.restore')).toMatchObject({
       binding: { kind: 'global', key: 't', meta: true, shift: true },
     })
@@ -689,6 +693,7 @@ describe('hotkeys plugin', () => {
 
     actions.get('workspace.tab.new')?.run()
     actions.get('workspace.tab.close')?.run()
+    actions.get('workspace.tab.rename')?.run()
     actions.get('workspace.tab.restore')?.run()
     actions.get('workspace.pane.split-right')?.run()
     actions.get('workspace.pane.split-down')?.run()
@@ -711,6 +716,7 @@ describe('hotkeys plugin', () => {
     canCloseFocusedPane.mockReturnValue(false)
     actions.get('workspace.close-current')?.run()
     expect(workspace.newTab).toHaveBeenCalledOnce()
+    expect(workspace.renameActiveTab).toHaveBeenCalledOnce()
     expect(workspace.restoreClosedTab).toHaveBeenCalledOnce()
     expect(workspace.closeActiveTab).toHaveBeenCalledTimes(2)
     expect(workspace.closeFocusedPane).toHaveBeenCalledTimes(2)
@@ -720,8 +726,9 @@ describe('hotkeys plugin', () => {
     expect(workspace.splitFocused).toHaveBeenNthCalledWith(2, 'vertical')
     expect(workspace.splitFocused).toHaveBeenNthCalledWith(3, 'horizontal')
     expect(workspace.toggleFocusedPaneFullscreen).toHaveBeenCalledOnce()
-    expect(workspace.selectTab).toHaveBeenNthCalledWith(1, 0)
-    expect(workspace.selectTab).toHaveBeenNthCalledWith(2, 8)
+    expect(workspace.selectTabShortcut).toHaveBeenNthCalledWith(1, 0)
+    expect(workspace.selectTabShortcut).toHaveBeenNthCalledWith(2, 8)
+    expect(workspace.selectTab).not.toHaveBeenCalled()
     expect(workspace.focusAdjacentPane).toHaveBeenNthCalledWith(1, 'left', true)
     expect(workspace.focusAdjacentPane).toHaveBeenNthCalledWith(2, 'down', false)
     expect(workspace.focusAdjacentPane).toHaveBeenNthCalledWith(3, 'up', false)

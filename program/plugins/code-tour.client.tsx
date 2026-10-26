@@ -31,11 +31,8 @@ import {
   type ClientUiService,
 } from '../../src/client/plugin-api.js'
 import type { JsonValue } from '../../src/shared/protocol.js'
-import {
-  CODE_TOUR_GENERATE_METHOD,
-  CODE_TOUR_PANE_KIND,
-  parseCodeTourGenerationResponse,
-} from './code-tour-api.js'
+import { CODE_TOUR_PANE_KIND } from './code-tour-api.js'
+import { requestCodeTourGeneration } from './code-tour-generation.js'
 import {
   codeTourPaths,
   emptyCodeTour,
@@ -81,7 +78,7 @@ import styles from './code-tour.css'
 ensureAltoSharedCodeTheme()
 const BRANCH_CHOICE = '@branch'
 const REVIEW_CHOICE = '@review'
-const TOUR_PROMPT_VERSION = 4
+const TOUR_PROMPT_VERSION = 5
 const EMPTY_REVIEW_ANNOTATIONS: DiffLineAnnotation<ReviewComment>[] = []
 
 type DiffStyle = 'unified' | 'split'
@@ -141,19 +138,19 @@ async function generateTour(
   host: ClientHostService,
   document: DiffReviewDocument,
   generation: CodeTourGenerationSettings,
+  signal: AbortSignal,
 ): Promise<CodeTourDocument> {
   const key = tourCacheKey(document, generation)
   const cached = tourCache.get(key)
   if (cached) return cached
   const pending = pendingTours.get(key)
   if (pending) return pending
-  const request = host.call(CODE_TOUR_GENERATE_METHOD, {
+  const request = requestCodeTourGeneration(host, {
     document: document as unknown as JsonValue,
     paths: codeTourPaths(document),
     model: generation.model,
     effort: generation.effort,
-  }).then((value) => {
-    const generated = parseCodeTourGenerationResponse(value)
+  }, signal).then((generated) => {
     const tour = materializeCodeTour(
       document,
       generated.tour,
@@ -176,12 +173,14 @@ function TourPane({
   markdown,
   sessionRouter,
   ui,
+  generationSignal,
 }: WorkspacePaneKindProps & {
   host: ClientHostService
   layout: ClientWorkspaceLayoutService
   markdown: ClientMarkdownService
   sessionRouter: ClientSessionRouterService
   ui: ClientUiService
+  generationSignal: AbortSignal
 }): ReactNode {
   const markdownState = useSyncExternalStore(markdown.subscribe, markdown.snapshot)
   const [choice, setChoice] = useState(() => initialChoice(pane.resource))
@@ -315,7 +314,7 @@ function TourPane({
           return
         }
         setState({ tag: 'generating' })
-        const tour = await generateTour(host, document, generation)
+        const tour = await generateTour(host, document, generation, generationSignal)
         if (current) setState({ tag: 'ready', document, tour })
       } catch (error) {
         if (current) setState({ tag: 'failed', problem: error instanceof Error ? error.message : String(error) })
@@ -323,7 +322,7 @@ function TourPane({
     }
     void load()
     return () => { current = false }
-  }, [choice, host, pane.resource, pane.thread?.id, pane.workspace, reload, sessionRouter, visible])
+  }, [choice, generationSignal, host, pane.resource, pane.thread?.id, pane.workspace, reload, sessionRouter, visible])
 
   const document = state.tag === 'ready' ? state.document : undefined
   const tour = state.tag === 'ready' ? state.tour : undefined
@@ -549,6 +548,8 @@ function TourPane({
 }
 
 const codeTourClient: BrowserPlugin = (ctx) => {
+  const generationLifetime = new AbortController()
+  ctx.effect(() => () => generationLifetime.abort())
   ctx.clientWorkspaceLayout.registerPaneKind(ctx, {
     id: CODE_TOUR_PANE_KIND,
     label: 'Tour',
@@ -563,6 +564,7 @@ const codeTourClient: BrowserPlugin = (ctx) => {
         markdown={ctx.clientMarkdown}
         sessionRouter={ctx.clientSessionRouter}
         ui={ctx.clientUi}
+        generationSignal={generationLifetime.signal}
       />
     ),
   })

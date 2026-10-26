@@ -1,0 +1,99 @@
+.source-review-comment {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: min(var(--composer-content-width), calc(100% - 2 * var(--space-3)));
+  margin: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border-soft));
+  border-radius: var(--radius-panel);
+  color: var(--text);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 5%, var(--panel-solid)), var(--panel-solid) 72%);
+  font-family: var(--composer-font);
+  font-size: var(--type-body);
+  line-height: var(--line-body);
+  text-align: left;
+  white-space: normal;
+}
+.source-review-comment > p { flex: 1 1 auto; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.source-review-comment-state { display: grid; flex: none; place-items: center; width: var(--control-icon); height: var(--control-icon); border-radius: var(--radius-pill); color: var(--accent); background: var(--accent-soft); }
+.source-review-comment-actions { display: flex; flex: none; align-items: center; gap: var(--space-1); }
+.source-review-comment-actions button { display: grid; place-items: center; width: var(--control-icon); height: var(--control-icon); padding: 0; border: 0; border-radius: var(--radius-pill); color: var(--text-muted); background: transparent; font: inherit; cursor: pointer; }
+.source-review-comment-actions button:hover { color: var(--text); background: var(--surface-hover); }
+.source-review-comment-actions button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+.source-review-comment-actions .source-review-comment-send { color: var(--accent); background: var(--accent-soft); }
+.source-review-comment-remove { opacity: 0; }
+.source-review-comment:hover .source-review-comment-remove,
+.source-review-comment:focus-within .source-review-comment-remove { opacity: 1; }
+@media (hover: none) { .source-review-comment-remove { opacity: 1; } }
+
+.source-review-composer .source-review-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-1);
+  font-family: var(--composer-font);
+  font-size: var(--type-label);
+  line-height: var(--line-control);
+}
+
+.source-review-modes { display: flex; flex: 0 0 auto; gap: var(--space-1); }
+.source-review-modes button,
+.source-review-destination select {
+  height: var(--control-icon);
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.source-review-modes button[aria-pressed="true"] { color: var(--composer-action-ink); background: var(--composer-action-fill); }
+.source-review-modes button:hover:not(:disabled),
+.source-review-destination select:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); }
+.source-review-modes button:focus-visible,
+.source-review-destination select:focus-visible,
+.source-edit-actions button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+.source-review-modes button:disabled,
+.source-review-destination select:disabled { cursor: default; opacity: .6; }
+
+.source-review-destination { position: relative; flex: 0 1 auto; min-width: 0; max-width: 16em; }
+.source-review-destination select { display: block; max-width: 100%; padding-right: var(--space-5); appearance: none; text-overflow: ellipsis; }
+.source-review-destination > svg { position: absolute; top: 50%; right: var(--space-2); transform: translateY(-50%); pointer-events: none; color: var(--text-muted); }
+.source-review-problem { margin: var(--space-2) 0 0; color: var(--danger); font-family: var(--composer-font); font-size: var(--type-label); line-height: var(--line-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.source-edit-annotation {
+  margin: var(--space-2) var(--space-3);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-panel);
+  color: var(--text);
+  background: var(--panel-solid);
+  font-family: var(--composer-font);
+  font-size: var(--type-body);
+  line-height: var(--line-body);
+  text-align: left;
+}
+.source-edit-request { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-3); }
+.source-edit-request > p { flex: 1 1 14em; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.source-edit-actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; font-size: var(--type-label); }
+.source-edit-actions button { height: var(--control-compact); padding: 0 var(--space-3); border: 0; border-radius: var(--radius-pill); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
+.source-edit-reject { color: var(--text-muted); background: transparent; }
+.source-edit-reject:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); }
+.source-edit-accept { color: var(--composer-action-ink, var(--text-strong)); background: var(--composer-action-fill, var(--accent-soft)); }
+.source-edit-accept:hover:not(:disabled) { background: var(--composer-action-hover-fill, var(--accent-border)); }
+.source-edit-actions button:disabled { opacity: .4; cursor: default; }
+.source-edit-status { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-muted); }
+.source-edit-annotation > .source-review-problem { margin: 0; padding: 0 var(--space-3) var(--space-3); }
+.source-edit-unchanged { margin: 0; padding: 0 var(--space-3) var(--space-3); color: var(--text-muted); font-size: var(--type-label); }
+.source-edit-diff { max-height: 40vh; overflow: auto; overscroll-behavior: contain; border-top: 1px solid var(--border-soft); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .source-review-spinner { animation: source-review-spin 1s linear infinite; }
+}
+@keyframes source-review-spin { to { transform: rotate(360deg); } }

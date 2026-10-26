@@ -29,6 +29,7 @@ import {
 } from './chat-surfaces-api.js'
 import type { ClientSessionService } from './session-api.js'
 import { TURN_PROGRESS_ACCESSORY, type TurnProgressAccessory, type TurnProgressAccessoryProps } from './turn-progress-api.js'
+import { lineChanges } from './ui/file-change-stats.js'
 import styles from './turn-progress.css'
 
 export type TurnPlanStepStatus = 'pending' | 'inProgress' | 'completed'
@@ -105,22 +106,6 @@ export function planSteps(value: unknown): readonly TurnPlanStep[] {
     const status = normalizeStepStatus(candidate.status)
     return step && status ? [{ step, status }] : []
   })
-}
-
-function lineChanges(
-  diff: string,
-  kind: ReturnType<typeof fileChangeKind>,
-): { additions: number; deletions: number } {
-  const contentLines = diff ? diff.replace(/\n$/u, '').split('\n').length : 0
-  if (kind === 'add') return { additions: contentLines, deletions: 0 }
-  if (kind === 'delete') return { additions: 0, deletions: contentLines }
-  let additions = 0
-  let deletions = 0
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('+') && !line.startsWith('+++')) additions += 1
-    if (line.startsWith('-') && !line.startsWith('---')) deletions += 1
-  }
-  return { additions, deletions }
 }
 
 function fileChanges(value: unknown): readonly ChatFileChange[] {

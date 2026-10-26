@@ -29,6 +29,16 @@ const hotkeysWorkspace: Plugin = (ctx) => {
   })
 
   ctx.clientHotkeys.registerAction(ctx, {
+    id: 'workspace.tab.rename',
+    label: 'Rename tab',
+    detail: 'Rename the active workspace tab.',
+    category: 'Workspace',
+    binding: { kind: 'global', key: 'F2' },
+    enabled: () => ctx.clientWorkspaceLayout.available(),
+    run: () => ctx.clientWorkspaceLayout.renameActiveTab(),
+  })
+
+  ctx.clientHotkeys.registerAction(ctx, {
     id: 'workspace.tab.restore',
     label: 'Reopen closed pane or tab',
     detail: 'Restore the most recently closed pane or top-level workspace tab.',
@@ -114,11 +124,11 @@ const hotkeysWorkspace: Plugin = (ctx) => {
     ctx.clientHotkeys.registerAction(ctx, {
       id: `workspace.tab.select.${key}`,
       label: `Select workspace tab ${key}`,
-      detail: `Switch to workspace tab ${key} when it exists.`,
+      detail: `Switch to item ${key} in the tab bar when it exists.`,
       category: 'Workspace',
       binding: { kind: 'global', key, meta: true },
       enabled: () => ctx.clientWorkspaceLayout.available(),
-      run: () => ctx.clientWorkspaceLayout.selectTab(index),
+      run: () => ctx.clientWorkspaceLayout.selectTabShortcut(index),
     })
   }
 

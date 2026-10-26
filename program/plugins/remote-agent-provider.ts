@@ -10,6 +10,7 @@ import { childCapabilities } from './acp-extensions.js'
 import { promptBlock } from './acp-format.js'
 import { RemoteAgentProtocol, inputSchema, record, records, string, type RemoteEvent } from './remote-agent-protocol.js'
 import type { RemoteWorkspace } from './remote-workspace-api.js'
+import { remoteLaunchTarget } from './remote-launch-api.js'
 
 type Saved = { version: 1; id: string; providerId: string; process: RemoteAgentProcess; cwd: string; createdAt: string; mode: PermissionMode; config?: AgentConfigOption[] }
 type Attached = { saved: Saved; rpc: RemoteRpc; protocol: RemoteAgentProtocol; replaying: boolean; answering: Set<string> }
@@ -30,6 +31,7 @@ export class RemoteAgentProvider implements AgentProvider {
   snapshot(): AgentProviderSnapshot {
     const capabilities = [...this.sessions.values()][0]?.protocol.capabilities ?? new RemoteAgentProtocol(this.agent.protocol, () => {}).capabilities
     return { id: this.id, label: this.agent.label, agentId: this.agent.id, location: { id: this.backend.id, label: this.backend.label }, protocol: 'remote', status: 'ready', capabilities, remoteLocation: this.backend.label,
+      ...(this.backend.supportsLaunchTarget === true ? { remoteLaunchTargets: true } : {}),
       activeSessionIds: [...this.sessions.keys()],
       configOptions: initialAgentConfig(this.agent.id, [...this.sessions.values()].at(-1)?.protocol.config) }
   }
@@ -127,7 +129,11 @@ export class RemoteAgentProvider implements AgentProvider {
 
   async createSession(options: AgentSessionOptions): Promise<AgentSession> {
     if (this.lifecycle.signal.aborted) throw new Error('Remote provider is unavailable')
-    const process = await this.backend.create(this.agent.id, options.cwd, this.lifecycle.signal)
+    const target = options.remoteTarget === undefined ? undefined : remoteLaunchTarget(options.remoteTarget)
+    if (target && this.backend.supportsLaunchTarget !== true) throw new Error('This remote backend does not support an explicit checkout')
+    const process = target
+      ? await this.backend.create(this.agent.id, options.cwd, this.lifecycle.signal, target)
+      : await this.backend.create(this.agent.id, options.cwd, this.lifecycle.signal)
     const saved: Saved = { version: 1, id: randomUUID(), providerId: this.id, process, cwd: options.cwd, createdAt: now(), mode: options.permissionMode }
     let session: Attached | undefined
     try {
@@ -139,7 +145,8 @@ export class RemoteAgentProvider implements AgentProvider {
         await session.rpc.request('initialize', { protocolVersion: 1, clientInfo: { name: 'Alto', version: '0.1.0' },
           clientCapabilities: { elicitation: { form: {} }, _meta: childCapabilities } })
         await session.rpc.request('session/new', { cwd: process.cwd, mcpServers: [] })
-        await this.applyPermissionMode(session)
+        // Confirm the permission setting even when it matches the agent's default.
+        await this.applyPermissionMode(session, true)
       } else {
         await session.rpc.request('initialize', { clientInfo: { name: 'alto', title: 'Alto', version: '0.1.0' }, capabilities: { experimentalApi: true } })
         await session.rpc.send({ method: 'initialized', params: {} })
@@ -207,17 +214,17 @@ export class RemoteAgentProvider implements AgentProvider {
     return { id: requestId, providerId: this.id, sessionId: id, startedAt: now() }
   }
 
-  private async applyPermissionMode(session: Attached): Promise<void> {
+  private async applyPermissionMode(session: Attached, explicit = false): Promise<void> {
     if (this.agent.protocol !== 'acp') return
     const mode = session.protocol.config.find((option) => option.category === 'mode')
     if (!mode) return
-    const preferred = session.saved.mode === 'full' ? ['bypassPermissions', 'yolo'] : ['default', 'manual']
+    const preferred = session.saved.mode === 'full' ? ['bypassPermissions', 'yolo', 'auto'] : ['default', 'manual', 'approve']
     const value = preferred.find((value) => mode.options.some((option) => option.value === value))
     if (!value) {
-      if (session.saved.mode === 'ask' && ['bypassPermissions', 'yolo'].includes(mode.currentValue)) throw new Error('This agent does not offer a permission mode compatible with Ask')
+      if (session.saved.mode === 'ask' && ['bypassPermissions', 'yolo', 'auto', 'smart_approve'].includes(mode.currentValue)) throw new Error('This agent does not offer a permission mode compatible with Ask')
       return
     }
-    if (mode.currentValue !== value) await session.rpc.request('session/set_mode', { sessionId: session.protocol.nativeId, modeId: value })
+    if (explicit || mode.currentValue !== value) await session.rpc.request('session/set_mode', { sessionId: session.protocol.nativeId, modeId: value })
     mode.currentValue = value
   }
 

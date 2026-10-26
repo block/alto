@@ -7,6 +7,7 @@ import { taskActive, tasksForChat } from '../program/plugins/orchestrator-api.js
 import { AgentTaskRow } from '../program/plugins/orchestrator.client.js'
 import { AgentHistoryMessage, mergeAgentHistory } from '../program/plugins/orchestrator-history.client.js'
 import type { ClientMarkdownService } from '../program/plugins/markdown-api.js'
+import type { ThreadMessage } from '../src/shared/protocol.js'
 
 const child = { id: 'child', name: 'Review the change', parentThreadId: 'parent', cwd: '/repo', createdAt: 1, updatedAt: 2, status: { type: 'notLoaded' } }
 const turn = { id: 'turn', status: 'completed', startedAt: 1, completedAt: 2, items: [
@@ -285,6 +286,14 @@ describe('native agent monitor', () => {
   })
 })
 describe('history cache and rendering', () => {
+  function renderMessage(message: ThreadMessage): string {
+    const state = { revision: 1, codeBlocks: [], fileLinks: [] }
+    const markdown = { snapshot: () => state, subscribe: () => () => {} } as unknown as ClientMarkdownService
+    return renderToStaticMarkup(createElement(AgentHistoryMessage, { message, markdown }))
+  }
+  function traceSummaries(html: string): string[] {
+    return [...html.matchAll(/<summary[^>]*>(.*?)<\/summary>/g)].map((match) => match[1]!.replace(/<[^>]*>/g, ''))
+  }
   it('deduplicates reads, expires and invalidates on updates', async () => {
     let now = 0
     const cache = new AgentHistoryCache(() => now)
@@ -316,6 +325,45 @@ describe('history cache and rendering', () => {
     const reply = { id: 'child:turn:reply', role: 'agent' as const, text: 'Done' }
     expect(mergeAgentHistory([pending], [reply])).toEqual([reply])
   })
+  it('collapses consecutive traces together while retaining each trace in order', () => {
+    const html = renderMessage({ id: 'reply', role: 'agent', text: 'Done', tracesBefore: [
+      { id: 'thought', kind: 'reasoning', title: 'Thinking', text: 'Inspect the repository first' },
+      { id: 'read', kind: 'tool', title: 'Read files', text: 'Repository contents' },
+      { id: 'command', kind: 'command', title: 'Ran a command', text: 'Command output' },
+    ] })
+    expect(traceSummaries(html)).toEqual(['2 tool calls · 1 thinking step', 'Thinking', 'Read files', 'Ran a command'])
+    expect(html.match(/<details(?:\s|>)/g)).toHaveLength(4)
+    expect(html).not.toMatch(/<details[^>]*\bopen(?:[ =>])/)
+    expect(html).toContain('<summary>Thinking</summary><p>Inspect the repository first</p>')
+    expect(html).toContain('<summary>Read files</summary><pre>Repository contents</pre>')
+    expect(html).toContain('<summary>Ran a command</summary><pre>Command output</pre>')
+    expect(html.indexOf('Inspect the repository first')).toBeLessThan(html.indexOf('Repository contents'))
+    expect(html.indexOf('Repository contents')).toBeLessThan(html.indexOf('Command output'))
+    expect(html.indexOf('Command output')).toBeLessThan(html.indexOf('Done'))
+  })
+  it('keeps trace groups on either side of commentary separate', () => {
+    const html = renderMessage({ id: 'commentary', role: 'agent', text: 'Checking the result', tracesBefore: [
+      { id: 'thought-before', kind: 'reasoning', title: 'Thinking', text: 'Choose a command' },
+      { id: 'command-before', kind: 'command', title: 'Ran a command', text: 'First result' },
+    ], tracesAfter: [
+      { id: 'thought-after', kind: 'reasoning', title: 'Thinking', text: 'Interpret the result' },
+      { id: 'thought-next', kind: 'reasoning', title: 'Thinking', text: 'Choose the next step' },
+      { id: 'status', kind: 'status', title: 'Completed', text: 'Turn complete' },
+    ] })
+    expect(traceSummaries(html)).toEqual(['1 tool call · 1 thinking step', 'Thinking', 'Ran a command', '2 thinking steps · 1 update', 'Thinking', 'Thinking', 'Completed'])
+    expect(html.match(/<details(?:\s|>)/g)).toHaveLength(7)
+    expect(html.indexOf('First result')).toBeLessThan(html.indexOf('Checking the result'))
+    expect(html.indexOf('Checking the result')).toBeLessThan(html.indexOf('2 thinking steps · 1 update'))
+    expect(html.indexOf('Interpret the result')).toBeLessThan(html.indexOf('Choose the next step'))
+  })
+  it('leaves a single trace directly expandable', () => {
+    const html = renderMessage({ id: 'reply', role: 'agent', text: 'Done', tracesBefore: [
+      { id: 'command', kind: 'command', title: 'Ran a command', text: 'Command output' },
+    ] })
+    expect(html.match(/<details(?:\s|>)/g)).toHaveLength(1)
+    expect(html).toContain('<summary>Ran a command</summary><pre>Command output</pre>')
+    expect(html).not.toContain('tool call')
+  })
   it('renders safe Markdown and opens history instead of a pane', async () => {
     const h = harness()
     await h.monitor.refresh()
@@ -324,10 +372,8 @@ describe('history cache and rendering', () => {
     expect(row).toContain('View history')
     expect(row).not.toContain('Open conversation')
     expect(row).not.toContain('<script>')
-    const state = { revision: 1, codeBlocks: [], fileLinks: [] }
-    const markdown = { snapshot: () => state, subscribe: () => () => {} } as unknown as ClientMarkdownService
     const page = await h.monitor.history('parent', 'child')
-    const html = renderToStaticMarkup(createElement(AgentHistoryMessage, { message: page.messages[1]!, markdown }))
+    const html = renderMessage(page.messages[1]!)
     expect(html).toContain('<strong>Result</strong>')
     expect(html).not.toContain('<script>')
     expect(html).toContain('diff output')

@@ -18,7 +18,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { BrowserPlugin } from '../../src/client/plugin-api.js'
+import type { BrowserPlugin, ClientComponentRenderer, ClientUiService } from '../../src/client/plugin-api.js'
 import type { ThreadSummary } from '../../src/shared/protocol.js'
 import { DIFF_VIEWER_PANE_KIND } from './diff-viewer-api.js'
 import type { ClientGitSupportService } from './git-support-client-api.js'
@@ -46,6 +46,13 @@ interface GitPaneSessionSnapshot {
   workspace: string
   remoteLocation?: string
   remoteWorkspace?: ClientSessionSnapshot['remoteWorkspace']
+}
+
+interface PullRequestActionProps {
+  pullRequestUrl: string
+  scope: 'pr' | 'stack'
+  sourceCwd: string
+  sourceThreadId?: string
 }
 
 function gitPaneSessionSnapshot(state: ClientSessionSnapshot): GitPaneSessionSnapshot {
@@ -143,16 +150,24 @@ function PullRequestChecks({ request }: { request: PullRequest }): ReactNode {
   </>
 }
 
-function PullRequestDetails({ requests }: { requests: PullRequest[] }): ReactNode {
-  const stack = requests.find((request) => request.stack)?.stack
+function PullRequestDetails({ requests, action, source }: {
+  requests: PullRequest[]
+  action?: ClientComponentRenderer<PullRequestActionProps> | undefined
+  source: Omit<PullRequestActionProps, 'pullRequestUrl' | 'scope'>
+}): ReactNode {
+  const stackRequest = requests.find((request) => request.stack)
+  const stack = stackRequest?.stack
   const displayed = requestsForDisplay(requests)
+  const Action = action
   return <div className="git-pane-pr-details">
+    {Action && stackRequest && <Action {...source} pullRequestUrl={stackRequest.url} scope="stack" />}
     {stack && <div className="git-pane-stack-base"><GitBranch size={12} /><span>{stack.baseBranch}</span><small>Base</small></div>}
     {displayed.map((request) => <section className="git-pane-pr-section" key={request.url}>
       <a className="git-pane-pr-row" href={webLink(request.url)} target="_blank" rel="noreferrer">
         <GitPullRequest size={14} aria-hidden="true" />
         <span><strong>#{request.number}<small>{request.draft ? 'Draft' : request.state.toLowerCase()}</small></strong><span>{request.title}</span></span>
       </a>
+      {Action && !stack && <Action {...source} pullRequestUrl={request.url} scope="pr" />}
       <PullRequestChecks request={request} />
       {(request.checkCount ?? 0) > (request.checkDetails?.length ?? 0) && <a className="git-pane-more-checks" href={webLink(request.url) ? `${request.url}/checks` : undefined} target="_blank" rel="noreferrer">View all {request.checkCount} checks</a>}
     </section>)}
@@ -186,6 +201,8 @@ function GitPanePopover({
   id,
   hold,
   leave,
+  action,
+  source,
 }: {
   anchor: HTMLElement
   state: GitRepositoryState
@@ -196,6 +213,8 @@ function GitPanePopover({
   id?: string | undefined
   hold?(): void
   leave?(): void
+  action?: ClientComponentRenderer<PullRequestActionProps> | undefined
+  source: Omit<PullRequestActionProps, 'pullRequestUrl' | 'scope'>
 }): ReactNode {
   const root = useRef<HTMLDivElement>(null)
   const bounds = anchor.getBoundingClientRect()
@@ -239,7 +258,7 @@ function GitPanePopover({
           <RefreshCw size={12} />
         </button>
       </header>
-      {requests ? <PullRequestDetails requests={requests} /> : <>
+      {requests ? <PullRequestDetails requests={requests} action={action} source={source} /> : <>
       <section className="git-pane-summary">
         <div><GitBranch size={13} /><span>{state.branch}</span><small>{state.head}</small></div>
         {state.upstream && (
@@ -276,9 +295,11 @@ function VisibleGitPaneStatus({
   session,
   git,
   contexts,
+  ui,
 }: WorkspacePaneAddonProps & {
   git: ClientGitSupportService
   contexts: ClientWorkContextsService
+  ui: ClientUiService
 }): ReactNode {
   const sessionState = useStoreSelector(
     session,
@@ -287,6 +308,8 @@ function VisibleGitPaneStatus({
   )
   const contextState = useSyncExternalStore(contexts.subscribe, contexts.snapshot)
   const gitSnapshot = useSyncExternalStore(git.subscribe, git.snapshot)
+  useSyncExternalStore(ui.subscribe, ui.snapshot)
+  const pullRequestAction = ui.component<PullRequestActionProps>('pr-watcher.action')
   const anchor = useRef<HTMLElement>(null)
   const popupId = useId()
   const [open, setOpen] = useState(false)
@@ -440,6 +463,8 @@ function VisibleGitPaneStatus({
           close={close}
           hold={hold}
           leave={leave}
+          action={pullRequestAction}
+          source={{ sourceCwd: location, ...(sessionState.threadId ? { sourceThreadId: sessionState.threadId } : {}) }}
         />
       )}
     </div>
@@ -449,6 +474,7 @@ function VisibleGitPaneStatus({
 function GitPaneStatus(props: WorkspacePaneAddonProps & {
   git: ClientGitSupportService
   contexts: ClientWorkContextsService
+  ui: ClientUiService
 }): ReactNode {
   return props.visible ? <VisibleGitPaneStatus {...props} /> : null
 }
@@ -463,11 +489,12 @@ const gitPaneStatus: BrowserPlugin = (ctx) => {
         {...props}
         git={ctx.clientGitSupport}
         contexts={ctx.clientWorkContexts}
+        ui={ctx.clientUi}
       />
     ),
   })
 }
 
-gitPaneStatus.inject = ['clientGitSupport', 'clientWorkContexts', 'clientWorkspaceLayout']
+gitPaneStatus.inject = ['clientGitSupport', 'clientUi', 'clientWorkContexts', 'clientWorkspaceLayout']
 
 export default gitPaneStatus

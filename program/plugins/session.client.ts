@@ -84,10 +84,12 @@ function withAstraModel(harness: HarnessSnapshot | undefined): HarnessSnapshot |
   }
 }
 
-function withModel(current: SessionOptions, model: string | undefined): SessionOptions {
+function withModel(current: SessionOptions, model: string | undefined, modelProvider?: string): SessionOptions {
   const next = { ...current }
   if (model) next.model = model
   else delete next.model
+  if (model && modelProvider) next.modelProvider = modelProvider
+  else delete next.modelProvider
   return next
 }
 
@@ -108,13 +110,28 @@ function sessionDefaults(
   const selected = harness?.codex.models.find((candidate) => candidate.id === model)
     ?? harness?.codex.models.find((candidate) => candidate.isDefault)
   const effort = defaults?.effort ?? selected?.defaultReasoningEffort
+  const modelProvider = selected?.modelProvider ?? harness?.codex.defaults?.modelProvider
 
   return {
     workspace: workspace || defaultWorkspace(harness),
     permissionMode: defaults?.permissionMode ?? 'ask',
     ...(model ? { model } : {}),
+    ...(modelProvider ? { modelProvider } : {}),
     ...(effort ? { effort } : {}),
   }
+}
+
+function availableModels(state: ClientSessionSnapshot): ModelOption[] | undefined {
+  const models = state.harness?.codex.models ?? []
+  const nativeProvider = state.harness?.codex.defaults?.modelProvider ?? 'openai'
+  const provider = state.session.modelProvider ?? nativeProvider
+  if (!models.some((model) => model.modelProvider) && provider === nativeProvider) return undefined
+  const available = state.threadId
+    ? models.filter((model) => (model.modelProvider ?? nativeProvider) === provider)
+    : models
+  const selected = state.session.model
+  if (!state.threadId || !selected || available.some((model) => model.id === selected)) return available
+  return [...available, { id: selected, displayName: selected, modelProvider: provider }]
 }
 
 const THREAD_CACHE_LIMIT = 12
@@ -440,9 +457,14 @@ export class SessionService implements ClientSessionService {
   }
 
   setModel(model: string | undefined): void {
-    const session = withModel(this.state.session, model)
     const selected = this.state.harness?.codex.models.find((candidate) => candidate.id === model)
       ?? this.state.harness?.codex.models.find((candidate) => candidate.isDefault)
+    const nativeProvider = this.state.harness?.codex.defaults?.modelProvider ?? 'openai'
+    if (this.state.threadId
+      && (selected?.modelProvider ?? nativeProvider) !== (this.state.session.modelProvider ?? nativeProvider)) {
+      throw new Error('Start a new chat to use a different model provider')
+    }
+    const session = withModel(this.state.session, model, selected?.modelProvider)
     this.modelSelectionChanged = true
     this.effortSelectionChanged = true
     this.set({
@@ -891,8 +913,19 @@ export class SessionService implements ClientSessionService {
       ...effectiveSession,
       workspace: effectiveSession?.workspace || entry.summary.cwd || workspace,
     }
+    // A draft's provider must never leak into a different saved conversation.
+    const provider = effectiveSession?.modelProvider ?? entry.summary.modelProvider
+    delete session.modelProvider
+    if (provider) session.modelProvider = provider
+    if (!sameThread && !effectiveSession?.model) {
+      const nativeProvider = this.state.harness?.codex.defaults?.modelProvider ?? 'openai'
+      const candidates = (this.state.harness?.codex.models ?? [])
+        .filter((model) => (model.modelProvider ?? nativeProvider) === (provider ?? nativeProvider))
+      const selected = candidates.find((model) => model.isDefault) ?? candidates[0]
+      session = withModel(session, selected?.id, provider)
+    }
     if (sameThread && this.modelSelectionChanged) {
-      session = withModel(session, this.state.session.model)
+      session = withModel(session, this.state.session.model, this.state.session.modelProvider)
     }
     if (sameThread && this.effortSelectionChanged) {
       session = withEffort(session, this.state.session.effort)
@@ -939,19 +972,21 @@ export class SessionService implements ClientSessionService {
       const workspace = session.workspace || defaultWorkspace(harness)
       const configured = configuredDefaults(harness)
       const defaultsKey = configured ? JSON.stringify(configured) : undefined
-      if (defaultsKey !== this.defaultsKey && configured && !this.state.threadId) {
+      const untouchedDraft = !this.state.threadId && !this.pendingRestoreThreadId
+        && this.state.turn.tag === 'idle' && !this.state.activities.length
+      // Defaults may arrive after a pane is created. Existing conversations and
+      // drafts that have begun a turn keep the settings with which they started.
+      if (defaultsKey !== this.defaultsKey && configured && untouchedDraft) {
         const previous = session
         session = sessionDefaults(harness, workspace)
-        if (this.modelSelectionChanged) session = withModel(session, previous.model)
+        if (this.modelSelectionChanged) session = withModel(session, previous.model, previous.modelProvider)
         if (this.effortSelectionChanged) session = withEffort(session, previous.effort)
-        if (this.permissionSelectionChanged || this.state.turn.tag !== 'idle') {
-          session.permissionMode = previous.permissionMode
-        }
+        if (this.permissionSelectionChanged) session.permissionMode = previous.permissionMode
         this.defaultsKey = defaultsKey
       } else {
         const model = session.model
           ?? harness.codex.models.find((candidate) => candidate.isDefault)?.id
-        session = withModel({ ...session, workspace }, model)
+        session = withModel({ ...session, workspace }, model, session.modelProvider)
       }
       const selected = harness.codex.models.find((candidate) => candidate.id === session.model)
         ?? harness.codex.models.find((candidate) => candidate.isDefault)
@@ -970,9 +1005,10 @@ export class SessionService implements ClientSessionService {
       : undefined
     if (effectiveSession) {
       const selectedModel = session.model
+      const selectedProvider = session.modelProvider
       const selectedEffort = session.effort
       session = { ...session, ...effectiveSession }
-      if (this.modelSelectionChanged) session = withModel(session, selectedModel)
+      if (this.modelSelectionChanged) session = withModel(session, selectedModel, selectedProvider)
       if (this.effortSelectionChanged) session = withEffort(session, selectedEffort)
     }
 
@@ -1294,6 +1330,9 @@ export class SessionService implements ClientSessionService {
     if (change.harness === undefined && 'harness' in change) delete next.harness
     if (change.threadId === undefined && 'threadId' in change) delete next.threadId
     if (change.activeProjectId === undefined && 'activeProjectId' in change) delete next.activeProjectId
+    const models = availableModels(next)
+    if (models) next.models = models
+    else delete next.models
     this.state = next
     if ('activities' in change || 'threads' in change) this.rememberActiveThread()
     if (notification === 'frame') this.scheduleNotificationFrame()
@@ -1362,6 +1401,7 @@ class SessionFactory implements ClientSessionFactoryService {
       ...(restored && isAgentChatId(restored) ? { restoreActiveThread: false } : {}),
     }, this.resources)
     const session = new AgentSessionService(native, this.host, {
+      useDefaults: !restored,
       ...(restored && isAgentChatId(restored) ? { restoreThreadId: restored } : {}),
       ...(options.persistActiveThread ? { persist: writeActiveThreadId } : {}),
     })
@@ -1474,6 +1514,7 @@ const sessionPlugin: BrowserPlugin = (ctx) => {
     ...(restored && isAgentChatId(restored) ? { restoreActiveThread: false } : {}),
   }, resources)
   const base = new AgentSessionService(native, ctx.clientHost, {
+    useDefaults: !restored,
     ...(restored && isAgentChatId(restored) ? { restoreThreadId: restored } : {}),
     persist: writeActiveThreadId,
   })

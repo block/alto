@@ -286,6 +286,8 @@ export interface ProgramSnapshot {
 }
 
 export interface ModelOption {
+  /** Native Codex model provider; omitted for the app-server default provider. */
+  modelProvider?: string
   id: string
   displayName: string
   isDefault?: boolean
@@ -297,6 +299,7 @@ export interface ModelOption {
 }
 
 export interface CodexSessionDefaults {
+  modelProvider?: string
   model?: string
   effort?: string
   permissionMode: PermissionMode
@@ -355,6 +358,7 @@ export interface LocalProjectInput {
 }
 
 export interface SessionOptions {
+  modelProvider?: string
   workspace: string
   model?: string
   effort?: string
@@ -650,7 +654,13 @@ export type HarnessEvent =
   | { type: 'program.error'; payload: { message: string } }
   | { type: 'projects.updated'; payload: ProjectSnapshot }
   | { type: 'ui.updated'; payload: UiSnapshot }
-  | { type: 'extensions.updated'; payload: Record<string, JsonValue> }
+  | {
+      type: 'extensions.updated'
+      payload: Record<string, JsonValue>
+      // True merges payload and removes listed keys; absent/false replaces the full map.
+      partial?: boolean
+      removed?: string[]
+    }
   | {
       type: 'command.result'
       requestId: string

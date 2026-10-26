@@ -1,4 +1,5 @@
 import { isAgentChatId } from '../agent-chats-api.js'
+import { parseSourceEditPrompt, sourceEditRequestLabel } from '../source-edit-presentation.js'
 import {
   Activity,
   BookOpen,
@@ -768,6 +769,10 @@ export function ActivityCard({
   const content = item.delivery === 'async' && !item.content.trim()
     ? item.questions?.map((question) => question.title).join('\n\n') ?? item.content
     : item.content
+  const sourceEdit = useMemo(
+    () => item.kind === 'user' ? parseSourceEditPrompt(item.content) : undefined,
+    [item.kind, item.content],
+  )
   const displayedContent = useSmoothedStreamText(content, streaming, visible)
   const revealing = item.kind === 'agent' && displayedContent !== content
   const animating = streaming || revealing
@@ -815,7 +820,7 @@ export function ActivityCard({
     return null
   }
   return (
-    <article ref={articleRef} className={`activity-card activity-${item.kind}${item.phase ? ` activity-agent-${item.phase}` : ''}${animating ? ' activity-streaming' : ''}${workingTrace ? ' activity-working-trace' : ''}${activeTrace ? ' activity-active-trace' : ''}`} data-activity-id={item.id}>
+    <article ref={articleRef} className={`activity-card activity-${item.kind}${sourceEdit ? ' activity-source-edit' : ''}${item.phase ? ` activity-agent-${item.phase}` : ''}${animating ? ' activity-streaming' : ''}${workingTrace ? ' activity-working-trace' : ''}${activeTrace ? ' activity-active-trace' : ''}`} data-activity-id={item.id}>
       {showMeta && item.kind === 'agent' && item.durationMs && (
         <div className="activity-response-meta">
           <span>Worked for {formatDuration(item.durationMs)}</span>
@@ -859,7 +864,15 @@ export function ActivityCard({
           )}
           {questionSession
             ? <AsyncQuestionRequest item={item} session={questionSession} />
-            : displayedContent && (
+            : sourceEdit ? (
+              <div className="activity-source-edit-note">
+                <div className="activity-source-edit-label">
+                  <Pencil size={14} strokeWidth={1.6} aria-hidden="true" />
+                  <span title={sourceEdit.path}>{sourceEditRequestLabel(sourceEdit)}</span>
+                </div>
+                <p title={sourceEdit.instruction}>{sourceEdit.instruction}</p>
+              </div>
+            ) : displayedContent && (
             prose && markdown
               ? (
                   <WorkingShimmerContext.Provider value={activeTrace && visible}>

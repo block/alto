@@ -7,7 +7,39 @@ import {
   WORKSPACE_COMMAND_STATE,
   type WorkspaceCommandSnapshot,
   type WorkspaceOpenPaneRequest,
+  type WorkspaceOpenPaneResult,
 } from './workspace-commands-api.js'
+
+/** Wait for the compositor to expose the actual pane, including lazy tabs. */
+function locateOpenedThread(layout: ClientWorkspaceLayoutService, threadId: string, action: () => void): Promise<WorkspaceOpenPaneResult> {
+  return new Promise((resolve, reject) => {
+    let unsubscribe = (): void => undefined
+    const timer = setTimeout(() => { unsubscribe(); reject(new Error('The conversation pane did not become available.')) }, 10_000)
+    const check = (): void => {
+      const target = layout.paneTargets().find((pane) => pane.session.snapshot().threadId === threadId)
+      if (!target) return
+      clearTimeout(timer); unsubscribe()
+      resolve({ workspaceId: target.workspaceId, paneId: target.paneId, threadId })
+    }
+    unsubscribe = layout.subscribe(check)
+    try { action(); check() }
+    catch (error) { clearTimeout(timer); unsubscribe(); reject(error) }
+  })
+}
+
+export function applyWorkspaceCommand(layout: ClientWorkspaceLayoutService, command: WorkspaceOpenPaneRequest): Promise<WorkspaceOpenPaneResult> {
+  const thread = command.thread
+  if (command.reuseThread && thread && layout.hasThread(thread.id)) {
+    return locateOpenedThread(layout, thread.id, () => {
+      if (!layout.focusThread(thread.id)) throw new Error('The conversation is no longer open.')
+    })
+  }
+  if (command.newTab) {
+    if (!thread || command.kind !== 'chat') throw new Error('A saved chat is required to open a conversation tab.')
+    return locateOpenedThread(layout, thread.id, () => layout.newTab(undefined, thread))
+  }
+  return Promise.resolve(layout.openPane(command))
+}
 
 function request(value: unknown): WorkspaceOpenPaneRequest | undefined {
   if (
@@ -82,7 +114,7 @@ class WorkspaceCommandBridge {
           }
           if (!isRecord(claim) || claim.claimed !== true) continue
           try {
-            const result = this.layout.openPane(command)
+            const result = await applyWorkspaceCommand(this.layout, command)
             response = {
               id: command.id,
               clientId: this.clientId,

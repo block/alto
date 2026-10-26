@@ -99,7 +99,7 @@ async function check() {
         request:async(method,args)=>{window.actions.push({kind:'request',method,args});return{}},
         call:async(method,args)=>{window.actions.push({kind:'call',method,args});return{}},
       });
-      ctx.provide('clientUi',{registerStyle:(owner,id,css)=>owner.effect(()=>{
+      ctx.provide('clientUi',{subscribe,snapshot:()=>0,component:()=>undefined,registerStyle:(owner,id,css)=>owner.effect(()=>{
         const style=document.createElement('style');style.textContent=css;document.head.append(style);return()=>style.remove();
       })});
       const root=createRoot(document.getElementById('root'));

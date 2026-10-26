@@ -93,6 +93,12 @@
 .agent-history-message pre { max-width: 100%; overflow: auto; }
 .agent-history-traces { margin: var(--space-2) 0; color: var(--text-secondary); font-size: var(--type-label); }
 .agent-history-traces summary { cursor: pointer; padding: var(--space-1) 0; }
+.agent-history-trace-group > summary { display: flex; align-items: center; gap: var(--space-1); min-width: 0; list-style: none; }
+.agent-history-trace-group > summary::-webkit-details-marker { display: none; }
+.agent-history-trace-group > summary::before { content: '▸'; flex: 0 0 auto; }
+.agent-history-trace-group[open] > summary::before { content: '▾'; }
+.agent-history-trace-group > summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-history-trace-items { padding-left: var(--space-3); }
 .agent-history-traces p { white-space: pre-wrap; font-family: var(--sans); }
 .agent-history-traces pre { font-family: var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .agent-history-attachment { display: block; color: var(--text-secondary); font-size: var(--type-label); }

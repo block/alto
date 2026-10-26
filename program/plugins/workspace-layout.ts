@@ -10,6 +10,8 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import path from 'node:path'
+import { WorkspaceHistory } from './workspace-history.js'
+import { WORKSPACE_HISTORY_STATE } from './workspace-history-api.js'
 import type { Context } from 'cordis'
 import type {
   HarnessPlugin,
@@ -238,6 +240,15 @@ const workspaceLayout: HarnessPlugin = async (ctx) => {
   const file = recentsStatePath(ctx.program.projectRoot)
   const layoutFile = workspaceLayoutStatePath(ctx.program.projectRoot)
   let layoutWrite = Promise.resolve()
+  const historyState = ctx.clientExtensions.registerState(ctx, WORKSPACE_HISTORY_STATE, [])
+  const history = new WorkspaceHistory(
+    path.join(ctx.program.projectRoot, '.codex-cordis', 'workspace-tab-history.json'),
+    (records) => historyState.update(records as unknown as JsonValue),
+  )
+  await history.load()
+  const initialLayout = await readWorkspaceLayoutState(layoutFile)
+  if (initialLayout) { history.observe(initialLayout); await history.save() }
+  ctx.provide('workspaceHistory', history)
   let threadIds = await readRecents(file)
   const recents = ctx.projects.registerSource(ctx, RECENTS_SOURCE_ID, {
     projects: [],
@@ -258,7 +269,11 @@ const workspaceLayout: HarnessPlugin = async (ctx) => {
     if (!layout) throw new Error('workspace layout state is invalid')
     const pending = layoutWrite
       .catch(() => undefined)
-      .then(() => writeWorkspaceLayoutState(layoutFile, layout))
+      .then(async () => {
+        history.observe(layout)
+        await history.save()
+        await writeWorkspaceLayoutState(layoutFile, layout)
+      })
     layoutWrite = pending
     await pending
     return layout as unknown as JsonValue
@@ -343,6 +358,6 @@ const workspaceLayout: HarnessPlugin = async (ctx) => {
 }
 
 workspaceLayout.inject = ['clientExtensions', 'codex', 'program', 'projects', 'tools', 'ui']
-workspaceLayout.provide = 'workspaceCommands'
+workspaceLayout.provide = ['workspaceCommands', 'workspaceHistory']
 
 export default workspaceLayout

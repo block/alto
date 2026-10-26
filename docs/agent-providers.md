@@ -2,11 +2,21 @@
 
 Alto can open Codex, Claude, Gemini, and Pi chats from the Agent row in the composer's model picker. An agent is fixed after the first message. Select a workspace before choosing the agent: its local process runs in that checkout. Codex continues to use App Server; ACP conversations use the same composer, transcript, approvals, file review, progress, and history components.
 
-Selecting an ACP agent changes the draft; its process and session start when the first prompt is sent. Model, reasoning, and mode options come from the agent once connected. Claude also offers draft choices that Alto validates before sending. Other ACP configuration selectors appear in the same menu. Alto restores saved choices when resuming a session if the agent still offers them.
+Selecting an ACP agent changes the draft; its process and session start when the first prompt is sent. Model, reasoning, and mode options come from the agent once connected. Claude, Gemini, and configured Pi models also offer choices before the first message; Alto validates and applies the selection before submitting the prompt. Other ACP configuration selectors appear in the same menu. Alto restores saved choices when resuming a session if the agent still offers them.
+
+**Settings → Model & reasoning → New chat defaults** selects the default agent and location for newly created chats, including Codex, Claude, Gemini, Pi, and registered remote providers. Alto remembers separate model and reasoning choices for each provider. Changing these defaults does not change an existing chat. Reasoning choices follow the selected model and the options its provider supports; Gemini ACP does not expose a reasoning setting, so Alto displays **Agent default**.
+
+Opening settings or selecting draft choices does not start an agent or provision a remote machine. **Load models** explicitly opens and closes a temporary local ACP session to retrieve its choices without sending a prompt. Remote providers use their available catalogs without provisioning a workspace from settings.
 
 Local ACP chats use Alto's prompt preparation hooks for application context. Claude receives trusted instructions through its adapter's `systemPrompt.append`, preserving the Claude Code preset and native tools. Live shell state and later changes travel with prompts. Untrusted reference context never enters the system prompt. Unchanged entries are omitted; resumed chats and the first prompt after a completed compaction receive the current context again. Other ACP agents receive the context as standard prompt text, without Claude-specific metadata. Remote providers retain their own context handling.
 
-Cordis changes can use `files[].sourcePath` instead of inline `content`. The path is relative to `.codex-cordis/staging` in the Alto checkout; describe `cordis_reprogram` for its exact location. Alto reads the staged contents once and uses the existing permission, validation, and atomic application path. An approval proposal retains those bytes even if the staged file changes before approval. This avoids making an agent generate a second copy of files it has already written. Source paths cannot escape the staging directory, including through symlinks.
+Cordis changes can use `files[].sourcePath` instead of inline `content`. The path is relative to `.codex-cordis/staging` in the resolved Alto runtime; describe `cordis_reprogram` for its exact location. Alto reads the staged contents once and uses the existing permission, validation, and atomic application path. An approval proposal retains those bytes even if the staged file changes before approval. This avoids making an agent generate a second copy of files it has already written. Source paths cannot escape the staging directory, including through symlinks.
+
+## Native Codex model providers
+
+Native Codex can use configured model providers through the `codex-models` Cordis entry. Each route supplies a model choice, its `modelProvider`, and supported App Server configuration, including provider authentication and an optional model catalog. Routes add to the existing model list without changing the default model. Credentials remain in Codex's configured auth helper.
+
+Choose the model before starting a new chat. A saved chat keeps its provider; its model picker offers models for that provider. Reopening it restores its saved model and reasoning effort while loading the provider configuration it needs. Local routes are not advertised to remote Codex agents.
 
 ## Local setup
 
@@ -23,19 +33,26 @@ Authenticate the local agent using its own CLI before selecting it in Alto. Pi a
 
 If a package filter or registry outage prevents `npx` from starting, configure the provider to run an already installed adapter directly. For example, use `command: "node"` with `args: ["/absolute/path/to/@agentclientprotocol/claude-agent-acp/dist/index.js"]`, ensuring that installation has the pinned version above. History discovery failures appear in the History pane and can be retried after fixing the launcher.
 
+An ACP entry can supply `initialConfig` to show model choices before starting its process. The connected agent's catalog replaces these choices and remains authoritative. This does not configure or authenticate models in the underlying CLI.
+
 Gemini uses the local `gemini --acp` executable. Install [Gemini CLI](https://geminicli.com/docs/get-started/installation/) and run `gemini` once to configure authentication before sending a Gemini chat in Alto. The process inherits the environment available to Alto. The profile sets `GEMINI_CLI_NO_RELAUNCH=true` so Alto owns the agent process directly and stopping the provider does not leave Gemini's launcher child running. Launch and authentication failures include setup instructions in the affected chat.
 
-Gemini currently runs with its CLI-configured model. Its ACP implementation advertises the older `models` catalog and `session/set_model` operation; Alto does not add support for them. The shared picker supports standard ACP `configOptions` when the agent supplies them. Gemini still uses the shared streaming transcript, approvals, attachments, Cordis bridge, queue, cancellation, and saved-session flow. It does not advertise Alto's steering or child-session extensions.
+Gemini supports named model selection in the composer's **Model** menu after choosing **Agent → Gemini**, and in the new chat defaults page. **Agent default** keeps the CLI-configured model; selecting a named model, such as Gemini 4 Argon, applies that choice before the first prompt. Alto supports Gemini's older `models` catalog and `session/set_model` operation as well as standard ACP `configOptions` when supplied. Configuration failures appear in the affected chat. Gemini does not expose a separate reasoning-effort control through ACP, and Alto does not invent one. Gemini still uses the shared streaming transcript, approvals, attachments, Cordis bridge, queue, cancellation, and saved-session flow. It does not advertise Alto's steering or child-session extensions.
 
 A live check with Gemini CLI `0.62.0-preview.0` completed a prompt and stopped the process cleanly. Reopening the same session after restarting the provider failed with `No previous sessions found for this project`, despite the CLI advertising `loadSession`. Alto retains its transcript and reports the resume failure. Resume on that CLI version is not verified; no fallback silently starts a replacement conversation.
 
-Pi requires a CLI setup that supports RPC mode. End-to-end Pi validation is still pending. Claude was tested with the real local adapter.
+To use DeepSeek through Pi, start a new chat and choose **Agent → Pi**, then **DeepSeek V4.1 Flash 1017 (Databricks)**. The model must also be configured in Pi's local `~/.pi/agent/models.json` as `system.ai.deepseek-v4-1-flash-1017`, using the `openai-responses` API and the production Databricks AI Gateway at `https://block-lakehouse-production.cloud.databricks.com/ai-gateway/mlflow/v1`. The Alto model value includes the provider prefix: `databricks/system.ai.deepseek-v4-1-flash-1017`. Authentication stays in Pi's existing Databricks configuration, including its OAuth refresh helper.
+
+Responses API compatibility does not imply support for OpenAI-specific features. Pi extensions must avoid adding `service_tier: "priority"` or OpenAI-hosted `web_search` tools to this model. Alto preserves enabled Pi extensions; an extension requiring unsupported RPC interactions can still prevent a session from working. The current Pi adapter does not connect ACP-supplied MCP servers, so Alto's Cordis tools are unavailable in Pi chats.
+
+Claude was tested with the real local adapter.
 
 ## Shared UI behavior
 
 | Feature | ACP behavior |
 | --- | --- |
-| Model, reasoning, agent mode | Uses advertised session config options; updates the same composer picker. Agents can expose session modes instead. Gemini uses its CLI-configured model until it supplies standard model config options. |
+| Model, reasoning, agent mode | Uses advertised session config options and supports older model and mode catalogs in the same composer picker. Claude, Gemini, and configured Pi models offer choices before the first message. Gemini supports named models but exposes no separate reasoning setting through ACP. |
+| New chat defaults | Settings remembers a default provider and separate model and reasoning choices per provider. Only supported reasoning levels appear; existing chats retain their selections. |
 | Streaming text and thoughts | Retained in the transcript, grouped by turn, with a final answer and elapsed time on completion. |
 | Tool output | Commands and tool calls use the existing activity rows. Text output and status changes are retained. |
 | File edits | ACP old/new file content becomes a unified diff with actual changed-line counts in Alto's file review UI. |
@@ -48,7 +65,7 @@ Pi requires a CLI setup that supports RPC mode. End-to-end Pi validation is stil
 | Queue | Saved, editable, reorderable messages appear in the usual queue and move into chat once when started. The server releases them after normal completion, even when the pane is closed. Stop, failure, and a server restart pause delivery. |
 | Live steering | Claude advertises its steering extension. The existing queue's Steer button injects the message into the active turn. If the turn has just finished, Alto starts an ordinary next turn and records the message once. |
 | Subagents | Claude's negotiated child-session events populate Alto's Agents panel, including nested transcripts, current status, and parent-scoped approvals. Background tasks advertise individual Stop support. |
-| Cordis tools | Each ACP chat receives an authenticated loopback MCP server exposing the existing Cordis dispatcher. List/describe/invoke resolve the current tool owners. |
+| Cordis tools | ACP agents with MCP support receive an authenticated loopback MCP server exposing the existing Cordis dispatcher. List/describe/invoke resolve the current tool owners. Pi's current adapter does not connect this server. |
 | History | Persists the complete transcript and the exact provider/session/workspace identity. Reopening uses ACP `session/load`; unsupported resumption reports an error rather than silently starting another conversation. |
 | Connection failures | End streaming, clear pending decisions, retain the draft or transcript, and show an error in the affected chat. A later send can reconnect and resume. |
 
@@ -81,6 +98,10 @@ Files live under `.codex-cordis/agent-chats` in the Alto checkout. Writes are se
 ## Validation
 
 The regression tests cover real ACP SDK connections, permission and question replies, invalid/stale decisions, model configuration, cancellation, identity-preserving reloads, complete transcripts, file diffs, queue persistence/order/draining, pane navigation, and native Codex routing. The separate Alto instance was used for real Claude prompts, model/effort changes, questions, waiting state, queued follow-ups, file approvals, and history reloads. A real local Claude integration test also exercised authenticated Cordis list/describe/invoke, steering during a tool call, and native child-session transcripts. Regression tests cover the finishing-turn steering race, nested approvals, task cancellation boundaries, permission capture, token revocation, and live tool replacement.
+
+Defaults tests cover provider-specific persistence, remote Codex's shared model and reasoning catalog, Claude model-dependent effort levels and version aliases, and Gemini named model selection. Hidden Electron checks exercise the settings controls at normal and narrow widths, preserve active chat selections, and verify that viewing settings neither starts model discovery nor provisions a remote agent.
+
+Pi checks cover configured choices before process startup, snapshot isolation, live catalog replacement, and validation against the connected model catalog. A live check with Pi `1.3.0` and `pi-acp` `0.0.33` selected DeepSeek V4.1 Flash 1017 through production Databricks, streamed a file-read tool call and its answer, and retained the result in a second turn. The composer was checked at normal and narrow pane widths.
 
 At the starting revision, four existing checks fail in `client-styles.test.ts`, `program-profile.test.ts`, and `turn-intervention-browser.test.ts`. The same failures were reproduced from an archive of the unchanged HEAD. They concern old shimmer expectations and profile outlet metadata, not ACP behavior.
 

@@ -232,7 +232,7 @@ describe('client style contract', () => {
     expect(css).toMatch(/\.workspace-pane-header\s*{[^}]*padding: 0 var\(--space-2\) 0 var\(--pane-chrome-gutter\);/s)
     expect(css).toContain('max(var(--space-4), calc((100% - var(--conversation-reading-width)) / 2))')
     expect(css).toContain('.workspace-chat-pane:not(.workspace-typed-pane) > .workspace-pane-header { padding-left: calc(var(--space-2) * 2); }')
-    expect(defaultUiCss).toContain('max(var(--composer-content-gutter), calc((100% - var(--composer-content-width)) / 2))')
+    expect(defaultUiCss).toMatch(/\.composer\s*{[^}]*width: min\(var\(--composer-content-width\), calc\(100% - 2 \* var\(--composer-content-gutter\)\)\);[^}]*margin-inline: auto;/s)
     expect(css).toContain('.workspace-pane-title-control:hover .workspace-pane-title-rename')
     expect(css).not.toContain('.workspace-pane-title span { display: none; }')
   })
@@ -254,10 +254,10 @@ describe('client style contract', () => {
     expect(workspaceLayoutCss).toContain('.workspace-view[hidden] { display: none; }')
   })
 
-  it('pauses the working shimmer while Alto is inactive', async () => {
+  it('pauses the working shimmer while Alto is hidden', async () => {
     const css = await readFile(defaultUiCssUrl, 'utf8')
 
-    expect(css).toMatch(/\.shell-conversation\.is-window-inactive :is\(\.activity-shimmer-sweep, \.activity-shimmer-highlight\)\s*{[^}]*animation: none;/s)
+    expect(css).toMatch(/\.shell-conversation\.is-window-hidden :is\(\.activity-shimmer-sweep, \.activity-shimmer-highlight\)\s*{[^}]*animation: none;/s)
   })
 
   it('moves long-draft scrolling into the composer', async () => {

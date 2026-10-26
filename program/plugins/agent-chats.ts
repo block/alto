@@ -14,6 +14,7 @@ import type { Context } from 'cordis'
 import { errorMessage, isRecord, type JsonValue, type PermissionMode, type ThreadSummary } from '../../src/shared/protocol.js'
 import { AGENT_CHATS_STATE, agentChatStateKey, isAgentChatId, type AgentChat, agentPromptInput } from './agent-chats-api.js'
 import type { RemoteWorkspace } from './remote-workspace-api.js'
+import { remoteLaunchTarget, type RemoteLaunchTarget } from './remote-launch-api.js'
 
 const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value)) as JsonValue
 // Child history is fetched through orchestrator.open. Broadcasting it with every
@@ -126,6 +127,16 @@ export class AgentChats {
     return this.historyRefresh
   }
 
+  /** Inspect saved content without resuming a remote agent or changing its state. */
+  async read(id: string): Promise<AgentChat> {
+    const cached = this.chats.get(id)
+    const unavailable = 'The saved transcript is not cached in Alto. Open this conversation once to load its messages.'
+    if (!cached && this.discovered.has(id) && !this.store.has(id)) throw new Error(unavailable)
+    const chat = cached ?? await this.store.read(id)
+    if (chat.historyLoaded === false) throw new Error(unavailable)
+    return structuredClone(chat)
+  }
+
   /** Metadata inspection must not open or resume a saved remote conversation. */
   async workspace(id: string): Promise<RemoteWorkspace | undefined> {
     const chat = this.chats.get(id) ?? await this.store.read(id)
@@ -161,13 +172,15 @@ export class AgentChats {
     return { additionalContext: prepared.additionalContext ?? {} }
   }
 
-  async create(providerId: string, cwd: string, mode: PermissionMode): Promise<AgentChat> {
+  async create(providerId: string, cwd: string, mode: PermissionMode, target?: RemoteLaunchTarget): Promise<AgentChat> {
     if (!this.active) throw new Error('Agent chats is unavailable')
     const provider = this.agents.provider(providerId)
     if (provider.snapshot().protocol === 'codex-app-server') throw new Error('Choose an ACP provider')
+    const remoteTarget = target === undefined ? undefined : remoteLaunchTarget(target)
+    if (remoteTarget && provider.snapshot().remoteLaunchTargets !== true) throw new Error('This provider does not support an explicit remote checkout')
     const id = `acp-${randomUUID()}`
     let session
-    try { session = await provider.createSession({ cwd, permissionMode: mode, ...(provider.snapshot().capabilities?.durableSession ? {} : await this.promptOptions(id, cwd)), mcpServers: provider.snapshot().capabilities?.durableSession ? [] : await this.bridge?.attach(id) ?? [] }) }
+    try { session = await provider.createSession({ cwd, permissionMode: mode, ...(remoteTarget ? { remoteTarget } : {}), ...(provider.snapshot().capabilities?.durableSession ? {} : await this.promptOptions(id, cwd)), mcpServers: provider.snapshot().capabilities?.durableSession ? [] : await this.bridge?.attach(id) ?? [] }) }
     catch (error) { this.bridge?.revoke(id); throw error }
     if (!this.active) {
       await provider.closeSession(session.id)
@@ -593,7 +606,8 @@ const plugin = async (ctx: Context, config: { historyProviders?: string[] } = {}
   })
   method('workspace', async (payload) => await chats.workspace(required(payload.id, 'id')) ?? null)
   method('create', async (payload) => {
-    const chat = await chats.create(required(payload.providerId, 'providerId'), required(payload.cwd, 'cwd'), permissionMode(payload.permissionMode))
+    const chat = await chats.create(required(payload.providerId, 'providerId'), required(payload.cwd, 'cwd'), permissionMode(payload.permissionMode),
+      payload.remoteTarget === undefined ? undefined : remoteLaunchTarget(payload.remoteTarget))
     publish(chat); publishCatalog(); return clientChat(chat)
   })
   method('open', async (payload) => { const chat = await chats.open(required(payload.id, 'id')); publish(chat); return clientChat(chat) })

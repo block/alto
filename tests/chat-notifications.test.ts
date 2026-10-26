@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Context } from 'cordis'
 import {
   ChatNotificationsController,
   completionNotificationTarget,
@@ -36,6 +37,13 @@ const childTask: AgentTask = {
   status: 'done', activity: '', result: 'Looks good', createdAt: 1, updatedAt: 2,
 }
 
+const reviewNotification = {
+  threadId: completedThread.id,
+  title: 'Pull request needs attention',
+  body: 'New review feedback is ready.',
+  tag: 'alto-pr-watch-example-42',
+}
+
 function completionNotificationHarness(options: {
   child?: boolean
   parentInHistory?: boolean
@@ -43,6 +51,7 @@ function completionNotificationHarness(options: {
   existingPane?: boolean
   completedInHistory?: boolean
   background?: boolean
+  permission?: NotificationPermission
 } = {}) {
   let statusSnapshot: ClientThreadStatusSnapshot = {
     revision: 1,
@@ -78,7 +87,7 @@ function completionNotificationHarness(options: {
   const storage = new Map<string, string>()
 
   class FakeNotification {
-    static permission: NotificationPermission = 'granted'
+    static permission: NotificationPermission = options.permission ?? 'granted'
     static requestPermission = vi.fn(async () => 'granted' as NotificationPermission)
     onclose: (() => void) | null = null
     onerror: (() => void) | null = null
@@ -90,7 +99,7 @@ function completionNotificationHarness(options: {
       instances.push(this)
     }
 
-    close(): void {}
+    close = vi.fn(() => this.onclose?.())
   }
 
   vi.stubGlobal('window', {
@@ -109,9 +118,17 @@ function completionNotificationHarness(options: {
   const dispose = controller.activate()
   return {
     controller,
+    start: () => {
+      statusSnapshot = {
+        revision: statusSnapshot.revision + 1,
+        running: [completedThread.id],
+        finished: [],
+      }
+      statusListener()
+    },
     complete: () => {
       statusSnapshot = {
-        revision: 2,
+        revision: statusSnapshot.revision + 1,
         running: [],
         finished: [completedThread.id],
       }
@@ -266,6 +283,175 @@ describe('chat notifications', () => {
     h.complete()
     h.dispose()
     h.instances[0]!.onclick!()
+    expect(h.layout.focusThread).not.toHaveBeenCalled()
+    expect(h.layout.openPane).not.toHaveBeenCalled()
+  })
+
+  it('shows explicit feedback during an active turn and opens its exact chat', async () => {
+    const h = completionNotificationHarness({ existingPane: true })
+    h.controller.setPlaySound(true)
+
+    await h.controller.notify(reviewNotification)
+
+    expect(h.titles).toEqual([reviewNotification.title])
+    expect(h.notifications).toEqual([{
+      body: reviewNotification.body, tag: reviewNotification.tag, silent: false,
+    }])
+    expect(h.layout.focusThread).not.toHaveBeenCalled()
+    h.instances[0]!.onclick!()
+    expect(h.layout.focusThread).toHaveBeenCalledWith(completedThread.id)
+    expect(h.layout.openPane).not.toHaveBeenCalled()
+    h.dispose()
+  })
+
+  it('opens an explicitly notified chat at its own workspace when its pane is closed', async () => {
+    const h = completionNotificationHarness()
+    await h.controller.notify(reviewNotification)
+    h.instances[0]!.onclick!()
+
+    expect(h.layout.openPane).toHaveBeenCalledWith(expect.objectContaining({
+      thread: completedThread, workspace: completedThread.cwd, projectId: completedThread.projectId,
+    }))
+    h.dispose()
+  })
+
+  it('can route an explicit notification to an existing pane before history contains it', async () => {
+    const h = completionNotificationHarness({ existingPane: true, completedInHistory: false })
+    await h.controller.notify(reviewNotification)
+    h.instances[0]!.onclick!()
+
+    expect(h.layout.focusThread).toHaveBeenCalledWith(completedThread.id)
+    expect(h.layout.openPane).not.toHaveBeenCalled()
+    expect(h.refreshHistory).not.toHaveBeenCalled()
+    h.dispose()
+  })
+
+  it('uses the visible-chat preference for explicit notifications', async () => {
+    const h = completionNotificationHarness({ focusedThreadId: completedThread.id })
+    await h.controller.notify(reviewNotification)
+    expect(h.instances).toHaveLength(0)
+
+    h.controller.setNotifyCurrentChat(true)
+    await h.controller.notify(reviewNotification)
+    expect(h.notifications).toEqual([
+      expect.objectContaining({ tag: reviewNotification.tag, silent: true }),
+    ])
+    h.dispose()
+  })
+
+  it.each(['denied', 'default'] as const)('does not bypass notification permission: %s', async (permission) => {
+    const h = completionNotificationHarness({ permission })
+    await h.controller.notify(reviewNotification)
+
+    expect(h.instances).toHaveLength(0)
+    h.dispose()
+  })
+
+  it('does not bypass disabled notifications', async () => {
+    const h = completionNotificationHarness()
+    await h.controller.setEnabled(false)
+    await h.controller.notify(reviewNotification)
+
+    expect(h.instances).toHaveLength(0)
+    h.dispose()
+  })
+
+  it('suppresses automatic completions without suppressing explicit watcher feedback', async () => {
+    const h = completionNotificationHarness()
+    const context = new Context()
+    const watcher = await context.plugin((owner) => {
+      h.controller.suppressCompletion(owner, completedThread.id)
+    })
+    try {
+      await h.controller.notify(reviewNotification)
+      h.complete()
+
+      expect(h.titles).toEqual([reviewNotification.title])
+    } finally {
+      await watcher.dispose()
+      h.dispose()
+    }
+  })
+
+  it('retains suppression until every owner releases it and restores completions on unload', async () => {
+    const h = completionNotificationHarness()
+    const context = new Context()
+    let releaseFirst = (): void => undefined
+    const first = await context.plugin((owner) => {
+      releaseFirst = h.controller.suppressCompletion(owner, completedThread.id)
+    })
+    const second = await context.plugin((owner) => {
+      h.controller.suppressCompletion(owner, completedThread.id)
+    })
+    try {
+      releaseFirst()
+      releaseFirst()
+      h.complete()
+      expect(h.instances).toHaveLength(0)
+
+      await second.dispose()
+      h.start()
+      h.complete()
+      expect(h.titles).toEqual(['Agent finished'])
+    } finally {
+      await first.dispose()
+      await second.dispose()
+      h.dispose()
+    }
+  })
+
+  it('limits a completion suppression to the requested thread', async () => {
+    const h = completionNotificationHarness()
+    const context = new Context()
+    const watcher = await context.plugin((owner) => {
+      h.controller.suppressCompletion(owner, parentThread.id)
+    })
+    try {
+      h.complete()
+      expect(h.titles).toEqual(['Agent finished'])
+    } finally {
+      await watcher.dispose()
+      h.dispose()
+    }
+  })
+
+  it('rechecks suppression after an in-flight history refresh', async () => {
+    const h = completionNotificationHarness({ completedInHistory: false })
+    let finishRefresh = (): void => undefined
+    h.refreshHistory.mockImplementation(() => new Promise<void>((resolve) => { finishRefresh = resolve }))
+    h.complete()
+    expect(h.refreshHistory).toHaveBeenCalled()
+
+    const context = new Context()
+    const watcher = await context.plugin((owner) => {
+      h.controller.suppressCompletion(owner, completedThread.id)
+    })
+    try {
+      h.setThreads([completedThread])
+      finishRefresh()
+      await Promise.resolve()
+      expect(h.instances).toHaveLength(0)
+
+      await watcher.dispose()
+      h.start()
+      h.complete()
+      expect(h.titles).toEqual(['Agent finished'])
+    } finally {
+      await watcher.dispose()
+      h.dispose()
+    }
+  })
+
+  it('closes explicit notifications and ignores stale clicks when the service unloads', async () => {
+    const h = completionNotificationHarness({ existingPane: true })
+    await h.controller.notify(reviewNotification)
+
+    h.dispose()
+    await h.controller.notify(reviewNotification)
+    h.instances[0]!.onclick!()
+
+    expect(h.instances).toHaveLength(1)
+    expect(h.instances[0]!.close).toHaveBeenCalled()
     expect(h.layout.focusThread).not.toHaveBeenCalled()
     expect(h.layout.openPane).not.toHaveBeenCalled()
   })

@@ -16,16 +16,17 @@ async function check() {
       import shortcuts from './program/plugins/chat-history-hotkeys.client';
       let Kind; const cleanup=[]; const root=createRoot(document.getElementById('root'));
       let visible=true, mounted=true, failOlder=true;
-      window.requests=[]; window.opened=[]; window.tabs=[];
+      window.requests=[]; window.opened=[]; window.tabs=[]; window.pendingSearches=[];
       const names=['Alto UI adjustments','Review the workspace changes','Security review of cryptographic boundary checks with a deliberately long title','Fix the history scroll position','Explore plugin architecture'];
       const now=Math.floor(Date.now()/1000);
       const chats=Array.from({length:85},(_,i)=>({id:String(i),title:names[i%names.length],preview:'First prompt',cwd:'/repo/alto',projectId:i%3===0?undefined:'alto',createdAt:now-i*1800,updatedAt:now-i*1800,gitInfo:{branch:i%2?'main':'feature/history'}}));
+      const namedHistory=[{thread:{id:'closed',title:'A saved trip',preview:'Japan planning',cwd:'/repo/alto',createdAt:now,updatedAt:now},titles:['jptrv']}];
       const status={revision:0,running:['0'],finished:['1']};
       const threadStatus={snapshot:()=>status,subscribe:()=>()=>{},acknowledge:()=>{}};
       const sessionState={projects:[{id:'alto',name:'Alto'}]};
-      const layout={registerPaneKind:(_owner,kind)=>{Kind=kind.renderer},focusThread:id=>id==='0',openPane:request=>window.opened.push(request),newTab:kind=>window.tabs.push(kind),available:()=>true};
+      const layout={subscribe:()=>()=>{},snapshot:()=>0,tabs:()=>[{id:'custom',title:'Release checklist',threadIds:['0','1'],threads:chats.slice(0,2)}],registerPaneKind:(_owner,kind)=>{Kind=kind.renderer},focusThread:id=>id==='0',openPane:request=>window.opened.push(request),newTab:kind=>window.tabs.push(kind),available:()=>true};
       const ctx={
-        clientHost:{call:async(method,payload)=>{window.requests.push({method,payload});if(payload.cursor&&failOlder)throw new Error('Disconnected');return {threads:payload.cursor?chats.slice(80):chats.slice(0,80),nextCursor:payload.cursor?null:'older'}}},
+        clientHost:{subscribe:()=>()=>{},snapshot:()=>({snapshot:{extensions:{'workspace-layout.history':namedHistory}}}),call:async(method,payload)=>{if(method==='chat-history.search')return new Promise(resolve=>window.pendingSearches.push({payload,resolve}));window.requests.push({method,payload});if(payload.cursor&&failOlder)throw new Error('Disconnected');return {threads:payload.cursor?chats.slice(80):chats.slice(0,80),nextCursor:payload.cursor?null:'older'}}},
         clientSession:{snapshot:()=>sessionState,subscribe:()=>()=>{}},clientWorkspaceLayout:layout,
         clientUi:{registerStyle:(_owner,_id,css)=>{const style=document.createElement('style');style.textContent=css;document.head.append(style);cleanup.push(()=>style.remove())}},
         clientHotkeys:{registerAction:(_owner,action)=>{window.historyShortcut=()=>action.run()}},
@@ -35,6 +36,8 @@ async function check() {
       const render=()=>flushSync(()=>root.render(mounted?<Kind visible={visible} focused={true} workspaceId="w" pane={{id:'history',kind:'history',type:'pane',workspace:'/repo'}}/>:null));
       window.mount=value=>{mounted=value;render()};window.setVisible=value=>{visible=value;render()};
       window.allowOlder=()=>{failOlder=false};
+      window.finishSearch=()=>window.pendingSearches.shift().resolve({threads:[chats[84]],snippets:{84:'Assistant mentions a message-only needle here.'},nextCursor:null});
+      window.searchFor=value=>{const input=document.querySelector('[aria-label="Search history"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}))};
       window.scrollEnd=()=>{const element=document.querySelector('.chat-history-scroll');element.scrollTop=element.scrollHeight};
       window.teardown=()=>{root.unmount();for(const dispose of cleanup.reverse())dispose?.()};
       document.getElementById('draft').focus();render();
@@ -86,6 +89,10 @@ async function check() {
         assert.ok(metrics.refreshRight <= width - 150, JSON.stringify(metrics))
         assert.equal(metrics.spinners, 1)
         assert.equal(metrics.dots, 1)
+        const search = await run(`(()=>{const form=document.querySelector('.chat-history-search'),input=form.querySelector('input'),submit=form.querySelector('[type=submit]');return {overflow:form.scrollWidth>form.clientWidth,inputWidth:input.getBoundingClientRect().width,right:submit.getBoundingClientRect().right}})()`)
+        assert.equal(search.overflow, false)
+        assert.ok(search.inputWidth > 120)
+        assert.ok(search.right <= width)
         if (process.env.ALTO_HISTORY_ARTIFACT_DIR) {
           await fs.mkdir(process.env.ALTO_HISTORY_ARTIFACT_DIR, { recursive: true })
           await fs.writeFile(path.join(process.env.ALTO_HISTORY_ARTIFACT_DIR, `${theme}-${width}.png`), (await window.webContents.capturePage()).toPNG())
@@ -111,6 +118,42 @@ async function check() {
     await frames()
     assert.equal(await run('requests.length'), 3, 'reopening retains cached history pages')
     assert.equal(await run("document.querySelectorAll('.chat-history-row').length"), 85)
+    await run("searchFor('  RELEASE checklist  ')")
+    await until("document.querySelectorAll('.chat-history-row').length===2")
+    assert.equal(await run('pendingSearches.length'), 0, 'typing must not scan message contents')
+    assert.equal(await run("document.querySelectorAll('.chat-history-row-tab').length"), 2, 'a tab title finds all chats in a split tab')
+    await run("searchFor('jptrv')")
+    await until("document.querySelectorAll('.chat-history-row').length===1")
+    assert.equal(await run("document.querySelector('.chat-history-row-title').textContent"), 'A saved trip', 'closed tab aliases stay searchable')
+    assert.ok((await run("document.querySelector('.chat-history-row-tab').textContent")).includes('jptrv'))
+    await run("document.querySelector('.chat-history-row').click()")
+    assert.equal(await run('opened.at(-1).thread.id'), 'closed', 'a saved alias opens the exact conversation')
+    await run("searchFor('message-only needle')")
+    await until("document.querySelectorAll('.chat-history-row').length===0")
+    await run("document.querySelector('[aria-label=\"Search messages\"]').click()")
+    await until('pendingSearches.length===1')
+    await run('finishSearch()')
+    await until("document.querySelectorAll('.chat-history-row').length===1")
+    assert.equal(await run("document.querySelector('.chat-history-row-snippet').textContent"), 'Assistant mentions a message-only needle here.')
+    for (const width of [1100, 360]) {
+      window.setContentSize(width, 760)
+      await frames()
+      assert.equal(await run("document.querySelector('.chat-history').scrollWidth > document.querySelector('.chat-history').clientWidth"), false, 'search excerpts and controls must fit the pane')
+      if (process.env.ALTO_HISTORY_ARTIFACT_DIR) await fs.writeFile(path.join(process.env.ALTO_HISTORY_ARTIFACT_DIR, `search-${width}.png`), (await window.webContents.capturePage()).toPNG())
+    }
+    await run("searchFor('stale query')")
+    await frames()
+    await run("document.querySelector('[aria-label=\"Search messages\"]').click()")
+    await until('pendingSearches.length===1')
+    await run("searchFor('RELEASE checklist')")
+    await frames()
+    await run('finishSearch()')
+    await frames()
+    assert.equal(await run("document.querySelectorAll('.chat-history-row').length"), 2, 'an old message response must not replace a newer query')
+    assert.equal(await run("document.querySelectorAll('.chat-history-row-snippet').length"), 0)
+    await run("document.querySelector('[aria-label=\"Clear history search\"]').click()")
+    await until("document.querySelectorAll('.chat-history-row').length===85")
+    assert.equal(await run('document.activeElement.getAttribute("aria-label")'), 'Search history')
     await run('teardown()')
     assert.equal(await run("document.querySelectorAll('.chat-history').length"), 0)
     console.log('Chat history browser checks passed')

@@ -2,7 +2,7 @@ import type * as acp from '@agentclientprotocol/sdk'
 import type { AgentConfigOption, AgentEvent, AgentPromptPart, AgentProviderCapabilities } from '../../src/server/services/agent-registry.js'
 import type { RemoteRpcMessage } from '../../src/server/services/remote-rpc.js'
 import { isRecord, type PermissionMode } from '../../src/shared/protocol.js'
-import { configOptions, toolContent, toolFiles, updateContent } from './acp-format.js'
+import { configOptions, mergeToolCall, toolCallFields, updateContent, type AcpToolCall } from './acp-format.js'
 import { childNotification, supportsChildren } from './acp-extensions.js'
 import { commandTitle, toolTitle } from './app-server-format.js'
 
@@ -63,6 +63,7 @@ export class RemoteAgentProtocol {
   private readonly decisionTimes = new Map<string, string>()
   private readonly announcedDecisions = new Set<string>()
   private readonly titles = new Map<string, string>()
+  private readonly toolCalls = new Map<string, AcpToolCall>()
   private readonly output = new Map<string, string>()
   private readonly commands = new Map<string, string>()
 
@@ -295,11 +296,9 @@ export class RemoteAgentProtocol {
       ...('messageId' in update && update.messageId ? { messageId: update.messageId } : {}) }); return }
     if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
       const key = `${params.sessionId}:${update.toolCallId}`
-      if (update.title) this.titles.set(key, update.title)
-      emit({ type: update.sessionUpdate === 'tool_call' ? 'tool.started' : 'tool.updated', ...turn,
-        toolCallId: update.toolCallId, title: this.titles.get(key) ?? 'Tool call',
-        ...(update.content ? { content: toolContent(update.content) ?? '', files: toolFiles(update.content) ?? [] } : {}),
-        ...(update.status ? { status: update.status } : {}), ...(update.kind ? { kind: update.kind } : {}) })
+      const call = mergeToolCall(update.sessionUpdate === 'tool_call' ? undefined : this.toolCalls.get(key), update)
+      this.toolCalls.set(key, call)
+      emit({ type: update.sessionUpdate === 'tool_call' ? 'tool.started' : 'tool.updated', ...turn, ...toolCallFields(call, update) })
     } else if (update.sessionUpdate === 'plan') emit({ type: 'plan.updated', ...turn, entries: update.entries })
   }
 

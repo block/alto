@@ -62,18 +62,18 @@ export class ClientExtensionRegistry {
       if (this.states.has(name)) throw new Error(`client extension state "${name}" is already registered`)
       active = true
       this.states.set(name, entry)
-      this.emitChanged()
+      this.emitChanged(name)
       return () => {
         active = false
         if (this.states.get(name) === entry) this.states.delete(name)
-        this.emitChanged()
+        this.emitChanged(name)
       }
     }, `clientExtensions.registerState(${JSON.stringify(name)})`)
     return {
       update: (next) => {
         if (!active) throw new Error(`client extension state "${name}" is not active`)
         entry.value = structuredClone(next)
-        this.emitChanged()
+        this.emitChanged(name)
       },
       dispose: async () => dispose(),
     }
@@ -107,8 +107,8 @@ export class ClientExtensionRegistry {
     }
   }
 
-  private emitChanged(): void {
-    this.root.emit('clientExtensions/changed', this.snapshot())
+  private emitChanged(name: string): void {
+    this.root.emit('clientExtensions/changed', this.snapshot(), name)
   }
 }
 
@@ -120,6 +120,6 @@ clientExtensionRegistryPlugin.provide = 'clientExtensions'
 
 declare module 'cordis' {
   interface Events {
-    'clientExtensions/changed'(snapshot: Record<string, JsonValue>): void
+    'clientExtensions/changed'(snapshot: Record<string, JsonValue>, name?: string): void
   }
 }

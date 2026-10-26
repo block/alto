@@ -35,6 +35,39 @@ describe('ACP process provider', () => {
     await provider.stop()
   })
 
+  it('offers Gemini model choices before opening an agent connection', async () => {
+    const openConnection = vi.fn<AcpConnectionFactory>()
+    const provider = new AcpProcessProvider({ id: 'gemini', label: 'Gemini', command: 'unused', openConnection })
+    expect(provider.snapshot().configOptions?.[0]?.options).toContainEqual({ value: 'gemini-4-argon', name: 'Gemini 4 Argon' })
+    expect(provider.snapshot().configOptions?.some(option => option.category === 'thought_level')).toBe(false)
+    expect(provider.snapshot().activeSessionIds).toEqual([])
+    expect(openConnection).not.toHaveBeenCalled()
+    await provider.stop()
+  })
+
+  it('retains discovered configuration for later drafts after every session closes', async () => {
+    const config = (value: string): acp.SessionConfigOption[] => [{ id: 'model', name: 'Model', type: 'select', category: 'model',
+      currentValue: value, options: [{ value: 'a', name: 'A' }, { value: 'b', name: 'B' }] }]
+    const agent = acp.agent().onRequest('initialize', () => ({ protocolVersion: acp.PROTOCOL_VERSION, agentCapabilities: { loadSession: true } }))
+      .onRequest('session/new', () => ({ sessionId: 'discovery', configOptions: config('a') }))
+      .onRequest('session/set_config_option', ctx => ({ configOptions: config(String(ctx.params.value)) }))
+      .onRequest('session/load', () => ({ configOptions: [] }))
+    const provider = new AcpProcessProvider({ id: 'other-agent', label: 'Other agent', command: 'unused', openConnection: directConnection(agent) })
+    try {
+      await provider.createSession({ cwd: '/tmp', permissionMode: 'ask' })
+      await provider.configure('discovery', 'model', 'b')
+      await provider.closeSession('discovery')
+      expect(provider.snapshot().activeSessionIds).toEqual([])
+      const snapshot = provider.snapshot()
+      expect(snapshot.configOptions?.[0]?.currentValue).toBe('b')
+      snapshot.configOptions![0]!.currentValue = 'mutated'
+      expect(provider.snapshot().configOptions?.[0]?.currentValue).toBe('b')
+      await provider.loadSession('saved', { cwd: '/tmp', permissionMode: 'ask' })
+      await provider.closeSession('saved')
+      expect(provider.snapshot().configOptions).toEqual([])
+    } finally { await provider.stop() }
+  })
+
   it('negotiates stable ACP, normalizes updates, and applies the captured permission mode', async () => {
     let permissionOutcome: acp.RequestPermissionResponse | undefined
     const agent = acp.agent({ name: 'test-agent' })
@@ -80,6 +113,19 @@ describe('ACP process provider', () => {
             title: 'Read package metadata',
             kind: 'read',
             status: 'in_progress',
+          },
+        })
+        await ctx.client.notify(acp.methods.client.session.update, {
+          sessionId: ctx.params.sessionId,
+          update: { sessionUpdate: 'tool_call', toolCallId: 'tool-2', title: 'git status', kind: 'execute', status: 'in_progress' },
+        })
+        await ctx.client.notify(acp.methods.client.session.update, {
+          sessionId: ctx.params.sessionId,
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'tool-2',
+            status: 'completed',
+            content: [{ type: 'content', content: { type: 'text', text: 'clean' } }],
           },
         })
         await ctx.client.notify(acp.methods.client.session.update, {
@@ -135,7 +181,9 @@ describe('ACP process provider', () => {
     })
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'permission.requested', toolCallId: 'tool-1' }),
-      expect.objectContaining({ type: 'tool.started', title: 'Read package metadata' }),
+      expect.objectContaining({ type: 'tool.started', title: 'Read files', content: 'Read package metadata', kind: 'read' }),
+      expect.objectContaining({ type: 'tool.started', toolCallId: 'tool-2', title: 'Ran a command', content: 'git status' }),
+      expect.objectContaining({ type: 'tool.updated', toolCallId: 'tool-2', title: 'Ran a command', content: 'git status\n\nclean', kind: 'execute', status: 'completed' }),
       expect.objectContaining({
         type: 'message.delta',
         role: 'agent',

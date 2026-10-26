@@ -106,7 +106,11 @@ describe('program profile metadata', () => {
     expect(entries.get('work-contexts')?.children?.some((entry) => entry.id === 'work-actions'))
       .toBe(true)
     expect(entries.get('work-contexts')?.children?.map((entry) => entry.id))
-      .toEqual(['work-actions'])
+      .toEqual(['work-actions', 'local-workspace-registration'])
+    expect(entries.get('local-workspace-registration')).toMatchObject({
+      enabled: true,
+      module: 'plugins/local-workspace-registration.ts',
+    })
     expect(entries.get('git-support')?.children?.map((entry) => entry.id))
       .toEqual(['git-thread-details', 'git-pane-status'])
     expect(entries.get('sidebar')?.children?.map((entry) => entry.id))

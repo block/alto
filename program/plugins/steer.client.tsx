@@ -40,6 +40,7 @@ import {
 import type { ClientConversationService, ClientSessionSnapshot } from './session-api.js'
 import { useStoreSelector } from './ui/store-selector.js'
 import { acceptsImmediateReply } from './ui/turn-intervention.js'
+import { parseSourceEditPrompt, sourceEditRequestLabel } from './source-edit-presentation.js'
 
 export interface QueuedSteerMessage {
   id: string
@@ -533,7 +534,7 @@ export function SteerSurface({
   useEffect(() => queue.scopeTo(state.threadId), [state.threadId, queue])
 
   useEffect(() => {
-    if (editingId && !messages.some((message) => message.id === editingId)) {
+    if (editingId && !messages.some((message) => message.id === editingId && !parseSourceEditPrompt(message.draft.text))) {
       setEditingId(undefined)
       setEditText('')
       setEditError(undefined)
@@ -610,10 +611,16 @@ export function SteerSurface({
 
   return (
     <section className="steer-queue" aria-label="Queued messages" aria-live="polite">
-      {messages.map((message) => (
+      {messages.map((message) => {
+        const editRequest = parseSourceEditPrompt(message.draft.text)
+        const label = editRequest
+          ? `${sourceEditRequestLabel(editRequest)} · ${editRequest.instruction.replace(/\s+/gu, ' ')}`
+          : messageLabel(message)
+        const editing = editingId === message.id && !editRequest
+        return (
         <div
-          className={`steer-row ${draggingId === message.id ? 'is-dragging' : ''} ${editingId === message.id ? 'is-editing' : ''}`}
-          draggable={message.state === 'queued' && editingId !== message.id}
+          className={`steer-row ${draggingId === message.id ? 'is-dragging' : ''} ${editing ? 'is-editing' : ''}`}
+          draggable={message.state === 'queued' && !editing}
           onDragStart={(event) => {
             setDraggingId(message.id)
             event.dataTransfer.effectAllowed = 'move'
@@ -627,7 +634,7 @@ export function SteerSurface({
             <GripVertical size={14} />
             <CornerDownRight size={16} />
           </span>
-          {editingId === message.id ? (
+          {editing ? (
             <div className="steer-edit">
               <textarea
                 className="steer-editor"
@@ -673,8 +680,8 @@ export function SteerSurface({
             </div>
           ) : (
             <>
-              <span className="steer-message" title={messageLabel(message)}>
-                {messageLabel(message)}
+              <span className="steer-message" title={label}>
+                {label}
               </span>
           {message.draft.images.length > 0 && (
             <span className="steer-images" title={`${message.draft.images.length} attached`}>
@@ -686,7 +693,7 @@ export function SteerSurface({
               <Paperclip size={13} /> {message.draft.attachments.length}
             </span>
           )}
-          <button
+          {!editRequest && <button
             className="steer-edit-button"
             type="button"
             disabled={message.state !== 'queued'}
@@ -699,7 +706,7 @@ export function SteerSurface({
             }}
           >
             <Pencil size={14} />
-          </button>
+          </button>}
           <button
             className="steer-now"
             type="button"
@@ -724,7 +731,8 @@ export function SteerSurface({
             </>
           )}
         </div>
-      ))}
+        )
+      })}
     </section>
   )
 }

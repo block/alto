@@ -53,3 +53,14 @@ export interface ComposerComponentProps extends ClientSurfaceProps {
   lockWorkspace?: boolean
   draftStore?: ComposerDraftStore
 }
+
+export const QUESTION_REPLY_COMPONENT = 'chat.question-reply'
+
+export interface QuestionReplyButtonProps {
+  threadId: string | undefined
+  id: string
+  title: string
+  label: string
+  disabled: boolean
+  submit(draft: ClientDraft): Promise<void>
+}

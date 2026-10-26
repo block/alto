@@ -10,11 +10,11 @@
         {
           "id": "prompt-layer",
           "name": "Prompt Layer",
-          "description": "Guides Codex to use and safely extend the live Cordis program.",
+          "description": "Guides agents to use available Alto tools and safely extend the live Cordis program.",
           "module": "plugins/prompt-layer.ts",
           "enabled": true,
           "config": {
-            "context": "You are running inside Alto. Use the cordis dispatcher to list, describe, and invoke live capabilities. Prefer installed workspace/* and work/* tools for panes and work targets. Before modifying Alto itself (plugins, UI, shell, or Cordis composition), load the alto-authoring skill by invoking cordis_authoring_skill through cordis, then follow its instructions. Inspect cordis_runtime_status for current shell state and IDs. Apply live program changes only through cordis_reprogram; use cordis_propose_change when the user explicitly requests review first. If cordis is unavailable, ask the user to start a new Alto chat."
+            "context": "You are running inside Alto, a plugin-driven workspace for local and remote coding agents. Use cordis to list, describe, and invoke available application tools. Prefer installed workspace/* and work/* tools for panes and work targets. Before modifying Alto plugins, UI, shell, or Cordis composition, load the alto-authoring skill by invoking cordis_authoring_skill through cordis, then follow it. Inspect cordis_runtime_status for live shell state and IDs. Apply live program changes only through cordis_reprogram; use cordis_propose_change for explicit review requests. Agent capabilities depend on the selected provider. If cordis or a required tool is unavailable, explain that specific limitation and continue ordinary repository work with available tools; do not assume reopening this chat adds tools."
           }
         },
         {
@@ -82,6 +82,24 @@
             "args": [
               "--yes",
               "pi-acp@0.0.33"
+            ],
+            "initialConfig": [
+              {
+                "id": "model",
+                "name": "Model",
+                "category": "model",
+                "currentValue": "default",
+                "options": [
+                  {
+                    "value": "default",
+                    "name": "Agent default"
+                  },
+                  {
+                    "value": "databricks/system.ai.deepseek-v4-1-flash-1017",
+                    "name": "DeepSeek V4.1 Flash 1017 (Databricks)"
+                  }
+                ]
+              }
             ]
           }
         },
@@ -92,7 +110,9 @@
           "module": "plugins/agent-chats.ts",
           "enabled": true,
           "config": {
-            "historyProviders": ["claude"]
+            "historyProviders": [
+              "claude"
+            ]
           }
         },
         {
@@ -102,6 +122,63 @@
           "module": "plugins/remote-agents.ts",
           "enabled": true,
           "config": {}
+        },
+        {
+          "id": "codex-models",
+          "name": "Codex models",
+          "description": "Adds configured model providers to native Codex chats.",
+          "module": "plugins/codex-models.ts",
+          "enabled": true,
+          "config": {
+            "routes": [
+              {
+                "modelProvider": "databricks",
+                "model": {
+                  "id": "system.ai.deepseek-v4-1-flash-1017",
+                  "displayName": "DeepSeek V4.1 Flash 1017 (Databricks)",
+                  "defaultReasoningEffort": "high",
+                  "supportedReasoningEfforts": [
+                    {
+                      "reasoningEffort": "low"
+                    },
+                    {
+                      "reasoningEffort": "high"
+                    },
+                    {
+                      "reasoningEffort": "max"
+                    }
+                  ]
+                },
+                "config": {
+                  "model": "system.ai.deepseek-v4-1-flash-1017",
+                  "model_provider": "databricks",
+                  "model_catalog_json": "/Users/jm/.codex/models/deepseek-databricks.json",
+                  "model_reasoning_effort": "high",
+                  "web_search": "disabled",
+                  "agents": {
+                    "max_depth": 1,
+                    "max_concurrent_threads_per_session": 2
+                  },
+                  "model_providers": {
+                    "databricks": {
+                      "name": "Block Databricks",
+                      "base_url": "https://block-lakehouse-production.cloud.databricks.com/ai-gateway/mlflow/v1",
+                      "wire_api": "responses",
+                      "supports_websockets": false,
+                      "auth": {
+                        "command": "/usr/bin/python3",
+                        "args": [
+                          "/Users/jm/.pi/agent/databricks-token.py"
+                        ],
+                        "timeout_ms": 50000,
+                        "refresh_interval_ms": 300000
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
         }
       ]
     },
@@ -110,6 +187,15 @@
       "name": "Background Processes",
       "description": "Runs command launches off the application input thread.",
       "module": "plugins/process-runner.ts",
+      "enabled": true,
+      "config": {}
+    },
+    {
+      "id": "keep-awake",
+      "name": "Keep Awake",
+      "description": "Prevents idle sleep while local agents are working, while allowing the display to turn off and lock.",
+      "module": "plugins/keep-awake.ts",
+      "client": "plugins/keep-awake.client.tsx",
       "enabled": true,
       "config": {}
     },
@@ -221,6 +307,15 @@
           "description": "Stores the agent, model, and reasoning choices used for new chats.",
           "module": "plugins/model-defaults.ts",
           "enabled": true,
+          "config": {}
+        },
+        {
+          "id": "agent-switcher",
+          "name": "Agent Picker",
+          "description": "Switches the focused chat’s agent, model, and reasoning from a compact keyboard picker.",
+          "module": "plugins/agent-switcher.ts",
+          "client": "plugins/agent-switcher.client.tsx",
+          "enabled": false,
           "config": {}
         },
         {
@@ -435,6 +530,15 @@
               ]
             },
             {
+              "id": "pr-watcher",
+              "name": "PR Watcher",
+              "description": "Watches GitHub PRs and native stacks while Alto runs, repairs CI on Blox, and optionally addresses review feedback.",
+              "module": "plugins/pr-watcher.ts",
+              "client": "plugins/pr-watcher.client.tsx",
+              "enabled": true,
+              "config": {}
+            },
+            {
               "id": "code-explorer",
               "name": "Code Navigation",
               "description": "Provides shared navigation contributions for read-only source and diff panes.",
@@ -530,7 +634,7 @@
                 {
                   "id": "chat-history-hotkeys",
                   "name": "History Shortcut",
-                  "description": "Opens chat history with Command\u2013Shift\u2013H.",
+                  "description": "Opens chat history with Command–Shift–H.",
                   "client": "plugins/chat-history-hotkeys.client.ts",
                   "enabled": true,
                   "config": {}
@@ -592,6 +696,14 @@
               "client": "plugins/work-targets.client.tsx",
               "enabled": true,
               "config": {}
+            },
+            {
+              "id": "local-workspace-registration",
+              "name": "Local workspaces",
+              "description": "Registers an existing local folder so it can be selected as a work target.",
+              "module": "plugins/local-workspace-registration.ts",
+              "enabled": true,
+              "config": {}
             }
           ]
         },
@@ -629,15 +741,17 @@
               "client": "plugins/editor-pane.client.tsx",
               "enabled": true,
               "config": {},
-              "children": [{
-                "id": "editor-file-links",
-                "name": "Editor File Links",
-                "description": "Opens source links in the checkout's existing Neovim pane.",
-                "module": "plugins/editor-file-links.ts",
-                "client": "plugins/editor-file-links.client.ts",
-                "enabled": true,
-                "config": {}
-              }]
+              "children": [
+                {
+                  "id": "editor-file-links",
+                  "name": "Editor File Links",
+                  "description": "Opens source links in the checkout's existing Neovim pane.",
+                  "module": "plugins/editor-file-links.ts",
+                  "client": "plugins/editor-file-links.client.ts",
+                  "enabled": true,
+                  "config": {}
+                }
+              ]
             }
           ]
         },

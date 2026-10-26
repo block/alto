@@ -1,0 +1,82 @@
+.pr-watcher-action { padding: var(--space-2) 0; }
+.pr-watcher-start {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+  font-size: var(--type-supporting);
+}
+.pr-watcher-start small { margin-left: auto; color: var(--muted); }
+.pr-watcher-start svg { flex: none; }
+.pr-watcher-start span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-watcher-controls {
+  min-width: 0;
+  padding: var(--space-1) var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--sans);
+  font-size: var(--type-supporting);
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--panel-soft) 45%, transparent);
+}
+.pr-watcher-toolbar { display: flex; align-items: center; min-height: var(--control-compact); gap: var(--space-2); padding: 0; }
+.pr-watcher-status { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+.pr-watcher-status svg { color: var(--muted); }
+.pr-watcher-status.is-watching svg { color: var(--success); }
+.pr-watcher-status.is-working svg, .pr-watcher-status.is-starting svg { color: var(--accent); }
+.pr-watcher-status.is-blocked svg { color: var(--warning); }
+.pr-watcher-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.pr-watcher-pause { flex: none; }
+.pr-watcher-feedback { margin-top: var(--space-1); }
+.pr-watcher-feedback > summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-compact);
+  cursor: pointer;
+  list-style: none;
+}
+.pr-watcher-feedback > summary::-webkit-details-marker { display: none; }
+.pr-watcher-feedback > summary > svg { color: var(--muted); flex: none; }
+.pr-watcher-feedback[open] > summary > svg:last-child { transform: rotate(180deg); }
+.pr-watcher-feedback > summary > small { margin-left: auto; color: var(--muted); white-space: nowrap; }
+.pr-watcher-members { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); padding-top: var(--space-1); }
+.pr-watcher-feedback-control { min-width: 0; }
+.pr-watcher-feedback-toggle {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--control-compact);
+  padding: var(--space-1) 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pr-watcher-feedback-toggle:hover { color: var(--text); }
+.pr-watcher-feedback-toggle:disabled { cursor: default; color: var(--muted); }
+.pr-watcher-feedback-toggle > span:first-child { min-width: 0; display: flex; align-items: baseline; gap: var(--space-2); }
+.pr-watcher-feedback-toggle strong { flex: none; font-weight: var(--weight-medium); color: var(--muted); }
+.pr-watcher-feedback-toggle > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-watcher-feedback-toggle .settings-switch { flex: none; }
+.pr-watcher-message, .pr-watcher-error { margin: var(--space-1) 0 0; font-size: var(--type-supporting); line-height: var(--line-body); overflow-wrap: anywhere; }
+.pr-watcher-message { color: var(--muted); }
+.pr-watcher-error { color: var(--danger); }
+.pr-watcher-latest { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding: var(--space-1) 0; color: var(--muted); text-decoration: none; }
+.pr-watcher-latest svg { flex: none; }
+.pr-watcher-latest span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-watcher-latest:hover { color: var(--accent); }
+.pr-watcher-feedback-toggle:focus-visible, .pr-watcher-feedback > summary:focus-visible, .pr-watcher-latest:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: var(--space-1); }
+.pr-watcher-spinner { animation: pr-watcher-spin 1s linear infinite; }
+@keyframes pr-watcher-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pr-watcher-spinner { animation: none; } }

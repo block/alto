@@ -122,16 +122,24 @@ async function check() {
     await run('toggle(true)');await paint()
     assert.equal(await run('button().getAttribute("aria-label")'),'Open in Zed')
     assert.equal(await run('document.querySelector("[data-cordis-composer-editor]").textContent'),'')
-    for(const width of [1000,480,360]) {
+    for(const width of [1024,480,360]) {
       window.setContentSize(width,520)
       for(const theme of ['light','dark']) {
         await run(`document.documentElement.dataset.altoTheme='${theme}';document.documentElement.dataset.altoChrome='alto'`)
         await paint()
         const bounds=await run('geometry()')
         assert.equal(bounds.overflow,false,JSON.stringify({width,bounds}))
-        assert.ok(bounds.button.x>=bounds.composer.x && bounds.button.right<=bounds.model.x,JSON.stringify({width,bounds}))
-        assert.ok(bounds.send.right<=width,JSON.stringify({width,bounds}))
-        assert.ok(bounds.button.bottom<=bounds.composer.bottom,JSON.stringify({width,bounds}))
+        const detail=JSON.stringify({width,bounds})
+        for(const control of [bounds.button,bounds.context,bounds.model,bounds.send]) {
+          assert.ok(control.x>=bounds.composer.x && control.right<=bounds.composer.right,detail)
+          assert.ok(control.y>=bounds.composer.y && control.bottom<=bounds.composer.bottom,detail)
+        }
+        assert.ok(bounds.button.x>=bounds.context.x && bounds.button.right<=bounds.context.right,detail)
+        assert.ok(bounds.model.right<=bounds.send.x,detail)
+        const sameRow=bounds.context.y<bounds.model.bottom && bounds.model.y<bounds.context.bottom
+        if(sameRow) assert.ok(bounds.context.right<=bounds.model.x,detail)
+        else assert.ok(bounds.context.bottom<=Math.min(bounds.model.y,bounds.send.y),detail)
+        assert.ok(bounds.composer.height<=150,'The empty composer stays compact: '+detail)
         if(process.env.ALTO_IDE_ARTIFACT_DIR){
           await fs.mkdir(process.env.ALTO_IDE_ARTIFACT_DIR,{recursive:true})
           await fs.writeFile(path.join(process.env.ALTO_IDE_ARTIFACT_DIR,`ide-${width}-${theme}.png`),(await window.webContents.capturePage()).toPNG())

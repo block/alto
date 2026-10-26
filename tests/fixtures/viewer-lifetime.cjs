@@ -37,12 +37,12 @@ async function check() {
         if(!window.held.has(method))return Promise.resolve(value);
         return new Promise((resolve,reject)=>window.pending.push({method,resolve:()=>resolve(value),reject}));
       }};
-      const snapshot={revision:0,codeBlocks:[],fileLinks:[]},explorers={revision:0};
+      const snapshot={revision:0,codeBlocks:[],fileLinks:[]},explorers={revision:0},layoutSnapshot={revision:0};
       const ui={registerComponent:()=>{},registerRoot:()=>{},overlays:{subscribe:()=>()=>{},nativeViewsOccluded:()=>false,close:()=>{}},
         registerStyle:(_owner,_id,css)=>{const style=document.createElement('style');style.textContent=css;document.head.append(style);cleanup.push(()=>style.remove())}};
       const ctx={clientHost:host,clientUi:ui,clientMarkdown:{subscribe:()=>()=>{},snapshot:()=>snapshot,registerFileLink:()=>{}},
         clientCodeExplorer:{subscribe:()=>()=>{},snapshot:()=>explorers},
-        clientWorkspaceLayout:{registerPaneKind:(_owner,kind)=>kinds.set(kind.id,kind.renderer)},
+        clientWorkspaceLayout:{registerPaneKind:(_owner,kind)=>kinds.set(kind.id,kind.renderer),paneTargets:()=>[],subscribe:()=>()=>{},snapshot:()=>layoutSnapshot},
         clientNativeViews:{available:()=>true,create:async()=>{
           const record={visible:false,destroyed:false,reloads:0};window.native.push(record);
           return {setVisible:value=>{record.visible=value},setBounds:()=>{},focus:()=>{},destroy:async()=>{record.destroyed=true},perform:async action=>{if(action==='reload')record.reloads++}};

@@ -60,6 +60,12 @@ describe('AppServerClient', () => {
     await retry
     failed.emit('exit', 1, null)
     expect(client.status).toBe('ready')
+    const staleNotification = vi.fn()
+    client.on('notification', staleNotification)
+    failed.stdout.write(`${JSON.stringify({ method: 'stale/notification' })}\n`)
+    failed.stdout.end(JSON.stringify({ method: 'stale/final' }))
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(staleNotification).not.toHaveBeenCalled()
     await expect(client.request('model/list')).resolves.toEqual({})
     expect(createProcess).toHaveBeenCalledTimes(2)
     await client.stop()
@@ -79,6 +85,89 @@ describe('AppServerClient', () => {
     await restarted
     expect(client.status).toBe('ready')
     await client.stop()
+  })
+
+  it('preserves Unicode separators across UTF-8 chunks and CRLF frames', async () => {
+    const child = new MockProcess()
+    const content = 'before\u2028middle\u2029after 🙂\r\nlast line'
+    jsonLines(child.stdin, (message) => {
+      if (message.method === 'initialize') {
+        child.stdout.write(`${JSON.stringify({ id: message.id, result: {} })}\n`)
+      }
+      if (message.method === 'thread/read') {
+        const frames = Buffer.from([
+          JSON.stringify({ method: 'test/notification', params: { content } }),
+          JSON.stringify({ id: message.id, result: { content } }),
+          '',
+        ].join('\r\n'))
+        // Split every multibyte character and the CRLF delimiters across writes.
+        for (let offset = 0; offset < frames.length; offset += 1) {
+          child.stdout.write(frames.subarray(offset, offset + 1))
+        }
+      }
+    })
+    const client = new AppServerClient({ createProcess: () => child })
+    const diagnostics: string[] = []
+    client.on('stderr', (text: string) => diagnostics.push(text))
+    const notification = once(client, 'notification')
+    try {
+      await expect(client.request('thread/read')).resolves.toEqual({ content })
+      await expect(notification).resolves.toEqual([{ method: 'test/notification', params: { content } }])
+      expect(diagnostics).toEqual([])
+    } finally {
+      await client.stop()
+    }
+  })
+
+  it('reads multiple frames in one chunk and a complete final frame without LF', async () => {
+    const child = new MockProcess()
+    jsonLines(child.stdin, (message) => {
+      if (message.method === 'initialize') {
+        child.stdout.write(`${JSON.stringify({ id: message.id, result: {} })}\n`)
+      }
+      if (message.method === 'thread/read') {
+        child.stdout.end([
+          JSON.stringify({ method: 'test/first', params: {} }),
+          JSON.stringify({ method: 'test/second', params: {} }),
+          JSON.stringify({ id: message.id, result: { content: 'final response' } }),
+        ].join('\n'))
+      }
+    })
+    const client = new AppServerClient({ createProcess: () => child })
+    const methods: string[] = []
+    client.on('notification', (event: { method: string }) => methods.push(event.method))
+    try {
+      await expect(client.request('thread/read')).resolves.toEqual({ content: 'final response' })
+      expect(methods).toEqual(['test/first', 'test/second'])
+    } finally {
+      await client.stop()
+    }
+  })
+
+  it('bounds diagnostics for an incomplete final frame and rejects its request on exit', async () => {
+    const child = new MockProcess()
+    jsonLines(child.stdin, (message) => {
+      if (message.method === 'initialize') {
+        child.stdout.write(`${JSON.stringify({ id: message.id, result: {} })}\n`)
+      }
+      if (message.method === 'thread/read') {
+        child.stdout.once('end', () => child.emit('exit', 1, null))
+        child.stdout.end(`{"id":${message.id},"result":{"content":"${'x'.repeat(64 * 1024)}`)
+      }
+    })
+    const client = new AppServerClient({ createProcess: () => child })
+    const diagnostics: string[] = []
+    client.on('stderr', (text: string) => diagnostics.push(text))
+    try {
+      await expect(client.request('thread/read')).rejects.toThrow('codex app-server exited (1)')
+      expect(client.status).toBe('failed')
+      expect(diagnostics).toHaveLength(1)
+      expect(diagnostics[0]).toMatch(/^Invalid app-server JSON: /)
+      expect(diagnostics[0]).toContain('characters total]')
+      expect(diagnostics[0]!.length).toBeLessThan(4200)
+    } finally {
+      await client.stop()
+    }
   })
 
   it('initializes JSON-RPC and handles requests in both directions', async () => {

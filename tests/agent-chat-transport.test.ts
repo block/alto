@@ -88,8 +88,56 @@ async function fixture() {
     expect(result.error).toBeUndefined()
     return result.payload
   }
-  return { ctx, root, socket, events, steer, call, bytes: () => bytes }
+  return { ctx, root, socket, events, steer, call, origin, protocol, bytes: () => bytes }
 }
+
+it('sends only changed extension keys during bursts with large saved chat histories', async () => {
+  const f = await fixture()
+  const saved = f.ctx.clientExtensions.registerState(f.ctx, 'saved-chat-history', 'x'.repeat(1_903_222))
+  const progress = f.ctx.clientExtensions.registerState(f.ctx, 'test-progress', 0)
+  cleanup.push(() => saved.dispose(), () => progress.dispose())
+  await vi.waitFor(() => expect(f.events.some((event) => (
+    event.type === 'extensions.updated' && event.payload['test-progress'] === 0
+  ))).toBe(true))
+  const before = f.bytes()
+  const eventOffset = f.events.length
+  // This burst previously retransmitted 1.9 MB eight times, exceeding the
+  // gateway's socket buffer limit and disconnecting every open chat pane.
+  for (let index = 1; index <= 8; index += 1) progress.update(index)
+  await vi.waitFor(() => expect(f.events.some((event) => (
+    event.type === 'extensions.updated' && event.payload['test-progress'] === 8
+  ))).toBe(true))
+  expect(f.socket.readyState).toBe(WebSocket.OPEN)
+  expect(f.bytes() - before).toBeLessThan(2_000)
+  const updates = f.events.slice(eventOffset)
+    .filter((event) => event.type === 'extensions.updated')
+    .filter((event) => Object.hasOwn(event.payload, 'test-progress'))
+  expect(updates).toHaveLength(8)
+  expect(updates.every((event) => event.partial && Object.keys(event.payload).join() === 'test-progress')).toBe(true)
+
+  progress.update(null)
+  await vi.waitFor(() => expect(f.events.some((event) => (
+    event.type === 'extensions.updated' && event.partial && event.payload['test-progress'] === null
+  ))).toBe(true))
+  await progress.dispose()
+  await vi.waitFor(() => expect(f.events.some((event) => (
+    event.type === 'extensions.updated' && event.partial && event.removed?.includes('test-progress')
+  ))).toBe(true))
+  const replacement = f.ctx.clientExtensions.registerState(f.ctx, 'test-progress', 'replacement')
+  cleanup.push(() => replacement.dispose())
+  await vi.waitFor(() => expect(f.events.some((event) => (
+    event.type === 'extensions.updated' && event.partial && event.payload['test-progress'] === 'replacement'
+  ))).toBe(true))
+
+  const second = new WebSocket(f.socket.url, f.protocol, { origin: f.origin })
+  cleanup.push(() => { second.terminate() })
+  const [data] = await once(second, 'message')
+  const initial = JSON.parse(data.toString()) as Extract<HarnessEvent, { type: 'snapshot' }>
+  expect(initial.type).toBe('snapshot')
+  expect((initial.payload.extensions['saved-chat-history'] as string).length).toBe(1_903_222)
+  expect(initial.payload.extensions['test-progress']).toBe('replacement')
+  expect(f.socket.readyState).toBe(WebSocket.OPEN)
+})
 
 it('keeps the harness connected while many subagents publish large transcripts', async () => {
   const f = await fixture()

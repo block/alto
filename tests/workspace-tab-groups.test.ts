@@ -3,7 +3,7 @@ import { parseWorkspaceLayout, type WorkspaceLayoutState } from '../program/plug
 import { closeWorkspaceTab, dockWorkspaceTab, restoreWorkspaceTab } from '../program/plugins/workspace-layout.client.js'
 import {
   activateWorkspaceTab, assignTabToGroup, createTabGroup, dropWorkspaceTabs, moveWorkspaceTab,
-  moveWorkspaceTabGroup, normalizeTabGroups, ungroupTabs, updateTabGroup,
+  moveWorkspaceTabGroup, normalizeTabGroups, tabGroupShortcutTargets, ungroupTabs, updateTabGroup,
 } from '../program/plugins/workspace-tab-groups.js'
 
 function layout(): WorkspaceLayoutState {
@@ -18,6 +18,33 @@ function grouped(): WorkspaceLayoutState {
 }
 
 describe('workspace tab groups', () => {
+  it('counts each group once for numbered shortcuts whether expanded or collapsed', () => {
+    const original = assignTabToGroup(createTabGroup(layout(), 'a', 'backlog'), 'b', 'backlog')
+    for (const collapsed of [true, false]) {
+      const state = updateTabGroup({ ...original, activeViewId: 'e' }, 'backlog', { collapsed })
+      expect(tabGroupShortcutTargets(state).map((view) => view.id)).toEqual(['a', 'c', 'd', 'e'])
+      expect(tabGroupShortcutTargets(state)[2]?.id).toBe('d')
+    }
+  })
+
+  it('keeps the current member selected when its group shortcut is used', () => {
+    const original = updateTabGroup(grouped(), 'group', { collapsed: true })
+    const state = { ...original, activeViewId: 'd' }
+    const targets = tabGroupShortcutTargets(state)
+    expect(targets.map((view) => view.id)).toEqual(['a', 'd', 'c', 'e'])
+    expect(activateWorkspaceTab(state, targets[1]!.id)).toMatchObject({
+      activeViewId: 'd', groups: [{ id: 'group', collapsed: false }],
+    })
+  })
+
+  it('numbers multiple groups and ungrouped tabs in their current order', () => {
+    const state = assignTabToGroup(createTabGroup(grouped(), 'c', 'second'), 'e', 'second')
+    expect(tabGroupShortcutTargets(state).map((view) => view.id)).toEqual(['a', 'b', 'c'])
+    expect(tabGroupShortcutTargets(moveWorkspaceTabGroup(state, 'second', 'a')).map((view) => view.id))
+      .toEqual(['c', 'a', 'b'])
+    expect(tabGroupShortcutTargets(layout()).map((view) => view.id)).toEqual(['a', 'b', 'c', 'd', 'e'])
+  })
+
   it('commits a tab drop at a precise position inside a group', () => {
     const original = grouped()
     const result = dropWorkspaceTabs(original, { kind: 'tab', id: 'e' }, { beforeId: 'd', groupId: 'group' })

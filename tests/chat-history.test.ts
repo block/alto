@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ChatHistoryStore, groupChatHistory, mergeChatHistory } from '../program/plugins/chat-history-model.js'
-import { readChatHistoryPage } from '../program/plugins/chat-history.js'
+import { readChatHistoryPage, searchChatHistoryPage } from '../program/plugins/chat-history.js'
 import { CHAT_HISTORY_PAGE_SIZE, type ChatHistoryPage } from '../program/plugins/chat-history-api.js'
 import { historyWorkspace, openHistoryChat } from '../program/plugins/chat-history.client.js'
 import type { ThreadSummary } from '../src/shared/protocol.js'
@@ -67,6 +67,22 @@ describe('chat history pages', () => {
     const classify = async (threads: ThreadSummary[]) => threads
     await expect(readChatHistoryPage({ request: async () => ({}) }, classify)).rejects.toThrow('invalid history page')
     await expect(readChatHistoryPage({ request: async () => ({ data: [], nextCursor: 'same' }) }, classify, 'same')).rejects.toThrow('repeated')
+  })
+
+  it('returns message-only matches with excerpts through native paginated search', async () => {
+    const request = vi.fn().mockResolvedValue({ data: [
+      { thread: { id: 'body-match', name: 'Unrelated title', preview: 'Unrelated first message', cwd: '/repo', updatedAt: 20 }, snippet: 'An assistant reply mentions the needle.' },
+      { malformed: true },
+    ], nextCursor: 'more-matches' })
+    const result = await searchChatHistoryPage({ request }, async (threads) => threads.map((thread) => ({ ...thread, projectId: 'project' })), 'needle', 'page-2')
+    expect(request).toHaveBeenCalledExactlyOnceWith('thread/search', {
+      searchTerm: 'needle', cursor: 'page-2', limit: 40, sortKey: 'recency_at', sortDirection: 'desc',
+      sourceKinds: ['cli', 'vscode', 'appServer'],
+    })
+    expect(result.threads).toHaveLength(1)
+    expect(result.threads[0]).toMatchObject({ id: 'body-match', title: 'Unrelated title', projectId: 'project' })
+    expect(result.snippets['body-match']).toBe('An assistant reply mentions the needle.')
+    expect(result.nextCursor).toBe('more-matches')
   })
 
   it('uses recency and deduplicates overlapping pages without overwriting a newer entry', () => {
