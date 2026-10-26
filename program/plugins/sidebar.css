@@ -318,7 +318,25 @@ html[data-desktop-platform="darwin"] [data-shell-node="conversation-history"] > 
 }
 
 .history-entry-row > .history-entry {
+  padding-right: var(--space-3);
+}
+
+/* The actions button is hidden at rest; only reserve its slot while it shows. */
+.history-entry-row:is(:hover, :focus-within) > .history-entry,
+.history-entry-row:has(> .history-entry-more[aria-expanded='true']) > .history-entry {
   padding-right: calc(var(--control-compact) + var(--space-2));
+}
+
+.history-entry:has(> .history-entry-meta:empty) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.history-entry-meta:empty {
+  display: none;
+}
+
+.history-entry .thread-status-indicator.running {
+  color: var(--muted);
 }
 
 .history-entry-more {
@@ -420,6 +438,10 @@ html[data-alto-theme='dark'] .history-entry.active {
   .history-entry-more {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  .history-entry-row > .history-entry {
+    padding-right: calc(var(--control-compact) + var(--space-2));
   }
 }
 

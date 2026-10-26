@@ -106,6 +106,8 @@ export class ConversationScrollController {
     this.feed.addEventListener(CONVERSATION_FOLLOW_LATEST_EVENT, this.onFollowLatest)
     this.resizeObserver = new ResizeObserver(this.onResize)
     this.resizeObserver.observe(this.content)
+    // A growing composer shrinks the feed without resizing its content.
+    this.resizeObserver.observe(this.feed)
     this.refresh()
   }
 

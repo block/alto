@@ -120,6 +120,13 @@ html[data-desktop-platform="darwin"] .workspace-tabbar {
 
 .workspace-tabs::-webkit-scrollbar { display: none; }
 
+/* Tabs that overflow the strip fade out instead of ending mid-letter. */
+.workspace-tabs {
+  padding-inline-end: var(--space-4);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--space-4)), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--space-4)), transparent);
+}
+
 .workspace-tab,
 .workspace-tab-add {
   -webkit-app-region: no-drag;

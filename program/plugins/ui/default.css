@@ -2265,7 +2265,8 @@ details pre {
 
 .composer-toolbar-context {
   display: flex;
-  flex: 1 1 300px;
+  /* Size to the controls so collapsed, icon-only rows share a line with the model and send controls. */
+  flex: 1 0 auto;
   align-items: center;
   gap: 3px;
   min-width: 0;
@@ -2306,7 +2307,7 @@ details pre {
   left: 47px;
   height: 30px;
   display: flex;
-  min-width: 0;
+  min-width: min-content;
   max-width: calc(100% - 115px);
   align-items: center;
   gap: 3px;
@@ -2408,7 +2409,6 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   background: transparent;
   font: 400 var(--type-label)/normal var(--sans);
   cursor: pointer;
-  opacity: 0.68;
 }
 
 .composer-permission-trigger:hover,
@@ -2748,6 +2748,8 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 }
 
 .send-button:hover:not(:disabled) { background: var(--composer-action-hover-fill); }
+.composer .send-button:not(.stop):not(:disabled) { color: var(--accent-text); background: var(--accent); }
+.composer .send-button:not(.stop):not(:disabled):hover { background: color-mix(in srgb, var(--accent) 86%, var(--text-strong)); }
 .send-button:disabled { opacity: 0.32; cursor: not-allowed; }
 .send-button > :is(svg, .stop-glyph) { transform: translate(-3px, -3px); }
 .stop-glyph {
@@ -3687,6 +3689,10 @@ html[data-alto-theme='dark'] .program-modal-backdrop {
 }
 
 @container conversation-column (max-width: 443px) {
+  /* Keep one control row; the model label truncates before the row wraps. */
+  .composer-toolbar { flex-wrap: nowrap; }
+  .composer-toolbar-model { flex-shrink: 1; }
+  .composer-toolbar .composer-model-trigger { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .composer-attach { left: 10px; }
   .composer-context-controls { left: 43px; }
   .composer-workspace-trigger > span { display: none; }

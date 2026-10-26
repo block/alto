@@ -107,6 +107,13 @@ const PIERRE_SOURCE_STYLES = `
     0%, 48% { opacity: 1; }
     49%, 100% { opacity: .28; }
   }
+  /* The gutter add-comment button overhangs the code by design; inset the code so it stays readable. */
+  [data-file] [data-line] { padding-inline-start: 1lh; }
+  /* The add-comment button uses the app accent rather than the library's blue. */
+  [data-file] [data-utility-button] {
+    color: var(--accent-text);
+    background-color: var(--accent);
+  }
 
 `
 
