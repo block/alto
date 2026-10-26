@@ -1932,30 +1932,32 @@ pre.activity-content {
 
 .approval-card {
   display: flex;
-  gap: 13px;
-  margin: 18px 0;
-  padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--yellow) 25%, var(--border-soft));
-  border-radius: 15px;
+  min-width: 0;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-row);
   color: var(--text);
-  background: color-mix(in srgb, var(--yellow) 6%, var(--panel-solid));
-  box-shadow: var(--shadow-soft);
+  background: var(--panel);
+  box-shadow: none;
+  font-size: var(--type-label);
+  line-height: var(--line-body);
 }
 
 .approval-mark {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 1.8333em;
+  height: 1.8333em;
   flex: 0 0 auto;
-  color: var(--yellow);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--yellow) 12%, transparent);
+  color: var(--muted);
 }
 
+.approval-mark svg { width: 1.25em; height: 1.25em; }
 .approval-body { min-width: 0; flex: 1; overflow-wrap: anywhere; }
-.approval-body h3 { margin: 5px 0 10px; color: var(--text-strong); font-size: 14px; font-weight: 600; }
-.approval-body details summary { color: var(--text); }
+.approval-body h3 { margin: 1px 0 6px; color: var(--text-strong); font-size: var(--type-label); font-weight: var(--weight-medium); line-height: var(--line-chat-title); }
+.approval-body details summary { color: var(--text); font-size: var(--type-label); }
 .approval-body details pre { color: var(--text); background: var(--panel-soft); }
 .approval-body :is(input, textarea, select) {
   box-sizing: border-box;
@@ -1972,7 +1974,22 @@ pre.activity-content {
 .approval-body select option { color: var(--text); background: var(--panel-solid); }
 .approval-body :is(input, textarea, select):focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .approval-body :is(input, textarea, select):disabled { cursor: not-allowed; opacity: .65; }
-.approval-body .button { max-width: 100%; height: auto; min-height: var(--control-default); white-space: normal; overflow-wrap: anywhere; }
+.approval-body .button {
+  --alto-button-height: var(--control-compact);
+  --alto-button-padding: var(--space-1) var(--space-2);
+  --alto-button-font-size: var(--type-label);
+  --alto-button-radius: var(--radius-row);
+  --alto-button-shadow: none;
+  --alto-button-shadow-hover: none;
+  max-width: 100%;
+  min-height: var(--control-compact);
+  height: auto;
+  border-radius: var(--radius-row);
+  box-shadow: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.approval-body .button svg { width: 1.0833em; height: 1.0833em; flex-shrink: 0; }
 details summary { color: var(--muted); font-size: 11px; cursor: pointer; }
 
 details pre {
@@ -1987,7 +2004,7 @@ details pre {
   white-space: pre-wrap;
 }
 
-.approval-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; margin-top: 13px; }
+.approval-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 10px; }
 .question-list { display: grid; gap: 9px; }
 .question { display: grid; gap: 5px; color: var(--text); font-size: 12px; }
 .generic-response { display: grid; gap: 8px; margin-top: 10px; }
