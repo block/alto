@@ -15,6 +15,7 @@ import {
   SteerQueue,
 } from '../program/plugins/steer.client.js'
 import { legacyEditedQueueOrder } from '../program/plugins/steer.js'
+import { agentChatStateKey } from '../program/plugins/agent-chats-api.js'
 
 const messages = [
   { id: 'first' },
@@ -398,5 +399,66 @@ describe('steer queue ordering', () => {
       skills: [],
     })).resolves.toBeUndefined()
     expect(queue.snapshot()).toEqual([])
+  })
+  describe('ACP chat queue state', () => {
+    const threadId = 'acp-11111111-1111-1111-1111-111111111111'
+    const draft = (text: string): ClientDraft => ({ text, images: [], attachments: [], skills: [] })
+    function acpHost() {
+      const listeners = new Set<() => void>()
+      const extensions: Record<string, unknown> = {}
+      let finishDelete: (() => void) | undefined
+      let finishSteer: (() => void) | undefined
+      const host = {
+        subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+        onEvent: () => () => undefined,
+        snapshot: () => ({ snapshot: { extensions } }),
+        call: vi.fn((method: string) => {
+          if (method === 'agent-chats.queue.list') return Promise.resolve([])
+          if (method === 'agent-chats.queue.delete') return new Promise<void>((resolve) => { finishDelete = resolve })
+          if (method === 'agent-chats.queue.steer') return new Promise<void>((resolve) => { finishSteer = resolve })
+          throw new Error(`unexpected method: ${method}`)
+        }),
+      } as unknown as ClientHostService
+      const publish = (queue: Array<{ id: string; draft: ClientDraft }>, turn = 'running') => {
+        extensions[agentChatStateKey(threadId)] = { summary: { id: threadId }, turn, activities: [], queue }
+        listeners.forEach((listener) => listener())
+      }
+      return { host, publish, finishDelete: () => finishDelete?.(), finishSteer: () => finishSteer?.() }
+    }
+
+    it('keeps a deleted entry hidden while unrelated chat updates arrive', async () => {
+      const f = acpHost()
+      const queue = new SteerQueue(f.host)
+      queue.scopeTo(threadId)
+      const entries = [{ id: 'one', draft: draft('One') }, { id: 'two', draft: draft('Two') }]
+      f.publish(entries)
+      const removing = queue.remove('one')
+      expect(queue.snapshot().map((message) => message.id)).toEqual(['two'])
+      // A streaming update republishes the chat before the delete is applied.
+      f.publish([...entries])
+      expect(queue.snapshot().map((message) => message.id)).toEqual(['two'])
+      f.publish([entries[1]!])
+      f.finishDelete()
+      await removing
+      f.publish([entries[1]!, { id: 'one', draft: draft('One again') }])
+      expect(queue.snapshot().map((message) => message.id)).toEqual(['two', 'one'])
+    })
+
+    it('keeps a steering entry disabled until the server removes it', async () => {
+      const f = acpHost()
+      const queue = new SteerQueue(f.host)
+      queue.scopeTo(threadId)
+      const entries = [{ id: 'one', draft: draft('One') }]
+      f.publish(entries)
+      const steering = queue.steer('one', {} as never)
+      expect(queue.snapshot()[0]?.state).toBe('steering')
+      f.publish([...entries])
+      expect(queue.snapshot()[0]?.state).toBe('steering')
+      f.publish([])
+      expect(queue.snapshot()).toEqual([])
+      f.finishSteer()
+      await steering
+      expect(queue.snapshot()).toEqual([])
+    })
   })
 })

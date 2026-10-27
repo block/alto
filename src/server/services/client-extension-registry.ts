@@ -108,7 +108,14 @@ export class ClientExtensionRegistry {
   }
 
   private emitChanged(name: string): void {
-    this.root.emit('clientExtensions/changed', this.snapshot(), name)
+    // Cloning every state on each change blocked the event loop for tens of
+    // milliseconds once several long chats were open, delaying agent output
+    // and browser commands. Stored values are replaced on update and never
+    // mutated, so listeners receive them directly and must treat them as
+    // read-only.
+    this.root.emit('clientExtensions/changed', Object.fromEntries(
+      [...this.states.entries()].map(([name, entry]) => [name, entry.value]),
+    ), name)
   }
 }
 

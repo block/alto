@@ -35,6 +35,11 @@ function historyChatId(providerId: string, sessionId: string): string {
   return `acp-${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
+interface SendOptions {
+  messageId?: string
+  accepted?: () => void
+}
+
 const permissionMode = (value: unknown): PermissionMode => value === 'full' || value === 'auto' ? value : 'ask'
 function required(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is required`)
@@ -271,7 +276,12 @@ export class AgentChats {
     this.publish(chat, false)
   }
 
-  async send(id: string, input: AgentPromptPart[], mode: PermissionMode): Promise<void> {
+  /**
+   * `accepted` runs when the prompt enters the transcript, before that change
+   * is published, so a queued entry can leave the queue in the same update.
+   * A browser can supply `messageId` to keep its optimistic bubble in place.
+   */
+  async send(id: string, input: AgentPromptPart[], mode: PermissionMode, delivery: SendOptions = {}): Promise<void> {
     const chat = await this.open(id)
     if (!this.active || chat.turn !== 'idle' || this.starting.has(id)) throw new Error('This chat already has an active turn')
     if (!input.length) throw new Error('Write a message first')
@@ -286,13 +296,17 @@ export class AgentChats {
       const text = input.filter((part) => part.type === 'text').map((part) => part.text).join('\n')
       if (!chat.activities.length) chat.summary.title = text.slice(0, 100) || 'New chat'
       chat.summary.preview = text.slice(0, 200)
-      if (!chat.remote) chat.activities.push({ id: `user:${randomUUID()}`, threadId: id, kind: 'user', title: 'You',
+      const messageId = delivery.messageId ?? `user:${randomUUID()}`
+      // A steering message that arrived too late moves into this new turn.
+      if (delivery.messageId) chat.activities = chat.activities.filter((item) => item.id !== messageId)
+      if (!chat.remote) chat.activities.push({ id: messageId, threadId: id, kind: 'user', title: 'You',
         content: text, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), createdAtMs: Date.now(),
         images: input.flatMap((part) => part.type === 'image'
           ? [{ name: 'Image', mediaType: part.mimeType, url: `data:${part.mimeType};base64,${part.data}` }] : []),
       })
       chat.turn = 'sending'
       delete chat.problem
+      delivery.accepted?.()
       this.publish(chat)
       await this.store.save(chat)
       if (!this.active) throw new Error('Agent chats is unavailable')
@@ -322,11 +336,11 @@ export class AgentChats {
     return { threadId: id, turnId: chat.turnId, permissionMode: olderChild ? 'ask' : chat.turnPermissionMode ?? 'ask' }
   }
 
-  async steer(id: string, input: AgentPromptPart[]): Promise<void> {
+  async steer(id: string, input: AgentPromptPart[], accepted?: () => void): Promise<void> {
     const chat = await this.open(id)
     if (!input.length) throw new Error('Write a message first')
     if (this.steering.has(id)) throw new Error('A steering message is already being sent')
-    if (chat.turn === 'idle') return this.send(id, input, chat.permissionMode)
+    if (chat.turn === 'idle') return this.send(id, input, chat.permissionMode, accepted ? { accepted } : {})
     const provider = this.agents.provider(chat.summary.providerId)
     if (!provider.steer) throw new Error('This agent does not support live steering')
     this.steering.add(id)
@@ -335,6 +349,7 @@ export class AgentChats {
       content: input.filter((part) => part.type === 'text').map((part) => part.text).join('\n'),
       images: input.flatMap((part) => part.type === 'image' ? [{ name: 'Image', mediaType: part.mimeType, url: `data:${part.mimeType};base64,${part.data}` }] : []),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), createdAtMs: Date.now() })
+    accepted?.()
     this.publish(chat)
     try {
       const options = chat.remote ? undefined : await this.promptOptions(id, chat.summary.cwd)
@@ -343,9 +358,9 @@ export class AgentChats {
         ? await provider.steer(chat.summary.providerSessionId, input, options)
         : await provider.steer(chat.summary.providerSessionId, input)
       if (outcome === 'promptRequired') {
-        chat.activities = chat.activities.filter((item) => item.id !== messageId)
+        // Keep the message visible until it starts the next turn.
         await this.starting.get(id)
-        await this.send(id, input, chat.permissionMode)
+        await this.send(id, input, chat.permissionMode, chat.remote ? {} : { messageId })
       }
     } catch (error) {
       chat.activities = chat.activities.filter((item) => item.id !== messageId)
@@ -416,10 +431,13 @@ export class AgentChats {
     if (operation === 'steer') {
       if (this.queueStarting.has(id)) throw new Error('A queued message is already being delivered')
       const entry = item()
+      const restore = this.dequeue(chat, entry)
       this.queueStarting.add(id)
       try {
-        await this.steer(id, agentPromptInput(entry.draft))
-        chat.queue = (chat.queue ?? []).filter((candidate) => candidate.id !== entry.id)
+        await this.steer(id, agentPromptInput(entry.draft), restore.accepted)
+      } catch (error) {
+        restore.failed(error)
+        throw error
       } finally {
         this.queueStarting.delete(id)
         this.publish(chat)
@@ -449,19 +467,42 @@ export class AgentChats {
     return result
   }
 
+  /**
+   * Removes a queued entry when its prompt enters the transcript, so the queue
+   * never shows a message that was already sent. A failed delivery returns the
+   * entry to its position with the error, or marks it if it never left.
+   */
+  private dequeue(chat: AgentChat, entry: NonNullable<AgentChat['queue']>[number]): { accepted(): void; failed(error: unknown): void } {
+    let index: number | undefined
+    return {
+      accepted: () => {
+        const queue = chat.queue ?? []
+        index = queue.indexOf(entry)
+        if (index >= 0) chat.queue = queue.filter((candidate) => candidate !== entry)
+      },
+      failed: (error) => {
+        entry.error = errorMessage(error)
+        if (index === undefined || index < 0 || chat.queue?.includes(entry)) return
+        const queue = [...chat.queue ?? []]
+        queue.splice(Math.min(index, queue.length), 0, entry)
+        chat.queue = queue
+      },
+    }
+  }
+
   private async startQueued(chat: AgentChat): Promise<void> {
     const id = chat.summary.id
     if (!this.active || chat.remote?.replaying || (chat.remote && chat.remote.state !== 'connected') || chat.queuePaused || chat.turn !== 'idle' || this.queueStarting.has(id) || this.steering.has(id)) return
     const entry = chat.queue?.[0]
     if (!entry) return
+    const restore = this.dequeue(chat, entry)
     this.queueStarting.add(id)
     try {
       await this.starting.get(id)
       if (!this.active || chat.turn !== 'idle' || chat.queuePaused) return
-      await this.send(id, agentPromptInput(entry.draft), chat.permissionMode)
-      chat.queue = (chat.queue ?? []).filter((candidate) => candidate.id !== entry.id)
+      await this.send(id, agentPromptInput(entry.draft), chat.permissionMode, { accepted: restore.accepted })
     } catch (error) {
-      entry.error = errorMessage(error)
+      restore.failed(error)
       chat.queuePaused = true
     } finally {
       this.queueStarting.delete(id)
@@ -610,7 +651,14 @@ const plugin = async (ctx: Context, config: { historyProviders?: string[] } = {}
       payload.remoteTarget === undefined ? undefined : remoteLaunchTarget(payload.remoteTarget))
     publish(chat); publishCatalog(); return clientChat(chat)
   })
-  method('open', async (payload) => { const chat = await chats.open(required(payload.id, 'id')); publish(chat); return clientChat(chat) })
+  // The published state carries the transcript and reaches the browser before
+  // this reply. Returning it again doubled a long chat's transfer and could
+  // fill the socket while the browser was busy rendering.
+  method('open', async (payload) => {
+    const chat = await chats.open(required(payload.id, 'id'))
+    publish(chat)
+    return { summary: chat.summary, permissionMode: chat.permissionMode }
+  })
   for (const operation of ['send', 'steer'] as const) method(operation, async (payload) => {
     if (!Array.isArray(payload.input)) throw new Error('Prompt input is required')
     const input: AgentPromptPart[] = payload.input.map((part) => {
@@ -621,9 +669,12 @@ const plugin = async (ctx: Context, config: { historyProviders?: string[] } = {}
       throw new Error('Unsupported prompt content')
     })
     const id = required(payload.id, 'id')
+    const messageId = typeof payload.messageId === 'string' && /^user:local:[0-9a-f-]{36}$/u.test(payload.messageId) ? payload.messageId : undefined
     if (operation === 'steer') await chats.steer(id, input)
-    else await chats.send(id, input, permissionMode(payload.permissionMode))
-    return clientChat(await chats.open(id))
+    else await chats.send(id, input, permissionMode(payload.permissionMode), messageId ? { messageId } : {})
+    // The chat state already carries the result. Returning the whole transcript
+    // again would send a long chat to the browser twice at the end of each turn.
+    return { ok: true }
   })
   for (const operation of ['list', 'add', 'update', 'delete', 'reorder', 'start', 'steer']) {
     method(`queue.${operation}`, (payload) => chats.queue(required(payload.threadId, 'threadId'), operation, payload))

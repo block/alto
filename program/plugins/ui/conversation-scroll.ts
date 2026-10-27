@@ -211,7 +211,15 @@ export class ConversationScrollController {
   }
 
   private readonly onResize = (): void => {
-    if (this.following) this.follow()
-    else this.refresh()
+    if (!this.following) {
+      this.refresh()
+      return
+    }
+    // ResizeObserver runs after layout and before paint. Scrolling here keeps
+    // new lines from painting for one frame below the fold or under the fade.
+    // A pending smooth scroll, such as Jump to latest, still runs in its frame.
+    if (this.pending?.behavior === 'smooth') return
+    this.feed.scrollTop = this.feed.scrollHeight
+    this.refresh()
   }
 }

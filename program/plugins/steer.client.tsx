@@ -99,8 +99,19 @@ export class SteerQueue {
       if (!chat || chat.queue === this.lastQueue) return
       this.lastQueue = chat.queue
       const threadId = this.scopedThreadId
+      // Removed or delivering entries stay hidden until the server drops them,
+      // and a message being steered keeps its state, so a chat update cannot
+      // bring back an entry or re-enable controls for one in flight.
+      const local = new Map(this.messages.map((message) => [message.id, message]))
+      const remote = chat.queue ?? []
+      const remoteIds = new Set(remote.map((entry) => entry.id))
+      for (const [id, hiddenThreadId] of this.hiddenIds) {
+        if (hiddenThreadId === threadId && !remoteIds.has(id)) this.hiddenIds.delete(id)
+      }
       this.messages = [...this.messages.filter((message) => message.threadId !== threadId),
-        ...(chat.queue ?? []).map((entry) => ({ ...entry, threadId, state: 'queued' as const }))]
+        ...remote.filter((entry) => !this.hiddenIds.has(entry.id)).map((entry) => ({
+          ...entry, threadId, state: local.get(entry.id)?.state === 'steering' ? 'steering' as const : 'queued' as const,
+        }))]
       this.emit()
     })
     this.disposeEvents = host?.onEvent((event) => {

@@ -9,6 +9,11 @@ import { draftAgentConfig, resolveDraftConfigValue } from './agent-model-options
 import { projectForWorkspace } from './ui/history-model.js'
 import type { ActivityItem } from './ui/transcript.js'
 
+/** Accepts a full chat from an older server; current servers publish it as state. */
+function openedChat(value: unknown): AgentChat | undefined {
+  return isRecord(value) && Array.isArray(value.activities) ? value as unknown as AgentChat : undefined
+}
+
 export class AgentSessionService implements ClientSessionService {
   private configurationKey = ''
   private draftConfig = new Map<string, string>()
@@ -29,6 +34,8 @@ export class AgentSessionService implements ClientSessionService {
   private creating: Promise<string> | undefined
   private sending = false
   private startupPrompt: ActivityItem | undefined
+  /** A local prompt shown until the server records it under the same id. */
+  private pendingPrompt: ActivityItem | undefined
   private generation = 0
   private disposed = false
   private pendingRestore: string | undefined
@@ -119,6 +126,9 @@ export class AgentSessionService implements ClientSessionService {
           ? activities.map((item) => item === acceptedPrompt ? { ...item, ...prompt } : item)
           : [prompt, ...activities]
       }
+      const pending = this.pendingPrompt
+      if (pending && activities.some((item) => item.id === pending.id)) this.pendingPrompt = undefined
+      else if (pending && !problem) activities = [...activities, pending]
       this.syncConfiguration(chat, provider, native)
       const config = this.configuration
       const model = config.find((option) => option.category === 'model')
@@ -165,10 +175,15 @@ export class AgentSessionService implements ClientSessionService {
     })
   }
 
+  private publishedChat(id: string): AgentChat | undefined {
+    const current = this.host.snapshot().snapshot?.extensions[agentChatStateKey(id)]
+    return isRecord(current) && isRecord(current.summary) && current.summary.id === id ? current as unknown as AgentChat : undefined
+  }
+
   private syncChat(catalog: AgentChatCatalog, connected: boolean): void {
-    const current = this.threadId ? this.host.snapshot().snapshot?.extensions[agentChatStateKey(this.threadId)] : undefined
-    if (isRecord(current) && isRecord(current.summary) && current.summary.id === this.threadId) {
-      this.chat = current as unknown as AgentChat
+    const current = this.threadId ? this.publishedChat(this.threadId) : undefined
+    if (current) {
+      this.chat = current
       this.requestedState = undefined
     } else if (this.threadId && connected && this.requestedState !== this.threadId
       && catalog.threads.some((thread) => thread.id === this.threadId)) {
@@ -179,7 +194,7 @@ export class AgentSessionService implements ClientSessionService {
       // transcript once; never send an ACP identifier through Codex history.
       void this.host.call('agent-chats.open', { id }).then((value) => {
         if (this.disposed || generation !== this.generation) return
-        this.chat = value as unknown as AgentChat
+        this.chat = this.publishedChat(id) ?? openedChat(value)
         this.sync()
       }, (error: unknown) => {
         if (this.disposed || generation !== this.generation) return
@@ -247,6 +262,7 @@ export class AgentSessionService implements ClientSessionService {
     this.threadId = undefined
     this.chat = undefined
     this.startupPrompt = undefined
+    this.pendingPrompt = undefined
     this.providerId = id
     this.draftConfig.clear()
     this.configuring = Promise.resolve()
@@ -383,23 +399,25 @@ export class AgentSessionService implements ClientSessionService {
     const generation = this.generation
     const permissionMode = this.state.session.permissionMode
     this.problem = undefined
-    if (this.state.remoteLocation && !this.threadId) {
-      const createdAtMs = Date.now()
-      this.startupPrompt = { id: `user:local:${crypto.randomUUID()}`, kind: 'user', title: 'You', content: draft.text.trim(),
-        images: draft.images, attachments: draft.attachments, createdAtMs,
-        timestamp: new Date(createdAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-    }
+    const createdAtMs = Date.now()
+    const prompt: ActivityItem = { id: `user:local:${crypto.randomUUID()}`, kind: 'user', title: 'You', content: draft.text.trim(),
+      images: draft.images, attachments: draft.attachments, createdAtMs,
+      timestamp: new Date(createdAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+    if (this.state.remoteLocation && !this.threadId) this.startupPrompt = prompt
+    // Show a local prompt at once, as Codex does. The server records it under
+    // the same id, so the bubble keeps its place and React key.
+    else if (!this.state.remoteLocation) this.pendingPrompt = prompt
     this.sending = true
     this.sync()
     try {
       const id = await this.ensureThread()
       await this.configuring
-      const value = await this.host.call('agent-chats.send', { id, input, permissionMode })
-      if (generation === this.generation && isRecord(value) && isRecord(value.summary)) this.chat = value as unknown as AgentChat
+      await this.host.call('agent-chats.send', { id, input, permissionMode, ...(this.pendingPrompt === prompt ? { messageId: prompt.id } : {}) })
     } catch (error) {
       if (generation === this.generation) {
         this.problem = error instanceof Error ? error.message : String(error)
         if (!this.chat?.activities.some((item) => item.kind === 'user')) this.startupPrompt = undefined
+        if (this.pendingPrompt === prompt) this.pendingPrompt = undefined
       }
       throw error
     } finally {
@@ -421,6 +439,7 @@ export class AgentSessionService implements ClientSessionService {
     this.threadId = undefined
     this.chat = undefined
     this.startupPrompt = undefined
+    this.pendingPrompt = undefined
     this.creating = undefined
     this.sending = false
     this.problem = undefined
@@ -442,6 +461,7 @@ export class AgentSessionService implements ClientSessionService {
   async openThread(thread: ThreadSummary): Promise<void> {
     this.providerSelectionChanged = true
     this.startupPrompt = undefined
+    this.pendingPrompt = undefined
     this.draftConfig.clear()
     this.configuring = Promise.resolve()
     this.generation++
@@ -464,9 +484,10 @@ export class AgentSessionService implements ClientSessionService {
     this.sync()
     const value = await this.host.call('agent-chats.open', { id: thread.id })
     if (this.disposed || generation !== this.generation) return
-    this.chat = value as unknown as AgentChat
-    this.providerId = this.chat.summary.providerId
-    this.permissionMode = this.chat.permissionMode
+    const opened = value as unknown as Pick<AgentChat, 'summary' | 'permissionMode'>
+    this.chat = this.publishedChat(thread.id) ?? openedChat(value)
+    this.providerId = opened.summary.providerId
+    this.permissionMode = opened.permissionMode
     this.options.persist?.(thread.id)
     this.sync()
   }

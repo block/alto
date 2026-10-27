@@ -1,3 +1,5 @@
+import type { JsonPatch } from './json-patch.js'
+
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
 export type JsonObject = { [key: string]: JsonValue }
@@ -660,6 +662,8 @@ export type HarnessEvent =
       // True merges payload and removes listed keys; absent/false replaces the full map.
       partial?: boolean
       removed?: string[]
+      // Partial updates may instead patch the value this socket last received.
+      patches?: Record<string, JsonPatch>
     }
   | {
       type: 'command.result'

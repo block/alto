@@ -1,3 +1,4 @@
+import { applyJsonPatch } from '../shared/json-patch.js'
 import type {
   HarnessEvent,
   HarnessSnapshot,
@@ -71,6 +72,10 @@ function updateHarnessSnapshot(
       if (!current) return current
       if (!event.partial) return { ...current, extensions: event.payload }
       const extensions = { ...current.extensions, ...event.payload }
+      for (const [name, patch] of Object.entries(event.patches ?? {})) {
+        if (!Object.hasOwn(current.extensions, name)) throw new Error(`no extension state to patch: ${name}`)
+        extensions[name] = applyJsonPatch(current.extensions[name], patch)
+      }
       for (const name of event.removed ?? []) delete extensions[name]
       return { ...current, extensions }
     }
@@ -328,7 +333,16 @@ export class BrowserHost implements ClientHostService {
         this.eventSizes.splice(0, drop)
       }
     }
-    const snapshot = updateHarnessSnapshot(this.state.snapshot, event)
+    let snapshot: HarnessSnapshot | undefined
+    try {
+      snapshot = updateHarnessSnapshot(this.state.snapshot, event)
+    } catch (error) {
+      // A patch that does not match this browser's state means the copies
+      // diverged. Reconnecting delivers a complete snapshot.
+      console.error(error)
+      this.socket?.close()
+      return
+    }
     if (snapshot !== this.state.snapshot || event.type === 'snapshot') {
       this.setState({
         snapshot,

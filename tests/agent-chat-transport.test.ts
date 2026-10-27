@@ -17,6 +17,19 @@ import { WebGateway } from '../src/server/services/web-gateway.js'
 import { turnProgramPlugin } from '../src/server/services/turn-program.js'
 import type { HarnessEvent, JsonValue, ThreadHistoryPage } from '../src/shared/protocol.js'
 
+/** Reads a state value from a full or partial update, including a replacement patch. */
+function updatedValue(event: HarnessEvent, name: string): JsonValue | undefined {
+  if (event.type !== 'extensions.updated') return undefined
+  if (Object.hasOwn(event.payload, name)) return event.payload[name]
+  const patch = event.patches?.[name]
+  return patch && 'r' in patch ? patch.r : undefined
+}
+
+function updatesName(event: HarnessEvent, name: string): boolean {
+  return event.type === 'extensions.updated'
+    && (Object.hasOwn(event.payload, name) || Object.hasOwn(event.patches ?? {}, name))
+}
+
 const cleanup: Array<() => void | Promise<void>> = []
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
 
@@ -97,7 +110,7 @@ it('sends only changed extension keys during bursts with large saved chat histor
   const progress = f.ctx.clientExtensions.registerState(f.ctx, 'test-progress', 0)
   cleanup.push(() => saved.dispose(), () => progress.dispose())
   await vi.waitFor(() => expect(f.events.some((event) => (
-    event.type === 'extensions.updated' && event.payload['test-progress'] === 0
+    updatedValue(event, 'test-progress') === 0
   ))).toBe(true))
   const before = f.bytes()
   const eventOffset = f.events.length
@@ -105,19 +118,19 @@ it('sends only changed extension keys during bursts with large saved chat histor
   // gateway's socket buffer limit and disconnecting every open chat pane.
   for (let index = 1; index <= 8; index += 1) progress.update(index)
   await vi.waitFor(() => expect(f.events.some((event) => (
-    event.type === 'extensions.updated' && event.payload['test-progress'] === 8
+    updatedValue(event, 'test-progress') === 8
   ))).toBe(true))
   expect(f.socket.readyState).toBe(WebSocket.OPEN)
   expect(f.bytes() - before).toBeLessThan(2_000)
   const updates = f.events.slice(eventOffset)
-    .filter((event) => event.type === 'extensions.updated')
-    .filter((event) => Object.hasOwn(event.payload, 'test-progress'))
+    .filter((event) => updatesName(event, 'test-progress'))
   expect(updates).toHaveLength(8)
-  expect(updates.every((event) => event.partial && Object.keys(event.payload).join() === 'test-progress')).toBe(true)
+  expect(updates.every((event) => event.type === 'extensions.updated' && event.partial
+    && Object.keys({ ...event.payload, ...event.patches }).join() === 'test-progress')).toBe(true)
 
   progress.update(null)
   await vi.waitFor(() => expect(f.events.some((event) => (
-    event.type === 'extensions.updated' && event.partial && event.payload['test-progress'] === null
+    event.type === 'extensions.updated' && event.partial && updatedValue(event, 'test-progress') === null
   ))).toBe(true))
   await progress.dispose()
   await vi.waitFor(() => expect(f.events.some((event) => (
@@ -156,7 +169,7 @@ it('keeps the harness connected while many subagents publish large transcripts',
   for (let index = 1; index <= 3; index += 1) progress.update(index)
   await new Promise((resolve) => setTimeout(resolve, 100))
   expect(f.socket.readyState, 'The harness dropped the socket during the subagent update burst').toBe(WebSocket.OPEN)
-  await vi.waitFor(() => expect(f.events.some((event) => event.type === 'extensions.updated' && event.payload['test-progress'] === 3)).toBe(true))
+  await vi.waitFor(() => expect(f.events.some((event) => updatedValue(event, 'test-progress') === 3)).toBe(true))
   expect(f.socket.readyState).toBe(WebSocket.OPEN)
   expect(f.bytes()).toBeLessThan(8 * 1024 * 1024)
   const state = f.ctx.clientExtensions.snapshot()[agentChatStateKey(chat.summary.id)] as Record<string, JsonValue>
@@ -165,10 +178,12 @@ it('keeps the harness connected while many subagents publish large transcripts',
   const tasks = f.ctx.clientExtensions.snapshot().orchestrator as unknown as OrchestratorSnapshot
   expect(tasks.tasks).toHaveLength(21)
   expect(tasks.tasks.every((task) => task.status === 'working' && task.result.length <= 16_000)).toBe(true)
-  const opened = await f.call('agent-chats.open', { id: chat.summary.id }) as AgentChat
+  await f.call('agent-chats.open', { id: chat.summary.id })
+  const opened = f.ctx.clientExtensions.snapshot()[agentChatStateKey(chat.summary.id)] as unknown as AgentChat
   expect(opened.children?.every((child) => child.activities.length === 0 && child.task.result.length <= 16_000)).toBe(true)
-  const steered = await f.call('agent-chats.steer', { id: chat.summary.id, input: [{ type: 'text', text: 'Focus on the remaining work' }] }) as AgentChat
+  expect(await f.call('agent-chats.steer', { id: chat.summary.id, input: [{ type: 'text', text: 'Focus on the remaining work' }] })).toEqual({ ok: true })
   expect(f.steer).toHaveBeenCalledWith('session', [{ type: 'text', text: 'Focus on the remaining work' }], { additionalContext: {} })
+  const steered = f.ctx.clientExtensions.snapshot()[agentChatStateKey(chat.summary.id)] as unknown as AgentChat
   expect(steered.turn).toBe('running')
   expect(steered.children?.every((child) => child.activities.length === 0)).toBe(true)
   const history = await f.call('orchestrator.open', { parentThreadId: chat.summary.id, id: chat.children![0]!.task.id }) as ThreadHistoryPage

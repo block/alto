@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AgentSessionService } from '../program/plugins/agent-session.client.js'
 import { initialAgentConfig } from '../program/plugins/agent-model-options.js'
-import type { AgentChat } from '../program/plugins/agent-chats-api.js'
+import { agentChatStateKey, type AgentChat } from '../program/plugins/agent-chats-api.js'
 import type { ClientSessionService, ClientSessionSnapshot } from '../program/plugins/session-api.js'
 import type { ClientHostService } from '../src/client/plugin-api.js'
 import type { HarnessSnapshot, JsonValue } from '../src/shared/protocol.js'
@@ -23,7 +23,14 @@ function fixture() {
   const native = { subscribe: () => () => {}, snapshot: () => snapshot, send: vi.fn(), openThread: vi.fn(),
     newThread: vi.fn(), setPermissionMode: vi.fn(), refreshHistory: vi.fn() } as unknown as ClientSessionService
   const call = vi.fn(async (method: string, payload?: unknown): Promise<JsonValue> => {
-    if (method === 'agent-chats.send') return { ...structuredClone(chat), turn: 'running', activities: [{ id: 'user', kind: 'user', title: 'You', content: 'Hello', timestamp: '' }] } as unknown as JsonValue
+    if (method === 'agent-chats.send') {
+      // Like the server, publish the running chat as state and acknowledge.
+      const { id: sent, messageId } = payload as { id: string; messageId?: string }
+      extensions[agentChatStateKey(sent)] = { ...structuredClone(chat), summary: { ...chat.summary, id: sent }, turn: 'running',
+        activities: [{ id: messageId ?? 'user', kind: 'user', title: 'You', content: 'Hello', timestamp: '' }] } as unknown as JsonValue
+      listeners.forEach((listener) => listener())
+      return { ok: true }
+    }
     if (method === 'agent-chats.create' || method === 'agent-chats.open') {
       const providerId = (payload as { providerId?: string })?.providerId ?? 'pi'
       return { ...structuredClone(chat), summary: { ...chat.summary, providerId, id: providerId === 'pi' ? id : 'acp-22222222-2222-2222-2222-222222222222' } } as unknown as JsonValue
@@ -563,11 +570,33 @@ describe('provider-aware browser sessions', () => {
       expect(f.session.snapshot()).toMatchObject({ providerId: 'pi', models: [], connected: true })
       await f.session.send(draft)
       expect(f.call).toHaveBeenCalledWith('agent-chats.create', { providerId: 'pi', cwd: '/tmp/project', permissionMode: 'ask' })
-      expect(f.call).toHaveBeenCalledWith('agent-chats.send', { id, input: [{ type: 'text', text: 'Hello' }], permissionMode: 'ask' })
+      expect(f.call).toHaveBeenCalledWith('agent-chats.send', { id, input: [{ type: 'text', text: 'Hello' }], permissionMode: 'ask', messageId: expect.stringMatching(/^user:local:/) })
       expect(f.native.send).not.toHaveBeenCalled()
       expect(f.session.snapshot().threadId).toBe(id)
       f.session.setProvider('claude')
       expect(f.session.snapshot().providerId).toBe('pi')
+    } finally { f.session.dispose() }
+  })
+
+  it('shows an ACP prompt at once and keeps its id once the server records it', async () => {
+    const f = fixture()
+    try {
+      f.session.setProvider('pi')
+      let release!: () => void
+      const original = f.call.getMockImplementation()!
+      f.call.mockImplementation(async (method, payload) => {
+        if (method === 'agent-chats.send') await new Promise<void>((resolve) => { release = resolve })
+        return original(method, payload)
+      })
+      const sending = f.session.send(draft)
+      await vi.waitFor(() => expect(f.session.snapshot().activities.at(-1)).toMatchObject({ kind: 'user', content: 'Hello' }))
+      const local = f.session.snapshot().activities.at(-1)!.id
+      expect(local).toMatch(/^user:local:/)
+      await vi.waitFor(() => expect(f.call).toHaveBeenCalledWith('agent-chats.send', expect.anything()))
+      expect(f.session.snapshot().activities.at(-1)?.id).toBe(local)
+      release()
+      await sending
+      expect(f.session.snapshot().activities.filter((item) => item.kind === 'user').map((item) => item.id)).toEqual([local])
     } finally { f.session.dispose() }
   })
 

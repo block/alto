@@ -254,6 +254,55 @@ it('atomically removes a steered queue item before a finishing turn can drain it
   expect(chat.activities.filter((item) => item.content === 'Steer this once')).toHaveLength(1)
 })
 
+it('removes a steered queue item when it enters the transcript, not when steering returns', async () => {
+  const f = await fixture()
+  const chat = await f.chats.create('claude', '/tmp/project', 'ask')
+  const base = { providerId: 'claude', sessionId: chat.summary.providerSessionId, occurredAt: new Date().toISOString() }
+  await f.chats.send(chat.summary.id, [{ type: 'text', text: 'Start' }], 'ask')
+  f.chats.event({ ...base, type: 'turn.started', turnId: 'one' })
+  const entry = await f.chats.queue(chat.summary.id, 'add', { draft: { text: 'Late steer', images: [], attachments: [], skills: [] } }) as { id: string }
+  let finish!: () => void
+  f.steer.mockImplementationOnce(async () => {
+    // The adapter keeps the request open until the message is consumed.
+    await new Promise<void>((resolve) => { finish = resolve })
+    return 'promptRequired'
+  })
+  const steering = f.chats.queue(chat.summary.id, 'steer', { queuedSubmissionId: entry.id })
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+  expect(chat.queue).toEqual([])
+  const message = chat.activities.find((item) => item.content === 'Late steer')
+  expect(message).toBeDefined()
+  f.chats.event({ ...base, type: 'turn.completed', turnId: 'one', stopReason: 'end_turn' })
+  finish()
+  await steering
+  // The message moves into the new turn instead of disappearing and returning.
+  expect(chat.activities.filter((item) => item.content === 'Late steer').map((item) => item.id)).toEqual([message!.id])
+  expect(chat.activities.at(-1)?.id).toBe(message!.id)
+  expect(f.prompt).toHaveBeenCalledTimes(2)
+})
+
+it('returns a steered queue item with its error when delivery fails', async () => {
+  const f = await fixture()
+  const chat = await f.chats.create('claude', '/tmp/project', 'ask')
+  const base = { providerId: 'claude', sessionId: chat.summary.providerSessionId, occurredAt: new Date().toISOString() }
+  await f.chats.send(chat.summary.id, [{ type: 'text', text: 'Start' }], 'ask')
+  f.chats.event({ ...base, type: 'turn.started', turnId: 'one' })
+  const first = await f.chats.queue(chat.summary.id, 'add', { draft: { text: 'First', images: [], attachments: [], skills: [] } }) as { id: string }
+  const second = await f.chats.queue(chat.summary.id, 'add', { draft: { text: 'Second', images: [], attachments: [], skills: [] } }) as { id: string }
+  f.steer.mockRejectedValueOnce(new Error('steering failed'))
+  await expect(f.chats.queue(chat.summary.id, 'steer', { queuedSubmissionId: first.id })).rejects.toThrow('steering failed')
+  expect(chat.queue?.map((item) => [item.id, item.error])).toEqual([[first.id, 'steering failed'], [second.id, undefined]])
+  expect(chat.activities.some((item) => item.content === 'First')).toBe(false)
+})
+
+it('keeps a browser message id for a sent prompt', async () => {
+  const f = await fixture()
+  const chat = await f.chats.create('claude', '/tmp/project', 'ask')
+  const messageId = 'user:local:00000000-0000-4000-8000-000000000000'
+  await f.chats.send(chat.summary.id, [{ type: 'text', text: 'Hello' }], 'ask', { messageId })
+  expect(chat.activities.at(-1)).toMatchObject({ id: messageId, kind: 'user', content: 'Hello' })
+})
+
 it('keeps a background child approval visible and prevents it inheriting a later full-access turn', async () => {
   const f = await fixture()
   const chat = await f.chats.create('claude', '/tmp/project', 'ask')

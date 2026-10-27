@@ -75,8 +75,44 @@ function initialStreamText(source: string, streaming: boolean): string {
   return source.slice(0, completeCodePoint(source, STREAM_INITIAL_CHARACTERS))
 }
 
-function useSmoothedStreamText(source: string, streaming: boolean, enabled = true): string {
-  const [displayed, setDisplayed] = useState(() => initialStreamText(source, streaming))
+// A reply can remount mid-reveal when its turn moves it to another lane.
+// Resume from the characters already shown rather than snapping to the end.
+// Progress expires quickly so reopening a chat later does not replay it.
+const STREAM_REVEAL_PROGRESS_LIMIT = 64
+const STREAM_REVEAL_PROGRESS_MS = 500
+const streamRevealProgress = new Map<string, { revealed: number; at: number }>()
+
+export function resumedStreamText(
+  source: string,
+  streaming: boolean,
+  revealed: number | undefined,
+): string {
+  if (revealed === undefined || revealed >= source.length) return initialStreamText(source, streaming)
+  return source.slice(0, completeCodePoint(source, Math.max(0, revealed)))
+}
+
+function streamRevealResume(key: string | undefined): number | undefined {
+  const progress = key === undefined ? undefined : streamRevealProgress.get(key)
+  if (!progress || window.performance.now() - progress.at > STREAM_REVEAL_PROGRESS_MS) return undefined
+  return progress.revealed
+}
+
+function recordStreamReveal(key: string | undefined, revealed: number, total: number): void {
+  if (!key) return
+  streamRevealProgress.delete(key)
+  if (revealed >= total) return
+  streamRevealProgress.set(key, { revealed, at: window.performance.now() })
+  if (streamRevealProgress.size > STREAM_REVEAL_PROGRESS_LIMIT) {
+    streamRevealProgress.delete(streamRevealProgress.keys().next().value!)
+  }
+}
+
+function useSmoothedStreamText(source: string, streaming: boolean, enabled = true, key?: string): string {
+  const [displayed, setDisplayed] = useState(() => (
+    typeof window === 'undefined'
+      ? source
+      : resumedStreamText(source, streaming, streamRevealResume(key))
+  ))
   const displayedRef = useRef(displayed)
   const targetRef = useRef(source)
   const frameRef = useRef<number | undefined>(undefined)
@@ -84,6 +120,7 @@ function useSmoothedStreamText(source: string, streaming: boolean, enabled = tru
 
   const commit = (value: string): void => {
     displayedRef.current = value
+    recordStreamReveal(key, value.length, targetRef.current.length)
     setDisplayed(value)
   }
 
@@ -127,8 +164,9 @@ function useSmoothedStreamText(source: string, streaming: boolean, enabled = tru
       commit(source)
       return
     }
+    recordStreamReveal(key, displayedRef.current.length, source.length)
     schedule()
-  }, [enabled, source, streaming])
+  }, [enabled, key, source, streaming])
 
   useEffect(() => () => cancel(), [])
   return displayed
@@ -773,7 +811,12 @@ export function ActivityCard({
     () => item.kind === 'user' ? parseSourceEditPrompt(item.content) : undefined,
     [item.kind, item.content],
   )
-  const displayedContent = useSmoothedStreamText(content, streaming, visible)
+  const displayedContent = useSmoothedStreamText(
+    content,
+    streaming,
+    visible,
+    item.kind === 'agent' ? item.id : undefined,
+  )
   const revealing = item.kind === 'agent' && displayedContent !== content
   const animating = streaming || revealing
   const articleRef = useRef<HTMLElement>(null)
@@ -1039,6 +1082,44 @@ function completedLogicalTurnFiles(
   ))
 }
 
+function turnSequence(items: readonly ActivityItem[]): ActivityItem[] {
+  return items.filter((item) => (
+    (item.kind !== 'user' || item.continuesTurn)
+    && !(
+      (item.kind === 'agent' || item.kind === 'reasoning')
+      && !item.content.trim()
+      && !item.images?.length
+      && !item.questions?.length
+    )
+  ))
+}
+
+/**
+ * Replies rendered in the turn's final lane. App Server identifies final
+ * answers when their item starts, so they mount in their permanent lane
+ * immediately. ACP agents report no phase; Alto marks the final reply only
+ * when the turn completes. While the turn runs, the trailing unphased reply
+ * is treated as final so completion does not move the text being read into
+ * another container, which would remount it mid-reveal. It returns to the
+ * work lane if a tool call or other activity follows it.
+ */
+export function turnFinalAgents(
+  items: readonly ActivityItem[],
+  active: boolean,
+): ActivityItem[] {
+  const phased = items.filter((item) => (
+    item.kind === 'agent' && item.delivery !== 'async' && item.phase === 'final_answer'
+  ))
+  if (phased.length) return phased
+  const legacy = items.findLast((item) => item.kind === 'agent' && item.delivery !== 'async' && item.durationMs)
+  if (legacy) return [legacy]
+  if (!active) return []
+  const trailing = turnSequence(items).at(-1)
+  return trailing?.kind === 'agent' && trailing.delivery !== 'async' && !trailing.phase
+    ? [trailing]
+    : []
+}
+
 function ActivityTurn({
   items,
   markdown,
@@ -1067,10 +1148,7 @@ function ActivityTurn({
   const phasedFinalAgents = items.filter((item) => (
     item.kind === 'agent' && item.delivery !== 'async' && item.phase === 'final_answer'
   ))
-  const legacyFinalAgent = phasedFinalAgents.length === 0
-    ? items.findLast((item) => item.kind === 'agent' && item.delivery !== 'async' && item.durationMs)
-    : undefined
-  const finalAgents = legacyFinalAgent ? [legacyFinalAgent] : phasedFinalAgents
+  const finalAgents = turnFinalAgents(items, active)
   // A question can be the last thing an agent sends before the next prompt.
   // Until there is a separate final answer, its preceding prose is still the
   // response to read, even when the turn's tool and reasoning details fold.
@@ -1097,18 +1175,9 @@ function ActivityTurn({
   const prompts = items.filter((item) => item.kind === 'user' && !item.continuesTurn)
   const fallbackStartedAt = useRef(Date.now())
   const startedAt = prompts[0]?.createdAtMs ?? fallbackStartedAt.current
-  // App Server identifies final answers when their item starts. Mount them in
-  // their permanent lane immediately. Questions stay between the work that
-  // preceded and followed them, even after their answers arrive or work folds.
-  const sequence = items.filter((item) => (
-    (item.kind !== 'user' || item.continuesTurn)
-    && !(
-      (item.kind === 'agent' || item.kind === 'reasoning')
-      && !item.content.trim()
-      && !item.images?.length
-      && !item.questions?.length
-    )
-  ))
+  // Questions stay between the work that preceded and followed them, even
+  // after their answers arrive or work folds.
+  const sequence = turnSequence(items)
   const workSequence = sequence.filter((item) => !finalAgentIds.has(item.id))
   const finalSequence = sequence.filter((item) => finalAgentIds.has(item.id))
   const completedFileChange = active || !completedFileItems

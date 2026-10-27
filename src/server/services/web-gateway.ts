@@ -9,6 +9,7 @@ import type {
   BrowserCommand,
   HarnessEvent,
   HarnessSnapshot,
+  JsonValue,
   PendingServerRequest,
   ProjectSnapshot,
   RpcId,
@@ -16,6 +17,7 @@ import type {
 } from '../../shared/protocol.js'
 import { errorMessage, isRecord } from '../../shared/protocol.js'
 import type { CodexSnapshot } from './codex-service.js'
+import { SocketOutbox } from './socket-outbox.js'
 import { turnInputsFor } from './turn-input.js'
 
 interface ViteDevServer {
@@ -63,7 +65,13 @@ export const WEB_SECURITY_HEADERS = {
 } as const
 
 const SOCKET_MAX_PAYLOAD = 16 * 1024 * 1024
-const SOCKET_MAX_BUFFERED = 8 * 1024 * 1024
+// Above this backlog, coalesce state updates until the browser catches up.
+const SOCKET_SOFT_BUFFERED = 1024 * 1024
+// A busy renderer stops reading while it parses and renders, so only a very
+// large backlog of events that cannot be coalesced ends the connection. The
+// heartbeat detects peers that have stopped responding.
+const SOCKET_MAX_QUEUED = 64 * 1024 * 1024
+const SOCKET_RETRY_MS = 25
 const SOCKET_MAX_IN_FLIGHT = 32
 const SOCKET_HEARTBEAT_MS = 30_000
 const CLIENT_ACTIVATION_TIMEOUT_MS = 30_000
@@ -189,6 +197,7 @@ export class WebGateway {
   private readonly socketProtocol = `alto.${randomBytes(32).toString('base64url')}`
   private readonly socketAlive = new WeakSet<WebSocket>()
   private readonly socketCommands = new WeakMap<WebSocket, Set<string>>()
+  private readonly outboxes = new WeakMap<WebSocket, SocketOutbox>()
   private heartbeat?: NodeJS.Timeout
   private vite?: ViteDevServer
   private primarySocket?: WebSocket
@@ -271,8 +280,12 @@ export class WebGateway {
       this.socketCommands.set(socket, new Set())
       socket.on('pong', () => this.socketAlive.add(socket))
       socket.on('error', () => socket.terminate())
-      socket.on('close', () => this.socketClosed(socket))
-      this.send(socket, { type: 'snapshot', payload: this.snapshot() })
+      socket.on('close', () => {
+        this.outboxes.get(socket)?.close()
+        this.socketClosed(socket)
+      })
+      const snapshot = this.snapshot()
+      this.send(socket, { type: 'snapshot', payload: snapshot }, snapshot.extensions)
       socket.on('message', (data) => {
         void this.handleSocketMessage(socket, data)
       })
@@ -352,15 +365,16 @@ export class WebGateway {
       this.broadcast({ type: 'codex.notification', payload: notification })
     })
     this.ctx.on('program/changed', (snapshot) => {
+      const extensions = this.ctx.clientExtensions.snapshot()
       this.broadcast({
         type: 'program.updated',
         payload: {
           program: snapshot,
           projects: this.ctx.projects.snapshot(),
           ui: this.ctx.ui.snapshot(),
-          extensions: this.ctx.clientExtensions.snapshot(),
+          extensions,
         },
-      })
+      }, extensions)
     })
     this.ctx.on('program/error', (error) => {
       this.broadcast({ type: 'program.error', payload: { message: error.message } })
@@ -377,13 +391,14 @@ export class WebGateway {
       if (this.ctx.program.isActivating()) return
       // Sending every saved chat for each small state change can overflow the
       // socket buffer and make every pane repeatedly reconnect and resume.
+      // Each socket's outbox sends only the changed state, as a difference
+      // from the copy that browser holds, and coalesces it while backlogged.
       if (name === undefined) {
-        this.broadcast({ type: 'extensions.updated', payload: snapshot })
-      } else if (Object.hasOwn(snapshot, name)) {
-        this.broadcast({ type: 'extensions.updated', partial: true, payload: { [name]: snapshot[name]! } })
-      } else {
-        this.broadcast({ type: 'extensions.updated', partial: true, payload: {}, removed: [name] })
+        this.broadcast({ type: 'extensions.updated', payload: snapshot }, snapshot)
+        return
       }
+      const value = Object.hasOwn(snapshot, name) ? snapshot[name] : undefined
+      for (const socket of this.sockets.clients) this.outbox(socket).state(name, value)
     })
     this.ctx.codex.on('status', (snapshot: CodexSnapshot) => {
       this.broadcast({ type: 'codex.status', payload: snapshot })
@@ -599,24 +614,31 @@ export class WebGateway {
     else delete this.primarySocket
   }
 
-  private broadcast(event: HarnessEvent): void {
-    const payload = JSON.stringify(event)
-    for (const socket of this.sockets.clients) this.sendPayload(socket, payload)
-  }
-
-  private send(socket: WebSocket, event: HarnessEvent): void {
-    this.sendPayload(socket, JSON.stringify(event))
-  }
-
-  private sendPayload(socket: WebSocket, payload: string): void {
-    if (socket.readyState !== WebSocket.OPEN) return
-    if (socket.bufferedAmount > SOCKET_MAX_BUFFERED) {
-      socket.terminate()
-      return
+  private outbox(socket: WebSocket): SocketOutbox {
+    let outbox = this.outboxes.get(socket)
+    if (!outbox) {
+      outbox = new SocketOutbox({
+        get bufferedAmount() { return socket.bufferedAmount },
+        isOpen: () => socket.readyState === WebSocket.OPEN,
+        send: (payload, done) => socket.send(payload, done),
+        terminate: () => socket.terminate(),
+      }, {
+        softLimit: SOCKET_SOFT_BUFFERED,
+        hardLimit: SOCKET_MAX_QUEUED,
+        retryMs: SOCKET_RETRY_MS,
+      })
+      this.outboxes.set(socket, outbox)
     }
-    socket.send(payload, (error) => {
-      if (error) socket.terminate()
-    })
+    return outbox
+  }
+
+  /** Pass `extensions` when the event carries the complete extension state. */
+  private broadcast(event: HarnessEvent, extensions?: Record<string, JsonValue>): void {
+    for (const socket of this.sockets.clients) this.outbox(socket).event(event, extensions)
+  }
+
+  private send(socket: WebSocket, event: HarnessEvent, extensions?: Record<string, JsonValue>): void {
+    this.outbox(socket).event(event, extensions)
   }
 
   private heartbeatSockets(): void {
