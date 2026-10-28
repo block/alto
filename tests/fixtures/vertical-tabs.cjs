@@ -12,7 +12,7 @@ async function check() {
       import React,{useEffect} from 'react';
       import {createRoot} from 'react-dom/client';
       import {flushSync} from 'react-dom';
-      import {CheckSquare,Network,SquareTerminal} from 'lucide-react';
+      import {CheckSquare,Network,SquareTerminal,X} from 'lucide-react';
       import {Composer} from './program/plugins/ui/composer';
       import plugin from './program/plugins/workspace-layout.client';
       import groupsPlugin from './program/plugins/workspace-tab-groups.client';
@@ -61,7 +61,7 @@ async function check() {
       window.mounts=0;
       const Pane=({pane})=>{useEffect(()=>{window.mounts++},[]);const body=<div className="test-pane"><p>Conversation in {pane.id}</p><textarea id={'draft-'+pane.id} defaultValue={'Draft for '+pane.id}/></div>;
         // Terminal-like panes draw their own top bar with the shared pane header, as the real terminal does.
-        return pane.kind==='terminal'?<div className="alto-pane ghostty-workspace-pane test-terminal"><div className="alto-pane-header workspace-local-tabbar">Terminal</div>{body}</div>:body};
+        return pane.kind==='terminal'?<div className="alto-pane ghostty-workspace-pane test-terminal"><div className="alto-pane-header workspace-local-tabbar"><div className="pane-tabs"><div className="pane-tab active"><button type="button" className="pane-tab-select"><span>Terminal</span></button><button type="button" className="pane-tab-close fixture-local-close" aria-label="Close terminal tab"><X size={12}/></button></div></div><button type="button" className="icon-button fixture-legacy-header" aria-label="Terminal options"><Network size={14}/></button></div>{body}</div>:body};
       registry.registerPaneKind({effect:fn=>fn()},{id:'test',label:'Test pane',renderer:Pane});
       registry.registerPaneKind({effect:fn=>fn()},{id:'terminal',label:'Terminal',icon:SquareTerminal,renderer:Pane});
       window.boot=()=>{root=createRoot(document.getElementById('workspace-mount'));flushSync(()=>root.render(<Surface surface={{id:'workspace-layout',kind:'workspace-layout'}}/>))};
@@ -134,7 +134,7 @@ async function check() {
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     loader: { '.css': 'text' }, define: { 'process.env.NODE_ENV': '"production"' },
   })
-  const css = (await Promise.all(['src/client/styles.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/todo.css', 'program/plugins/orchestrator.css'].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
+  const css = (await Promise.all(['src/client/styles.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/todo.css', 'program/plugins/orchestrator.css', 'program/plugins/pane-tabs.css'].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer((request, response) => {
     response.end('<!doctype html><style>' + css + '\n#root{height:100vh}#workspace-mount{display:flex;min-width:0;min-height:0;flex:1 1 0}.test-pane{padding:24px;width:100%}.test-pane textarea{width:100%;min-height:100px}.test-terminal{flex:1 1 0}</style><div id="root"><div class="shell-kernel"><div data-shell-node="workspace" class="shell-box shell-direction-row shell-grow shell-surface-canvas"><main data-shell-node="workspace-layout-main" class="shell-box shell-direction-column shell-grow shell-surface-canvas"><div id="workspace-mount"></div></main></div></div></div>')
   })
@@ -143,7 +143,7 @@ async function check() {
   const run = code => window.webContents.executeJavaScript(code)
   const settle = () => run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
   const finishMotion = async () => {
-    await run("document.querySelectorAll('.vertical-tab-rail, .workspace-tabs').forEach(el=>el.getAnimations({subtree:true}).forEach(animation=>animation.finish()))")
+    await run("document.querySelectorAll('.vertical-tab-rail, .workspace-tabs, .pane-tabs').forEach(el=>el.getAnimations({subtree:true}).forEach(animation=>animation.finish()))")
     await settle()
   }
   const capture = async name => {
@@ -162,7 +162,8 @@ async function check() {
       context.clearRect(0, 0, 1, 1);
       context.fillStyle = style.backgroundColor;
       context.fillRect(0, 0, 1, 1);
-      return { color: style.backgroundColor, alpha: context.getImageData(0, 0, 1, 1).data[3] / 255, image: style.backgroundImage, mask: style.maskComposite };
+      const rgba = [...context.getImageData(0, 0, 1, 1).data];
+      return { color: style.backgroundColor, rgba, alpha: rgba[3] / 255, image: style.backgroundImage, mask: style.maskComposite };
     };
     const selectors = ['html', 'body', '#root', '.shell-kernel', '[data-shell-node="workspace"]', '[data-shell-node="workspace-layout-main"]'];
     const view = document.querySelector('.workspace-view:not([hidden])');
@@ -248,27 +249,73 @@ async function check() {
       assert.deepEqual(pixel(pane.body), pane.expected, label + ': opaque content body ' + JSON.stringify(pane))
     }
   }
-  const assertTabsContrast = async (theme, orientation, suffix = '') => {
-    // These representative material colors are test inputs, not a guarantee
-    // about the native material over every possible desktop background.
+  const readTabsContrast = (theme, orientation) => {
+    // Place representative desktop colors beneath the entire painted DOM
+    // chain, including the root tint. Native material can vary beyond these inputs.
     const backdrop = theme === 'light' ? [184, 184, 189, 1] : [69, 71, 76, 1]
-    const prefix = 'contrast-' + theme + '-' + orientation + suffix
-    const read = () => run(`(() => {
+    return run(`(() => {
       const host=document.querySelector(${JSON.stringify(orientation === 'vertical' ? '.vertical-tab-rail' : '.workspace-tabbar')}),ctx=document.createElement('canvas').getContext('2d');
       const rgba=value=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=value;ctx.fillRect(0,0,1,1);const c=[...ctx.getImageData(0,0,1,1).data];c[3]/=255;return c};
       const over=(a,b)=>a.slice(0,3).map((v,i)=>v*a[3]+b[i]*(1-a[3])).concat(1);
       const luminance=c=>c.slice(0,3).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4}).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
       const contrast=(a,b)=>{const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)};
       const inspect=selector=>{
-        const element=host.querySelector(selector),style=getComputedStyle(element),chain=[];
-        for(let node=element;node&&node!==host.parentElement;node=node.parentElement)chain.unshift(getComputedStyle(node));
+        const element=typeof selector==='string'?host.querySelector(selector):selector;if(!element)return undefined;
+        const style=getComputedStyle(element),chain=[];
+        for(let node=element;node;node=node.parentElement)chain.unshift(getComputedStyle(node));
         const background=chain.reduce((bg,s)=>over(rgba(s.backgroundColor),bg),${JSON.stringify(backdrop)});
         const opacity=chain.reduce((a,s)=>a*Number(s.opacity),1),foreground=rgba(style.color);foreground[3]*=opacity;
         const r=element.getBoundingClientRect();
         return {ratio:contrast(over(foreground,background),background),background,color:rgba(style.color),opacity,weight:Number(style.fontWeight),outline:parseFloat(style.outlineWidth),outlineColor:rgba(style.outlineColor),outlineRatio:contrast(over(rgba(style.outlineColor),background),background),focus:element.matches(':focus-visible'),transition:style.transitionProperty,rect:{x:r.x,y:r.y,width:r.width,height:r.height}};
       };
-      return {normal:inspect('.workspace-tab:not(.is-active):not(.workspace-tab-group-label) .workspace-tab-title'),selected:inspect('.workspace-tab.is-active .workspace-tab-title'),row:inspect('.workspace-tab:not(.is-active):not(.workspace-tab-group-label)'),activeRow:inspect('.workspace-tab.is-active'),group:inspect('.workspace-tab-group-label > span:first-child'),groupRow:inspect('.workspace-tab-group-label'),icon:inspect(${JSON.stringify(orientation === 'vertical' ? '.workspace-tab-icon svg' : '.workspace-tab-add svg')}),tool:inspect('.test-tool'),disabled:inspect('.workspace-history-controls > button:disabled'),status:inspect('.contrast-status'),green:rgba(getComputedStyle(host).getPropertyValue('--green'))};
+      const probe=document.createElement('i');document.querySelector('.workspace-layout-root').append(probe);
+      const body=Object.fromEntries(['text','text-strong','muted'].map(name=>{probe.style.color='var(--'+name+')';return [name,rgba(getComputedStyle(probe).color)]}));probe.remove();
+      const headers=[...document.querySelectorAll('.workspace-view:not([hidden]) :is(.workspace-pane-header,.alto-pane-header)')].map(header=>{
+        const title=header.querySelector('.workspace-pane-title-text,.workspace-typed-pane-title strong,.pane-tab-select span');
+        return {chrome:${JSON.stringify(orientation === 'vertical')}&&!header.closest('.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second'),
+          title:inspect(title),action:inspect(header.querySelector('.workspace-pane-actions button svg')),legacy:inspect(header.querySelector('.fixture-legacy-header')),close:inspect(header.querySelector('.fixture-local-close')),
+          expectedTitle:body[title?.matches('strong,.pane-tab-select span')?'text-strong':'text'],expectedAction:body.muted,expectedLegacy:body.text};
+      });
+      return {normal:inspect('.workspace-tab:not(.is-active):not(.workspace-tab-group-label) .workspace-tab-title'),selected:inspect('.workspace-tab.is-active .workspace-tab-title'),row:inspect('.workspace-tab:not(.is-active):not(.workspace-tab-group-label)'),activeRow:inspect('.workspace-tab.is-active'),group:inspect('.workspace-tab-group-label > span:first-child'),groupRow:inspect('.workspace-tab-group-label'),icon:inspect(${JSON.stringify(orientation === 'vertical' ? '.workspace-tab-icon svg' : '.workspace-tab-add svg')}),tool:inspect('.test-tool'),disabled:inspect('.workspace-history-controls > button:disabled'),status:inspect('.contrast-status'),green:rgba(getComputedStyle(host).getPropertyValue('--green')),headers};
     })()`)
+  }
+  const assertReadableTabs = (measured, label) => {
+    for (const name of ['normal', 'selected', 'group', 'tool']) assert.ok(measured[name].ratio >= 4.5, label + ': readable ' + name + ' ' + measured[name].ratio)
+    assert.ok(measured.icon.ratio >= 3, label + ': readable navigation icon')
+    for (const header of measured.headers) {
+      for (const [name, minimum] of [['title', 4.5], ['action', 3], ['legacy', 3], ['close', 3]]) {
+        const sample = header[name]
+        if (!sample) continue
+        const expected = header.chrome ? measured.normal.color : header[name === 'title' ? 'expectedTitle' : name === 'legacy' ? 'expectedLegacy' : 'expectedAction']
+        assert.deepEqual(sample.color, expected, label + ': ' + name + ' follows its chrome or content ink')
+        if (header.chrome && sample.rect.height) assert.ok(sample.ratio >= minimum, label + ': readable header ' + name + ' ' + sample.ratio)
+      }
+    }
+  }
+  const assertHeaderControls = async theme => {
+    const read = async () => {
+      const measured = await readTabsContrast(theme, 'vertical')
+      return { ink: measured.normal.color, header: measured.headers.find(header => header.legacy) }
+    }
+    for (const [name, className] of [['legacy', 'fixture-legacy-header'], ['close', 'fixture-local-close']]) {
+      const { header } = await read(), rect = header[name].rect
+      await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 })
+      await settle()
+      const hovered = await read()
+      assert.deepEqual(hovered.header[name].color, hovered.ink, name + ': legacy header hover keeps readable chrome ink')
+      await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 })
+      await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 })
+      await run(`document.querySelector('.workspace-view:not([hidden]) .${className}').focus({preventScroll:true})`)
+      const focused = await read()
+      assert.deepEqual(focused.header[name].color, focused.ink, name + ': legacy header focus keeps chrome ink')
+      assert.ok(focused.header[name].focus && focused.header[name].outline >= 2 && focused.header[name].outlineRatio >= 3, name + ': header keyboard focus contrasts against its fill')
+      await run('document.activeElement.blur()')
+    }
+    await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1100, y: 700 })
+  }
+  const assertTabsContrast = async (theme, orientation, suffix = '') => {
+    const prefix = 'contrast-' + theme + '-' + orientation + suffix
+    const read = () => readTabsContrast(theme, orientation)
     const mouse = (type, rect, extra = {}) => window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
       type, x: rect.x + Math.min(24, rect.width / 2), y: rect.y + rect.height / 2, ...extra,
     })
@@ -277,8 +324,7 @@ async function check() {
     await mouse('mouseMoved', { x: 1100, y: 700, width: 0, height: 0 })
     await settle()
     const normal = await read()
-    for (const label of ['normal', 'selected', 'group', 'tool']) assert.ok(normal[label].ratio >= 4.5, theme + ': readable ' + label + ' ' + normal[label].ratio)
-    assert.ok(normal.icon.ratio >= 3, theme + ': readable navigation icon')
+    assertReadableTabs(normal, theme)
     assert.ok(normal.disabled.opacity < .5, theme + ': disabled navigation remains dim')
     assert.ok(normal.selected.weight > normal.normal.weight, theme + ': selection has stronger text')
     assert.deepEqual(normal.status.color, normal.green, theme + ': semantic status color is preserved')
@@ -334,7 +380,7 @@ async function check() {
       return {pane:box(pane),title:box(pane.querySelector('.workspace-pane-title-text')),feed:box(feed),composer:box(composer),tasks:box(tasks),
         width:parseFloat(style.getPropertyValue('--workspace-column-width')),gutter:parseFloat(style.getPropertyValue('--workspace-column-gutter')),
         fonts:[tab,pane.querySelector('.workspace-pane-title'),pane.querySelector('.activity-agent .activity-content'),pane.querySelector('[data-cordis-composer-editor]')].map(el=>getComputedStyle(el).fontFamily),
-        fills:{bubble:color(getComputedStyle(bubble).backgroundColor),composer:color(getComputedStyle(composer).backgroundColor),recessed:role('--workspace-surface-recessed'),raised:role('--workspace-surface-raised')},
+        fills:{bubble:color(getComputedStyle(bubble).backgroundColor),composer:color(getComputedStyle(composer).backgroundColor),sheet:role('--workspace-surface-sheet'),recessed:role('--workspace-surface-recessed'),raised:role('--workspace-surface-raised')},chrome:role('--workspace-surface-chrome'),
         radii:[composer,bubble,...controls].map(el=>getComputedStyle(el).borderRadius),radius:style.getPropertyValue('--workspace-radius').trim(),composerRadius:style.getPropertyValue('--radius-composer').trim(),originalRadius:getComputedStyle(document.documentElement).getPropertyValue('--radius-composer').trim(),
         roundSupported:CSS.supports('corner-shape','round'),corners:[composer,bubble,...controls].map(el=>getComputedStyle(el).getPropertyValue('corner-shape')),
         controls:controls.map(box),groupFrame:parseFloat(getComputedStyle(group,'::before').borderTopLeftRadius),groupInset:parseFloat(getComputedStyle(group).getPropertyValue('--workspace-tab-group-inset')),
@@ -364,6 +410,7 @@ async function check() {
     assert.deepEqual([measured.tasks.width, measured.tasks.height, measured.tasksNamed, measured.tasksLabel], [32, 32, 'Tasks', 'none'], label + ': Tasks is a named 32px icon control')
     if (!measured.collapsed) assert.equal(measured.agentsVisible, true, label + ': the Agents count stays visible')
     assert.ok(measured.scroll <= measured.viewport, label + ': content stays inside the viewport')
+    return measured
   }
   try {
     await window.loadURL(`http://127.0.0.1:${server.address().port}`)
@@ -544,6 +591,50 @@ async function check() {
     const transparencyPreference = value => window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-reduced-transparency', value }],
     })
+    const assertAccentChrome = async theme => {
+      const accents = [['violet', '#7c3aed'], ['blue', '#2563eb'], ['warm', '#ea580c'], ['green', '#16a34a'], ['black', '#000000'], ['white', '#ffffff']]
+      const nativeColors = new Set(), opaqueColors = new Set()
+      let content
+      for (const [name, accent] of accents) {
+        await run(`document.documentElement.style.setProperty('--alto-theme-accent',${JSON.stringify(accent)})`)
+        await settle()
+        const appearance = await assertCoherence(theme + ': ' + name + ' accent')
+        if (content) assert.deepEqual(appearance.fills, content, theme + ': changing the accent preserves sheet, message, and composer fills')
+        else content = appearance.fills
+        let nativeColor, stateColors
+        for (const orientation of ['vertical', 'horizontal']) {
+          const label = theme + ': ' + name + ' ' + orientation
+          const glass = await material()
+          assertNativeMaterial(glass, label)
+          assert.ok(Math.abs(glass.root.alpha - .2) < .01, label + ': glass keeps 80% native material visible')
+          assert.equal(glass.root.image, 'none', label + ': accent wash adds no gradient')
+          if (nativeColor) assert.deepEqual(glass.root.rgba, nativeColor, label + ': both orientations share one tinted material')
+          else nativeColor = glass.root.rgba
+          nativeColors.add(JSON.stringify(glass.root.rgba))
+          const states = await assertTabsContrast(theme, orientation, '-' + name)
+          if (stateColors) assert.deepEqual(states, stateColors, label + ': accent shares all states in both orientations')
+          stateColors = states
+          await settle()
+          await capture(`accent-${theme}-${orientation}-${name}`)
+          await transparencyPreference('reduce')
+          const reduced = await material()
+          assertOpaqueChrome(reduced, label + ': reduced transparency')
+          assert.deepEqual(reduced.root.rgba, appearance.chrome, label + ': opaque chrome uses the shared accent surface, including the dark alias')
+          opaqueColors.add(JSON.stringify(reduced.root.rgba))
+          await transparencyPreference('no-preference')
+          await run("document.documentElement.dataset.desktopPlatform='linux'")
+          const nonmac = await material()
+          assertOpaqueChrome(nonmac, label + ': nonmac fallback')
+          assert.deepEqual(nonmac.root.rgba, reduced.root.rgba, label + ': nonmac and reduced-transparency chrome agree')
+          await run("document.documentElement.dataset.desktopPlatform='darwin';commandB(true)")
+          await finishMotion()
+        }
+      }
+      assert.equal(nativeColors.size, accents.length, theme + ': every accent recolors the glass')
+      assert.equal(opaqueColors.size, accents.length, theme + ': every accent recolors opaque chrome')
+      await run("document.documentElement.style.removeProperty('--alto-theme-accent')")
+      await settle()
+    }
     await transparencyPreference('no-preference')
     const appearanceByTheme = new Map()
     for (const theme of ['light', 'dark']) {
@@ -615,6 +706,7 @@ async function check() {
     for (const theme of ['light', 'dark']) {
       window.setBackgroundColor(theme === 'light' ? '#aaabb1' : '#22242a')
       await run(`document.documentElement.dataset.altoTheme='${theme}';click('[data-workspace-tab=a]');mountPreview()`)
+      await assertAccentChrome(theme)
       for (const width of [1200, 600]) {
         window.setContentSize(width, 760)
         await settle()
@@ -623,6 +715,7 @@ async function check() {
           const label = `coherence-${theme}-${orientation}-${width}`
           await capture(label)
           await assertCoherence(label)
+          assertReadableTabs(await readTabsContrast(theme, orientation), label)
           if (theme === 'light' && width === 1200 && orientation === 'vertical') {
             await run("window.coherenceEditor=document.querySelector('[data-cordis-composer-editor]');coherenceEditor.focus();document.execCommand('insertText',false,' A retained draft.');window.editorSelection={node:getSelection().anchorNode,offset:getSelection().anchorOffset,text:coherenceEditor.textContent};disableAppearance();enableAppearance()")
             await settle()
@@ -652,14 +745,19 @@ async function check() {
       await settle()
       assertNativeMaterial(await material(), tab + ': full-size pane')
       await assertMaterialPixels(tab + ': full-size pane')
+      if (tab === 'e') await assertHeaderControls('dark')
     }
     await run("click('[data-workspace-tab=c]');window.materialSplit=document.querySelector('.workspace-view:not([hidden]) > .workspace-split');materialSplit.classList.replace('workspace-split-horizontal','workspace-split-vertical')")
     await settle()
+    await finishMotion()
     await assertMaterialPixels('Vertical split keeps its lower header opaque')
+    assertReadableTabs(await readTabsContrast('dark', 'vertical'), 'Lower split keeps its content ink')
     await run("materialSplit.classList.add('is-fullscreen-second')")
     await settle()
+    await finishMotion()
     await capture('vertical-native-fullscreen-second')
     await assertMaterialPixels('A full-screen lower pane joins the title band')
+    assertReadableTabs(await readTabsContrast('dark', 'vertical'), 'Promoted lower header joins the chrome ink')
     await run("materialSplit.classList.remove('is-fullscreen-second');materialSplit.classList.replace('workspace-split-vertical','workspace-split-horizontal')")
     await settle()
     await run("document.documentElement.dataset.sidebarMode='pinned'")
@@ -670,6 +768,7 @@ async function check() {
 
     await run('disableVertical()')
     await settle()
+    await finishMotion()
     state = await run('inspect()')
     assert.equal(state.headerStrip, true, 'Disabling the fiber restores the top tabs')
     assert.equal(state.railStrip, undefined)

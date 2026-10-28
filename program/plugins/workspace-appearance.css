@@ -2,11 +2,16 @@
    content. The active theme supplies the colors; native material can vary. */
 .workspace-layout-root {
   --workspace-surface-sheet: var(--canvas);
-  --workspace-surface-chrome: color-mix(in srgb, var(--workspace-surface-sheet) 97%, black);
+  --workspace-chrome-neutral: color-mix(in srgb, var(--workspace-surface-sheet) 97%, black);
+  --workspace-surface-chrome: color-mix(in srgb, var(--accent) 22%, var(--workspace-chrome-neutral));
+  --workspace-chrome-ink: color-mix(in srgb, var(--text-strong) 75%, light-dark(black, white));
   --workspace-surface-raised: var(--panel-solid);
   --workspace-surface-recessed: var(--panel-soft);
   --workspace-chrome: var(--workspace-surface-chrome);
-  --workspace-material-tint: color-mix(in srgb, var(--workspace-surface-raised) 16%, transparent);
+  /* A visible accent wash gives the chrome its color while native material
+     remains the larger part of the translucent surface. */
+  --workspace-material-tint: color-mix(in srgb,
+    color-mix(in srgb, var(--accent) 60%, var(--workspace-surface-raised)) 20%, transparent);
   --workspace-column-width: var(--composer-content-width);
   --workspace-column-gutter: var(--composer-content-gutter);
   --workspace-column-inset: max(var(--workspace-column-gutter), calc((100% - var(--workspace-column-width)) / 2));
@@ -17,6 +22,12 @@
   --sans: var(--composer-font);
   --display: var(--sans);
   font-family: var(--sans);
+}
+
+/* Preserve the dark chrome's depth while sharing its accent-colored fallback. */
+html[data-alto-theme='dark'] .workspace-layout-root {
+  --workspace-chrome-neutral: color-mix(in srgb, var(--workspace-surface-sheet) 55%, var(--bg));
+  --workspace-chrome: var(--workspace-surface-chrome);
 }
 
 .workspace-layout-root .activity-user:not(.activity-source-edit) {
@@ -35,6 +46,39 @@
 }
 
 .workspace-layout-root .workspace-pane-title { color: var(--text); }
+
+/* Top pane controls sit on the same colored glass as the navigation.
+   Lower split headers retain the ink of their own content surface. */
+.workspace-body[data-tab-orientation='vertical'] :is(
+  .workspace-pane-header,
+  .alto-pane-header
+):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) {
+  --text: var(--workspace-chrome-ink);
+  --text-strong: var(--workspace-chrome-ink);
+  --muted: var(--workspace-chrome-ink);
+  --dim: var(--workspace-chrome-ink);
+  --text-muted: var(--workspace-chrome-ink);
+  --text-secondary: var(--workspace-chrome-ink);
+  --text-supporting: var(--workspace-chrome-ink);
+  --alto-button-color: var(--workspace-chrome-ink);
+  --accent-focus: var(--workspace-chrome-ink);
+  --icon-opacity: 1;
+  color: var(--workspace-chrome-ink);
+}
+
+.workspace-body[data-tab-orientation='vertical'] :is(
+  .workspace-pane-header,
+  .alto-pane-header
+):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) :is(button, a):is(:hover, :focus-visible, [aria-pressed='true']) {
+  color: var(--workspace-chrome-ink);
+}
+
+.workspace-body[data-tab-orientation='vertical'] :is(
+  .workspace-pane-header,
+  .alto-pane-header
+):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) :is(button, a):focus-visible {
+  outline-color: var(--workspace-chrome-ink);
+}
 
 /* The composer's existing round geometry guides surfaces and controls.
    Short tabs and buttons naturally clamp this radius into pill shapes. */

@@ -661,6 +661,7 @@
               "id": "workspace-material",
               "name": "macOS Window Material",
               "description": "Applies native translucency consistently to workspace chrome while keeping content opaque.",
+              "module": "plugins/workspace-material.ts",
               "client": "plugins/workspace-material.client.ts",
               "enabled": true,
               "config": {}

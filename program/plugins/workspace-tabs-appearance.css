@@ -1,12 +1,12 @@
 /* Top tabs and the side rail share one palette and interaction hierarchy.
    Their layout and the native window material are owned separately. */
 :is(.workspace-tabbar, .vertical-tab-rail) {
-  --workspace-tab-ink: color-mix(in srgb, var(--text) 45%, var(--text-strong));
+  --workspace-tab-ink: var(--workspace-chrome-ink);
   --workspace-tab-secondary: var(--workspace-tab-ink);
-  --workspace-tab-hover: color-mix(in srgb, var(--text) 4%, transparent);
-  --workspace-tab-selected: color-mix(in srgb, var(--text) 8%, transparent);
-  --workspace-tab-pressed: color-mix(in srgb, var(--text) 12%, transparent);
-  --workspace-tab-focus: color-mix(in srgb, var(--accent) 50%, var(--text-strong));
+  --workspace-tab-hover: color-mix(in srgb, var(--panel-solid) 16%, transparent);
+  --workspace-tab-selected: color-mix(in srgb, var(--panel-solid) 38%, transparent);
+  --workspace-tab-pressed: color-mix(in srgb, var(--panel-solid) 55%, transparent);
+  --workspace-tab-focus: var(--workspace-tab-ink);
   /* Enabled navigation needs readable ink on glass, including its icons,
      counts, and running indicators. Semantic accent colors stay independent. */
   --muted: var(--workspace-tab-secondary);
