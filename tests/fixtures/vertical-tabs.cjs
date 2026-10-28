@@ -16,6 +16,7 @@ async function check() {
       import plugin from './program/plugins/workspace-layout.client';
       import groupsPlugin from './program/plugins/workspace-tab-groups.client';
       import verticalTabsPlugin from './program/plugins/vertical-tabs.client';
+      import workspaceMaterialPlugin from './program/plugins/workspace-material.client';
       import verticalHotkeysPlugin from './program/plugins/hotkeys-vertical-tabs.client';
       import {HotkeysService} from './program/plugins/hotkeys.client';
       import {parseWorkspaceLayout} from './program/plugins/workspace-layout-state';
@@ -45,18 +46,20 @@ async function check() {
         disable:()=>flushSync(()=>{for(const cleanup of effects.reverse())cleanup();effects=[]}),
       }};
       const hotkeys=new HotkeysService(ui,{leader:'Alt'});
-      const groups=fiber(groupsPlugin),vertical=fiber(ctx=>{verticalTabsPlugin(ctx);
+      const material=fiber(workspaceMaterialPlugin),groups=fiber(groupsPlugin),vertical=fiber(ctx=>{verticalTabsPlugin(ctx);
         verticalHotkeysPlugin({...ctx,clientVerticalTabs:registry.verticalTabs,clientHotkeys:{registerAction:(owner,action)=>hotkeys.registerAction(owner,action)}})});
       window.enableGroups=groups.enable;window.disableGroups=groups.disable;
       window.enableVertical=vertical.enable;window.disableVertical=vertical.disable;
+      window.enableMaterial=material.enable;window.disableMaterial=material.disable;
+      material.enable();
       groups.enable();
       window.mounts=0;
-      const Pane=({pane})=>{useEffect(()=>{window.mounts++},[]);const body=<main className="test-pane"><p>Conversation in {pane.id}</p><textarea id={'draft-'+pane.id} defaultValue={'Draft for '+pane.id}/></main>;
+      const Pane=({pane})=>{useEffect(()=>{window.mounts++},[]);const body=<div className="test-pane"><p>Conversation in {pane.id}</p><textarea id={'draft-'+pane.id} defaultValue={'Draft for '+pane.id}/></div>;
         // Terminal-like panes draw their own top bar with the shared pane header, as the real terminal does.
-        return pane.kind==='terminal'?<div className="alto-pane test-terminal"><div className="alto-pane-header workspace-local-tabbar">Terminal</div>{body}</div>:body};
+        return pane.kind==='terminal'?<div className="alto-pane ghostty-workspace-pane test-terminal"><div className="alto-pane-header workspace-local-tabbar">Terminal</div>{body}</div>:body};
       registry.registerPaneKind({effect:fn=>fn()},{id:'test',label:'Test pane',renderer:Pane});
       registry.registerPaneKind({effect:fn=>fn()},{id:'terminal',label:'Terminal',icon:SquareTerminal,renderer:Pane});
-      window.boot=()=>{root=createRoot(document.getElementById('root'));flushSync(()=>root.render(<Surface surface={{id:'workspace-layout',kind:'workspace-layout'}}/>))};
+      window.boot=()=>{root=createRoot(document.getElementById('workspace-mount'));flushSync(()=>root.render(<Surface surface={{id:'workspace-layout',kind:'workspace-layout'}}/>))};
       window.reload=()=>{flushSync(()=>root.unmount());window.boot()};
       const rect=selector=>{const el=document.querySelector(selector);if(!el)return undefined;const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}};
       window.inspect=()=>({saved:structuredClone(saved),mounts:window.mounts,
@@ -105,7 +108,7 @@ async function check() {
   })
   const css = (await Promise.all(['src/client/styles.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css'].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer((request, response) => {
-    response.end('<!doctype html><style>' + css + '\n#root{height:100vh}.test-pane{padding:24px;width:100%}.test-pane textarea{width:100%;min-height:100px}.test-terminal{flex:1 1 0}</style><div id="root"></div>')
+    response.end('<!doctype html><style>' + css + '\n#root{height:100vh}#workspace-mount{display:flex;min-width:0;min-height:0;flex:1 1 0}.test-pane{padding:24px;width:100%}.test-pane textarea{width:100%;min-height:100px}.test-terminal{flex:1 1 0}</style><div id="root"><div class="shell-kernel"><div data-shell-node="workspace" class="shell-box shell-direction-row shell-grow shell-surface-canvas"><main data-shell-node="workspace-layout-main" class="shell-box shell-direction-column shell-grow shell-surface-canvas"><div id="workspace-mount"></div></main></div></div></div>')
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const window = new BrowserWindow({ show: false, width: 1200, height: 760, webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, backgroundThrottling: false } })
@@ -119,6 +122,96 @@ async function check() {
     if (!process.env.ALTO_VERTICAL_TABS_ARTIFACT_DIR) return
     await fs.mkdir(process.env.ALTO_VERTICAL_TABS_ARTIFACT_DIR, { recursive: true })
     await fs.writeFile(path.join(process.env.ALTO_VERTICAL_TABS_ARTIFACT_DIR, name + '.png'), (await window.webContents.capturePage()).toPNG())
+  }
+  const material = () => run(`(() => {
+    // Canvas normalizes both rgb() and color(srgb ...) computed colors.
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    const sample = element => {
+      if (!element) return undefined;
+      const style = getComputedStyle(element);
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = style.backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+      return { color: style.backgroundColor, alpha: context.getImageData(0, 0, 1, 1).data[3] / 255, image: style.backgroundImage, mask: style.maskComposite };
+    };
+    const selectors = ['html', 'body', '#root', '.shell-kernel', '[data-shell-node="workspace"]', '[data-shell-node="workspace-layout-main"]'];
+    const view = document.querySelector('.workspace-view:not([hidden])');
+    return {
+      ancestors: Object.fromEntries(selectors.map(selector => [selector, sample(document.querySelector(selector))])),
+      root: sample(document.querySelector('.workspace-layout-root')),
+      rail: sample(document.querySelector('.vertical-tab-rail')),
+      bar: sample(document.querySelector('.workspace-tabbar')),
+      sheet: sample(view),
+      panes: [...view.querySelectorAll('.workspace-chat-pane, .alto-pane')].map(sample),
+      cornerOverlay: getComputedStyle(view, '::after').content,
+    };
+  })()`)
+  const assertOpaqueContent = (measured, label) => {
+    assert.equal(measured.sheet.alpha, 1, label + ': content sheet stays opaque');
+    assert.ok(measured.panes.length > 0, label + ': pane backgrounds are present');
+    for (const pane of measured.panes) assert.equal(pane.alpha, 1, label + ': content panes stay opaque');
+  }
+  const assertNativeMaterial = (measured, label) => {
+    for (const [selector, surface] of Object.entries(measured.ancestors)) {
+      assert.equal(surface.alpha, 0, label + ': transparent ' + selector + ' ' + JSON.stringify(surface));
+      assert.equal(surface.image, 'none', label + ': no opaque background image on ' + selector);
+    }
+    assert.ok(measured.root.alpha > 0 && measured.root.alpha < 1, label + ': one translucent chrome layer');
+    assert.equal((measured.rail ?? measured.bar).alpha, 0, label + ': chrome reveals the shared material');
+    if (measured.rail) {
+      assert.equal(measured.sheet.alpha, 0, label + ': clear title band');
+      assert.match(measured.sheet.image, /linear-gradient/, label + ': content fill starts below the title band');
+      assert.match(measured.sheet.mask, /exclude/, label + ': real rounded sheet cutout');
+      assert.equal(measured.cornerOverlay, 'none', label + ': no corner painted over opaque content');
+      for (const pane of measured.panes) {
+        assert.equal(pane.alpha, 0, label + ': clear pane title band');
+        assert.match(pane.image, /linear-gradient/, label + ': pane body retains its own fill');
+      }
+    } else assertOpaqueContent(measured, label);
+  }
+  const assertOpaqueChrome = (measured, label) => {
+    for (const selector of ['html', '[data-shell-node="workspace-layout-main"]']) {
+      const surface = measured.ancestors[selector];
+      // Dark main paints an opaque gradient instead of a background color.
+      assert.ok(surface.alpha === 1 || surface.image !== 'none', label + ': shell background restored on ' + selector);
+    }
+    assert.equal(measured.root.alpha, 1, label + ': opaque workspace chrome');
+    if (measured.rail) assert.equal(measured.rail.alpha, 1, label + ': opaque rail');
+    else assert.ok(measured.bar.alpha > 0, label + ': horizontal chrome restored');
+    assertOpaqueContent(measured, label);
+  }
+  const assertMaterialPixels = async label => {
+    const points = await run(`(() => {
+      const view = document.querySelector('.workspace-view:not([hidden])'), bounds = view.getBoundingClientRect();
+      const band = parseFloat(getComputedStyle(view.querySelector('.workspace-pane-header')).minHeight);
+      const radius = parseFloat(getComputedStyle(view).getPropertyValue('--workspace-sheet-radius'));
+      const rail = document.querySelector('.vertical-tab-rail').getBoundingClientRect();
+      const context = document.createElement('canvas').getContext('2d');
+      const expected = (element, paneColor = true) => {
+        const style = getComputedStyle(element);
+        context.fillStyle = (paneColor && style.getPropertyValue('--workspace-pane-background')) || style.getPropertyValue('--canvas');
+        context.fillRect(0, 0, 1, 1);
+        const [r,g,b,a] = context.getImageData(0, 0, 1, 1).data;
+        return [b,g,r,a];
+      };
+      return { gutter: [2, 2], rail: [rail.left + 2, 2], corner: [bounds.left + 1, bounds.top + band + 1], panes: [...view.querySelectorAll('.workspace-chat-pane')].flatMap(pane => {
+        const rect = pane.getBoundingClientRect();
+        if (!rect.width || !rect.height) return [];
+        const owner = pane.querySelector('.alto-pane') ?? pane;
+        return [{ header: [rect.left + 2, rect.top + 2], top: rect.top, body: [rect.left + 3, rect.top + band + radius + 4], expected: expected(owner), headerCanvas: expected(pane, false) }];
+      }) };
+    })()`)
+    const shot = await window.webContents.capturePage(), size = shot.getSize(), bitmap = shot.toBitmap()
+    const pixel = ([x, y]) => [...bitmap.subarray((Math.floor(y) * size.width + Math.floor(x)) * 4, (Math.floor(y) * size.width + Math.floor(x)) * 4 + 4)]
+    const chrome = pixel(points.rail)
+    assert.deepEqual(pixel(points.gutter), chrome, label + ': gutters expose the shared material')
+    assert.deepEqual(pixel(points.corner), chrome, label + ': rounded corner exposes the same material as the rail')
+    for (const pane of points.panes) {
+      assert.deepEqual(pixel(pane.header), pane.top === 0 ? chrome : pane.headerCanvas, label + ': title band and lower split header colors')
+      assert.deepEqual(pixel(pane.body), pane.expected, label + ': opaque content body ' + JSON.stringify(pane))
+    }
   }
   try {
     await window.loadURL(`http://127.0.0.1:${server.address().port}`)
@@ -295,8 +388,13 @@ async function check() {
     await run("click('.vertical-tab-rail-toggle')")
     await finishMotion()
 
+    window.webContents.debugger.attach('1.3')
+    const transparencyPreference = value => window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-reduced-transparency', value }],
+    })
+    await transparencyPreference('no-preference')
     for (const theme of ['light', 'dark']) {
-      await run(`document.documentElement.dataset.altoTheme='${theme}';document.documentElement.dataset.desktopPlatform='darwin'`)
+      await run(`Object.assign(document.documentElement.dataset,{altoTheme:'${theme}',desktopPlatform:'darwin',altoThemePlugin:'active',altoChromeTheme:'alto'})`)
       for (const width of [1200, 600]) {
         window.setContentSize(width, 760)
         await settle()
@@ -319,11 +417,55 @@ async function check() {
           assert.deepEqual(arrows.map(arrow => arrow.center), [21, 21], theme + ': arrows align with the window buttons')
           assert.equal((await run("document.querySelector('.vertical-tab-rail-header').getBoundingClientRect().height")), 40, 'The rail header keeps the band height')
         }
+        assertNativeMaterial(await material(), theme + ' at ' + width + 'px');
+        if (width === 1200) {
+          await assertMaterialPixels(theme + ': side-by-side panes')
+          await run('commandB(true)')
+          await finishMotion()
+          assertNativeMaterial(await material(), theme + ': horizontal tabs share the material')
+          await run('commandB(true)')
+          await finishMotion()
+          assertNativeMaterial(await material(), theme + ': switching back to vertical')
+        }
         await capture(`vertical-${theme}-${width}`)
       }
+      await transparencyPreference('reduce')
+      await settle()
+      assert.equal(await run("matchMedia('(prefers-reduced-transparency: reduce)').matches"), true)
+      assertOpaqueChrome(await material(), theme + ': reduced transparency')
+      await transparencyPreference('no-preference')
+      await settle()
+      assertNativeMaterial(await material(), theme + ': restored transparency preference')
+      await run("document.documentElement.dataset.desktopPlatform='linux'")
+      assertOpaqueChrome(await material(), theme + ': nonmac fallback')
+      await run("document.documentElement.dataset.desktopPlatform='darwin'")
     }
     window.setContentSize(1200, 760)
     await settle()
+    await finishMotion()
+
+    // The same sheet must work when either a headerless or terminal-style
+    // pane leads it, including a lower split promoted to full screen.
+    for (const tab of ['e', 'a']) {
+      await run(`click('[data-workspace-tab=${tab}]')`)
+      await settle()
+      assertNativeMaterial(await material(), tab + ': full-size pane')
+      await assertMaterialPixels(tab + ': full-size pane')
+    }
+    await run("click('[data-workspace-tab=c]');window.materialSplit=document.querySelector('.workspace-view:not([hidden]) > .workspace-split');materialSplit.classList.replace('workspace-split-horizontal','workspace-split-vertical')")
+    await settle()
+    await assertMaterialPixels('Vertical split keeps its lower header opaque')
+    await run("materialSplit.classList.add('is-fullscreen-second')")
+    await settle()
+    await capture('vertical-native-fullscreen-second')
+    await assertMaterialPixels('A full-screen lower pane joins the title band')
+    await run("materialSplit.classList.remove('is-fullscreen-second');materialSplit.classList.replace('workspace-split-vertical','workspace-split-horizontal')")
+    await settle()
+    await run("document.documentElement.dataset.sidebarMode='pinned'")
+    await finishMotion()
+    await assertMaterialPixels('Pinned sidebar gutter')
+    await run("delete document.documentElement.dataset.sidebarMode")
+    await finishMotion()
 
     await run('disableVertical()')
     await settle()
@@ -338,6 +480,7 @@ async function check() {
     assert.equal((await run('inspect()')).railStrip, undefined, 'Command-B is released with the fiber')
     assert.equal(state.tabs.some(tab => tab.icon), false)
     assert.equal(await run("!!document.querySelector('[data-plugin-style=vertical-tabs]')"), false)
+    assertNativeMaterial(await material(), 'Disabling the vertical fiber retains the shared material')
     assert.equal(state.mounts, mounted)
     assert.equal(await run("originalDraft===document.getElementById('draft-pane-a') && originalDraft.value==='Keep this draft'"), true)
 
@@ -348,9 +491,15 @@ async function check() {
     await run("drop('[data-workspace-tab=e]','[data-workspace-tab=a]',0.1)")
     assert.equal((await run('inspect()')).saved.views[0].id, 'e')
     assert.equal((await run('inspect()')).mounts, mounted)
+    await run('disableMaterial()')
+    await settle()
+    assertOpaqueChrome(await material(), 'Disabling material restores opaque chrome while vertical tabs stay active')
+    assert.equal(await run("!!document.querySelector('[data-plugin-style=workspace-material]')"), false)
+    assert.equal((await run('inspect()')).mounts, mounted, 'Changing material does not remount panes')
     await run('teardown()')
     console.log('Vertical tab browser checks passed')
   } finally {
+    if (window.webContents.debugger.isAttached()) window.webContents.debugger.detach()
     window.destroy()
     await new Promise(resolve => server.close(resolve))
   }

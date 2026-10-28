@@ -650,6 +650,14 @@
               "config": {}
             },
             {
+              "id": "workspace-material",
+              "name": "macOS Window Material",
+              "description": "Applies native translucency consistently to workspace chrome while keeping content opaque.",
+              "client": "plugins/workspace-material.client.ts",
+              "enabled": true,
+              "config": {}
+            },
+            {
               "id": "vertical-tabs",
               "name": "Vertical Tabs",
               "description": "Adds a resizable side tab column that can collapse to icons, and switches between it and the top tabs.",

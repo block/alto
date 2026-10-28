@@ -130,6 +130,10 @@ html[data-desktop-platform='darwin'] .vertical-tab-rail.is-collapsed .vertical-t
   padding-inline: var(--space-2) 0;
 }
 
+/* Keep hover feedback under the pointer. Group members retain their own
+   collapse transitions, as do the chevrons and counts inside group labels. */
+.vertical-tab-rail .workspace-tab:not(.workspace-tab-group-member) { transition: none; }
+
 .vertical-tab-rail .workspace-tab > .workspace-tab-title {
   min-width: 0;
   flex: 1 1 auto;
