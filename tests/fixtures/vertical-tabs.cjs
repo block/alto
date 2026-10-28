@@ -313,6 +313,11 @@ async function check() {
           assert.ok(state.views.width >= 520, JSON.stringify(state.views))
         } else {
           assert.equal(state.collapsed, false)
+          // Back and forward sit clear of the window buttons, centered on their row.
+          const arrows = await run("[...document.querySelectorAll('.vertical-tab-rail-header .workspace-history-controls > button')].map(button=>{const r=button.getBoundingClientRect();return {left:r.left,center:r.top+r.height/2}})")
+          assert.equal(arrows[0].left, 96, theme + ': back clears the window buttons ' + JSON.stringify(arrows))
+          assert.deepEqual(arrows.map(arrow => arrow.center), [21, 21], theme + ': arrows align with the window buttons')
+          assert.equal((await run("document.querySelector('.vertical-tab-rail-header').getBoundingClientRect().height")), 40, 'The rail header keeps the band height')
         }
         await capture(`vertical-${theme}-${width}`)
       }

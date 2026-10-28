@@ -5,6 +5,10 @@
   --vertical-tab-titlebar-height: var(--workspace-title-band-height);
   /* Clears the native window buttons drawn at the top-left on macOS. */
   --vertical-tab-window-controls: 76px;
+  /* Where the first control starts beside those buttons, matching the top bar. */
+  --vertical-tab-window-controls-inset: 96px;
+  /* The buttons sit 14px down and are 14px tall, so their center is 1px below the band's. */
+  --vertical-tab-window-controls-drop: 2px;
   --vertical-tab-height: var(--control-default);
   --vertical-tab-collapsed-width: 48px;
   position: relative;
@@ -38,7 +42,8 @@
 }
 
 html[data-desktop-platform='darwin'] .vertical-tab-rail-header {
-  padding-inline-start: var(--vertical-tab-window-controls);
+  padding-block-start: var(--vertical-tab-window-controls-drop);
+  padding-inline-start: var(--vertical-tab-window-controls-inset);
 }
 
 .vertical-tab-rail-header > .workspace-shell-contribution { display: flex; align-items: center; }
