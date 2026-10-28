@@ -146,9 +146,9 @@ styles directly under the interface, independently of the workspace. This scope
 also covers portals mounted on `document.body`. The class catalog imports no CSS,
 so editing shared appearance does not replace feature components or their drafts.
 
-Features own positioning, bounds, row grids, padding, wrapping, and specialized
-content. Shared roles own neutral colors, typography, rounding, shadows, focus,
-and interaction states. Add layout classes alongside the role instead of
+Features own positioning, bounds, row grids, wrapping, and specialized content.
+Shared roles own neutral colors, typography, rounding, shadows, focus, interaction
+states, and default control geometry. Add layout classes alongside the role instead of
 repainting it. A decorated search container uses `field`; its borderless inner
 control uses `input`. Use `panel` for a flyout and `dialog` for a modal, even when
 both have an accessible `role="dialog"`. Native menu/listbox states also share the
@@ -163,6 +163,17 @@ for geometry and deliberate visual exceptions. Literal accent swatches, status
 indicators, source syntax, terminal colors, diagrams, and embedded browser content
 retain their own palettes. Window glass and Composer geometry have independent
 owners and should not change as a side effect of control styling.
+
+`ui/geometry.css` supplies common target sizes, row padding, and menu insets.
+Consume its geometry tokens for feature layouts: `--ui-panel-inset` (12px),
+`--ui-dialog-inset` (24px), compact `--ui-row-min-height` (32px), and
+`--ui-choice-row-min-height` (52px) for two-line choices. A feature row sets
+`--ui-row-min-height: var(--ui-choice-row-min-height)` when it needs that density;
+this preserves its target size independently of stylesheet registration order.
+Use the shared row padding/gap and field/control padding roles rather than
+nearby literal values. A 12px inset accommodates a 12px inner corner within the
+24px outer surface. Keep tab and Composer pills as their established shape
+families, and allow wrapping or scrolling when the available pane width shrinks.
 
 Pierre renders React review annotations into document slots. Their shared
 appearance belongs in `ui/review-annotations.css`; the viewer's `unsafeCSS`

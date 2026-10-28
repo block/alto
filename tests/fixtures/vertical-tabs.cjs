@@ -84,6 +84,14 @@ async function check() {
         activePanel:document.querySelector('.workspace-view:not([hidden]) textarea')?.id,
         stored:JSON.parse(localStorage.getItem('codex-cordis.vertical-tabs')??'null'),
         scroll:document.documentElement.scrollWidth});
+      window.tabGeometry=()=>{
+        const box=element=>{if(!element)return undefined;const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height,center:r.top+r.height/2}};
+        const strip=document.querySelector('.workspace-tabs'),rail=document.querySelector('.vertical-tab-rail');
+        return {orientation:strip.getAttribute('aria-orientation'),collapsed:!!rail?.classList.contains('is-collapsed'),gap:parseFloat(getComputedStyle(strip).gap),
+          rows:[...strip.querySelectorAll('.workspace-tab')].map(row=>({id:row.dataset.workspaceTab,box:box(row),title:box(row.querySelector('.workspace-tab-title,:scope>span:first-child')),icon:box(row.querySelector('.workspace-tab-icon')),
+            close:box(row.querySelector('.workspace-tab-close')),status:box(row.querySelector('.workspace-tab-thread-status')),count:box(row.querySelector('.workspace-tab-group-count')),toggle:box(row.querySelector('.workspace-tab-group-toggle'))})),
+          history:[...document.querySelectorAll('.workspace-history-controls>button')].map(box),tools:[...document.querySelectorAll('.workspace-tabbar-tools button')].map(box),add:box(document.querySelector('.workspace-tab-add'))};
+      };
       window.click=selector=>flushSync(()=>document.querySelector(selector).click());
       window.context=selector=>flushSync(()=>{const el=document.querySelector(selector),b=el.getBoundingClientRect();el.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:b.left+8,clientY:b.bottom}))});
       window.clickText=text=>flushSync(()=>{const el=[...document.querySelectorAll('.workspace-tab-group-menu button')].find(el=>el.textContent.trim()===text);if(!el)throw new Error('Missing button '+text);el.click()});
@@ -151,6 +159,32 @@ async function check() {
     if (!process.env.ALTO_VERTICAL_TABS_ARTIFACT_DIR) return
     await fs.mkdir(process.env.ALTO_VERTICAL_TABS_ARTIFACT_DIR, { recursive: true })
     await fs.writeFile(path.join(process.env.ALTO_VERTICAL_TABS_ARTIFACT_DIR, name + '.png'), (await window.webContents.capturePage()).toPNG())
+  }
+  const assertTabGeometry = async label => {
+    const measured = await run('tabGeometry()')
+    for (const row of measured.rows.filter(row => row.box.width > 1 && row.box.height > 1)) {
+      assert.equal(row.box.height, 32, label + ': tab rows share the compact row height')
+      if (measured.collapsed) continue
+      for (const action of [row.close, row.status, row.toggle].filter(Boolean)) {
+        assert.deepEqual([action.width, action.height, action.center], [24, 24, row.box.center], label + ': action slots remain centered and fixed')
+      }
+      const firstAction = row.status?.left ?? (row.count?.width ? row.count.left : undefined) ?? row.close?.left ?? row.toggle?.left
+      if (row.title && firstAction !== undefined) assert.ok(row.title.right <= firstAction + .01, label + ': title stays clear of its action slots ' + JSON.stringify(row))
+    }
+    for (const control of measured.history) assert.deepEqual([control.width, control.height], [24, 24], label + ': history uses the icon slot size')
+    for (const control of measured.tools) assert.equal(control.height, 32, label + ': footer/top tools share one target height')
+    assert.equal(measured.gap, 4, label + ': both orientations share the tab gap')
+    if (process.env.ALTO_TAB_GEOMETRY_REPORT) console.log(label + ': ' + JSON.stringify(measured))
+    return measured
+  }
+  const assertStableTabStatus = async label => {
+    const before = await assertTabGeometry(label)
+    await run("window.geometryStatus=document.createElement('span');geometryStatus.className='workspace-tab-thread-status';geometryStatus.textContent='●';document.querySelector('[data-workspace-tab=a]').append(geometryStatus)")
+    const after = await assertTabGeometry(label + ' with status')
+    const original = before.rows.find(row => row.id === 'a'), changed = after.rows.find(row => row.id === 'a')
+    assert.deepEqual(changed.title, original.title, label + ': a status update does not move or shrink the tab title')
+    assert.deepEqual(changed.close, original.close, label + ': a status update does not move the close action')
+    await run('geometryStatus.remove()')
   }
   const material = () => run(`(() => {
     // Canvas normalizes both rgb() and color(srgb ...) computed colors.
@@ -423,6 +457,7 @@ async function check() {
     assert.equal(state.railStrip, undefined)
     assert.match(state.toolHost, /workspace-tabbar/, 'Tools start in the top bar')
     assert.equal(state.toolsAttribute, null)
+    await assertTabGeometry('Initial horizontal geometry')
 
     await run("document.getElementById('draft-pane-a').value='Keep this draft';window.originalDraft=document.getElementById('draft-pane-a');enableVertical()")
     await finishMotion()
@@ -441,6 +476,7 @@ async function check() {
     assert.equal(state.toggleInFooter, true)
     assert.equal(state.toolsAttribute, 'rail')
     assert.equal(state.railEnd, '232px')
+    await assertStableTabStatus('Expanded vertical geometry')
     // Every pane kind's top bar joins one title band: same height and color as
     // the rail's top row, with the sheet edge curving beneath it.
     const band = selector => run(`(()=>{const view=document.querySelector('.workspace-view:not([hidden])'),bar=view.querySelector('${selector}'),style=getComputedStyle(bar),r=bar.getBoundingClientRect(),edge=getComputedStyle(view,'::before'),rail=document.querySelector('.vertical-tab-rail');
@@ -497,11 +533,13 @@ async function check() {
       left=r.left+parseFloat(getComputedStyle(tab).borderLeftWidth)+parseFloat(line.left);return {labelText:label.left,line:left,lineEnd:left+parseFloat(line.width),content:tab.firstElementChild.getBoundingClientRect().left}})()`)
     assert.equal(groupColumn.line, groupColumn.labelText, 'Group line aligns with the label text: ' + JSON.stringify(groupColumn))
     assert.equal(groupColumn.content - groupColumn.lineEnd, 8, 'Member content starts a step past the line: ' + JSON.stringify(groupColumn))
+    await assertTabGeometry('Expanded group geometry')
     await capture('vertical-group-light')
     await run("click('[data-workspace-group]')")
     await finishMotion()
     state = await run('inspect()')
     assert.deepEqual(state.tabs.filter(tab => tab.id === 'a' || tab.id === 'b').map(tab => tab.height), [0, 0], 'Collapsed groups fold their rows away')
+    await assertTabGeometry('Collapsed group geometry')
     assert.equal(state.mounts, 5)
     await run("click('[data-workspace-group]')")
     await finishMotion()
@@ -551,6 +589,16 @@ async function check() {
     assert.equal(state.railStrip, undefined, 'Command-Shift-B switches to top tabs')
     assert.equal(state.headerStrip, true)
     assert.equal(state.bar.height, 52)
+    await assertStableTabStatus('Restored horizontal geometry')
+    const expandedMembers = await run("[...document.querySelectorAll('.workspace-tab-group-member')].map(row=>row.getBoundingClientRect().width)")
+    await run("click('[data-workspace-group]');document.querySelector('.workspace-tabs').getAnimations({subtree:true}).forEach(animation=>{animation.pause();animation.currentTime=100})")
+    const foldingMembers = await run("[...document.querySelectorAll('.workspace-tab-group-member')].map(row=>({width:row.getBoundingClientRect().width,height:row.getBoundingClientRect().height,inert:row.inert}))")
+    assert.ok(foldingMembers.every((row,index)=>row.width>0&&row.width<expandedMembers[index]&&row.height===32&&row.inert), 'Horizontal members retain their folding motion and leave keyboard navigation immediately: ' + JSON.stringify(foldingMembers))
+    await finishMotion()
+    assert.ok(await run("[...document.querySelectorAll('.workspace-tab-group-member')].every(row=>row.getBoundingClientRect().width===0)"), 'Horizontal groups still fold completely')
+    await assertTabGeometry('Folded horizontal geometry')
+    await run("click('[data-workspace-group]')")
+    await finishMotion()
     assert.match(state.toolHost, /workspace-tabbar/)
     assert.equal(state.toolsAttribute, null)
     assert.equal(state.stored.orientation, 'horizontal')

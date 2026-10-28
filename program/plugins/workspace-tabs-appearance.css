@@ -1,6 +1,10 @@
-/* Top tabs and the side rail share one palette and interaction hierarchy.
-   Their layout and the native window material are owned separately. */
+/* Top tabs and the side rail share geometry, palette, and interaction states.
+   Their composition and the native window material are owned separately. */
 :is(.workspace-tabbar, .vertical-tab-rail) {
+  --workspace-tab-row-height: var(--ui-row-min-height);
+  --workspace-tab-action-size: var(--ui-icon-slot);
+  --workspace-tab-action-inset: calc((var(--workspace-tab-row-height) - var(--workspace-tab-action-size)) / 2);
+  --workspace-tab-trailing-inset: calc(2 * var(--workspace-tab-action-size) + var(--workspace-tab-action-inset));
   --workspace-tab-ink: var(--workspace-chrome-ink);
   --workspace-tab-secondary: var(--workspace-tab-ink);
   --workspace-tab-hover: color-mix(in srgb, var(--panel-solid) 16%, transparent);
@@ -25,6 +29,113 @@
   --ui-text-strong: var(--workspace-tab-ink);
   --ui-text-secondary: var(--workspace-tab-ink);
   --ui-focus: var(--workspace-tab-focus);
+}
+
+/* The native title bands keep their existing heights and window-button inset.
+   Inner rows use the same rhythm in either tab orientation. */
+.workspace-tabbar {
+  gap: var(--ui-row-gap);
+  padding-inline: var(--ui-panel-inset);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) :is(.workspace-tabbar-leading, .workspace-tabbar-tools) {
+  gap: var(--ui-control-gap);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabbar-tools > .workspace-shell-contribution {
+  gap: var(--ui-control-gap);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-history-controls {
+  gap: var(--ui-control-gap);
+  margin-inline-end: 0;
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-history-controls > button {
+  width: var(--workspace-tab-action-size);
+  height: var(--workspace-tab-action-size);
+  flex-basis: var(--workspace-tab-action-size);
+}
+.vertical-tab-rail.is-collapsed .workspace-history-controls { max-width: 100%; }
+.vertical-tab-rail .vertical-tab-rail-header { padding-inline-end: var(--ui-panel-inset); }
+html:not([data-desktop-platform='darwin']) .vertical-tab-rail:not(.is-collapsed) .vertical-tab-rail-header {
+  padding-inline-start: var(--ui-panel-inset);
+}
+.vertical-tab-rail .vertical-tab-rail-footer {
+  gap: var(--ui-control-gap);
+  padding: var(--ui-panel-inset);
+}
+.vertical-tab-rail .vertical-tab-rail-footer > .workspace-tabbar-tools { gap: var(--ui-control-gap); }
+
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs[aria-orientation] {
+  --workspace-tab-group-gap: calc(var(--ui-row-gap) / 2);
+  gap: var(--workspace-tab-group-gap);
+}
+.vertical-tab-rail:not(.is-collapsed) .workspace-tabs {
+  --workspace-tab-group-line-inset: var(--ui-row-inline-padding);
+  padding-inline: var(--ui-panel-inset);
+}
+
+/* Status/count and close/chevron each get a slot even while their contents are
+   absent or hidden. Titles therefore stay put as work or hover state changes. */
+:is(.workspace-tabbar, .vertical-tab-rail:not(.is-collapsed)) .workspace-tab:not(.is-group-collapsed) {
+  min-height: var(--workspace-tab-row-height);
+  height: var(--workspace-tab-row-height);
+  gap: var(--ui-row-gap);
+  padding-inline: var(--ui-row-inline-padding) var(--workspace-tab-trailing-inset);
+}
+.workspace-tabbar .workspace-tab:not(.is-group-collapsed) {
+  min-width: calc(var(--ui-row-inline-padding) + var(--workspace-tab-trailing-inset) + 4ch + var(--space-1) / 2);
+}
+.workspace-tabbar .workspace-tab { height: var(--workspace-tab-row-height); }
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab > .workspace-tab-title,
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab-group-label > span:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0;
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab > .workspace-tab-icon {
+  width: var(--workspace-tab-action-size);
+  height: var(--workspace-tab-action-size);
+  flex-basis: var(--workspace-tab-action-size);
+}
+:is(.workspace-tabbar, .vertical-tab-rail:not(.is-collapsed)) .workspace-tab > :is(
+  .workspace-tab-close, .workspace-tab-thread-status, .workspace-tab-group-count, .workspace-tab-group-toggle
+) {
+  position: absolute;
+  inset-block: 0;
+  width: var(--workspace-tab-action-size);
+  height: var(--workspace-tab-action-size);
+  margin: auto 0;
+  display: grid;
+  place-items: center;
+}
+:is(.workspace-tabbar, .vertical-tab-rail:not(.is-collapsed)) .workspace-tab > :is(.workspace-tab-close, .workspace-tab-group-toggle) {
+  inset-inline-end: var(--workspace-tab-action-inset);
+}
+:is(.workspace-tabbar, .vertical-tab-rail:not(.is-collapsed)) .workspace-tab > :is(.workspace-tab-thread-status, .workspace-tab-group-count) {
+  inset-inline-end: calc(var(--workspace-tab-action-size) + var(--workspace-tab-action-inset));
+}
+.vertical-tab-rail:not(.is-collapsed) .workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-member:not(.is-group-collapsed) {
+  padding-inline-start: calc(var(--ui-row-inline-padding) + var(--space-1) / 2 + var(--ui-row-gap));
+}
+
+.workspace-tabbar .workspace-tab-add {
+  width: var(--workspace-tab-row-height);
+  height: var(--workspace-tab-row-height);
+  flex-basis: var(--workspace-tab-row-height);
+}
+.vertical-tab-rail:not(.is-collapsed) .workspace-tab-add {
+  height: var(--workspace-tab-row-height);
+  display: grid;
+  grid-template-columns: var(--workspace-tab-action-size) minmax(0, 1fr);
+  align-items: center;
+  justify-items: start;
+  justify-content: normal;
+  gap: var(--ui-row-gap);
+  padding-inline: calc(var(--ui-row-inline-padding) + var(--space-1) / 4);
+  text-align: start;
+}
+.vertical-tab-rail:not(.is-collapsed) .workspace-tab-add > svg { justify-self: center; }
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabbar-tools :is(.alto-icon-button, .icon-button) {
+  --alto-icon-button-size: var(--workspace-tab-row-height);
+  --toolbar-icon-button-size: var(--workspace-tab-row-height);
 }
 
 :is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab {

@@ -23,6 +23,20 @@
   --ui-field-radius: var(--radius-row);
   --ui-field-fill: color-mix(in srgb, var(--text) 4%, transparent);
   --ui-field-border: var(--border);
+  /* A 12px inset fits a 12px inner curve inside a 24px panel. Keep
+     compact targets, two-line choices, and dialog gutters as distinct roles. */
+  --ui-panel-inset: var(--space-3);
+  --ui-dialog-inset: calc(2 * var(--space-3));
+  --ui-row-min-height: var(--control-default);
+  --ui-row-block-padding: calc(var(--space-3) / 2);
+  --ui-row-inline-padding: var(--space-3);
+  --ui-row-gap: var(--space-2);
+  --ui-choice-row-min-height: calc(var(--control-default) + var(--space-3) + var(--space-2));
+  --ui-field-min-height: var(--control-default);
+  --ui-field-inline-padding: var(--space-3);
+  --ui-control-gap: var(--space-2);
+  --ui-control-inline-padding: var(--space-3);
+  --ui-icon-slot: var(--control-icon);
   --ui-panel-radius: var(--radius-dialog);
   --ui-panel-shadow: var(--shadow-popover);
   --ui-dialog-radius: var(--radius-dialog);

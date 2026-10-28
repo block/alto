@@ -1,0 +1,59 @@
+/* Shared geometry follows the same visual roles as color and state. Feature
+   grids, bounds, wrapping, and explicit primitive geometry hooks stay local. */
+:is(.alto-button, .button) {
+  min-height: var(--alto-button-height, var(--control-button));
+  gap: var(--alto-button-gap, var(--ui-control-gap));
+  padding: var(--alto-button-padding, var(--ui-row-block-padding) var(--ui-control-inline-padding));
+}
+
+.alto-choice-row {
+  min-width: 0;
+  min-height: var(--ui-row-min-height);
+  gap: var(--ui-row-gap);
+  padding: var(--ui-row-block-padding) var(--ui-row-inline-padding);
+}
+
+:is(input, select, textarea).alto-field {
+  min-width: 0;
+  min-height: var(--ui-field-min-height);
+  padding-inline: var(--ui-field-inline-padding);
+}
+
+/* Menus are inset lists. Composed dialogs/flyouts own their header/body insets;
+   a nested listbox must not acquire another enclosing panel's padding. */
+:root [role='menu'],
+:root .skill-picker[role='listbox'] {
+  padding: var(--ui-panel-inset);
+}
+
+:root .composer-model-picker .composer-picker-row,
+:root :is([role='menu'], [role='listbox']) :is(
+  [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']
+) {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: var(--ui-row-min-height);
+  gap: var(--ui-row-gap);
+  padding: var(--ui-row-block-padding) var(--ui-row-inline-padding);
+}
+
+/* Legacy Composer pickers share the menu geometry without replacing their
+   editor owner. Only choices with descriptions use the two-line row height. */
+.composer-permission-picker > button:has(.permission-option-copy small) {
+  --ui-row-min-height: var(--ui-choice-row-min-height);
+}
+:root :is(.composer-workspace-picker, .composer-permission-picker) > button {
+  grid-template-columns: var(--ui-icon-slot) minmax(0, 1fr) var(--ui-icon-slot);
+}
+:root .composer-picker-options > button {
+  grid-template-columns: minmax(0, 1fr) var(--ui-icon-slot);
+}
+:root .composer-picker-row:not(.reset) {
+  grid-template-columns: max-content minmax(0, 1fr) var(--ui-icon-slot);
+}
+:root .composer-picker-row.reset {
+  grid-template-columns: minmax(0, 1fr) var(--ui-icon-slot);
+}
+:root :is(.composer-workspace-picker, .composer-permission-picker, .composer-picker-options) > button > svg {
+  justify-self: center;
+}

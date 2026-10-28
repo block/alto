@@ -519,18 +519,18 @@ button { color: inherit; }
 
 .project-settings {
   display: grid;
-  gap: 7px;
-  margin-bottom: 2px;
-  padding-bottom: 10px;
+  gap: var(--ui-row-gap);
+  margin-bottom: 0;
+  padding-bottom: var(--ui-panel-inset);
   border-bottom: 1px solid var(--border-soft);
 }
 
 .project-settings > header,
 .project-settings-form > header {
-  min-height: 25px;
+  min-height: var(--ui-row-min-height);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ui-row-gap);
 }
 
 .project-settings > header > span {
@@ -542,8 +542,9 @@ button { color: inherit; }
 .project-settings > header > button,
 .project-settings-form > header > button,
 .project-settings-edit {
-  width: 25px;
-  height: 25px;
+  --alto-icon-button-size: var(--ui-icon-slot);
+  width: var(--ui-icon-slot);
+  height: var(--ui-icon-slot);
   display: grid;
   place-items: center;
   margin-left: auto;
@@ -551,29 +552,27 @@ button { color: inherit; }
   cursor: pointer;
 }
 .project-settings button:disabled { opacity: 0.45; cursor: not-allowed; }
-.project-settings-list { display: grid; gap: 2px; }
+.project-settings-list { display: grid; gap: var(--space-1); }
 
 .project-settings-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr) var(--ui-row-min-height);
   align-items: center;
-  border-radius: 10px;
+  border-radius: var(--ui-row-radius);
 }
 .project-settings-row.managed { grid-template-columns: minmax(0, 1fr); }
 .project-settings-row:hover { background: var(--ui-hover); }
 .project-settings-row.active { background: var(--ui-selected); }
 
 .project-settings-select {
+  --ui-row-min-height: var(--ui-choice-row-min-height);
   min-width: 0;
-  min-height: 39px;
   display: grid;
-  grid-template-columns: 17px minmax(0, 1fr);
+  grid-template-columns: var(--ui-icon-slot) minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  padding: 5px 7px;
   color: var(--ui-text);
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--ui-row-radius);
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -587,27 +586,27 @@ button { color: inherit; }
   white-space: nowrap;
 }
 .project-settings-select strong { color: var(--ui-text-strong); font-size: var(--ui-size); font-weight: var(--ui-weight); }
-.project-settings-select small { margin-top: 2px; color: var(--ui-text-secondary); font-size: var(--type-supporting); }
-.project-settings-edit { margin: 0 3px 0 0; }
+.project-settings-select small { margin-top: var(--space-1); color: var(--ui-text-secondary); font-size: var(--type-supporting); }
+.project-settings-edit { justify-self: center; margin: 0; }
 
 .project-settings-form {
   display: grid;
-  gap: 8px;
-  margin-top: 3px;
-  padding: 9px;
+  gap: var(--ui-panel-inset);
+  margin-top: 0;
+  padding: var(--ui-panel-inset);
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-row-radius);
+  border-radius: var(--ui-panel-radius);
   background: var(--ui-surface-inset);
 }
 .project-settings-form > header strong { color: var(--ui-text-strong); font-size: var(--ui-size); font-weight: var(--ui-weight); }
-.project-settings-form label { display: grid; gap: 4px; color: var(--ui-text); font-size: var(--ui-size); }
-.project-settings-form label > span { display: flex; justify-content: space-between; }
+.project-settings-form label { min-width: 0; display: grid; gap: var(--space-1); color: var(--ui-text); font-size: var(--ui-size); }
+.project-settings-form label > span { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--ui-row-gap); }
 .project-settings-form label small { color: var(--ui-text-secondary); font-size: var(--type-supporting); }
 .project-settings-form input,
 .project-settings-form textarea {
   width: 100%;
   min-width: 0;
-  padding: 7px 9px;
+  padding: var(--ui-row-block-padding) var(--ui-field-inline-padding);
   color: var(--ui-text);
   border: 1px solid var(--ui-field-border);
   border-radius: var(--ui-field-radius);
@@ -618,20 +617,17 @@ button { color: inherit; }
   resize: vertical;
 }
 .project-settings-form :is(input, textarea)::placeholder { color: var(--ui-text-secondary); }
-.project-settings-form input { height: 32px; }
+.project-settings-form input { height: auto; }
 .project-settings-form input:focus,
 .project-settings-form textarea:focus { border-color: var(--ui-focus); box-shadow: none; outline: 2px solid var(--ui-focus); outline-offset: -2px; }
 .project-settings-error { color: var(--red); font-size: 10.5px; line-height: 1.4; }
-.project-settings-form footer { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
-.project-settings-form footer > button {
-  min-height: 29px;
-  display: inline-flex;
+.project-settings-form footer {
+  --alto-button-height: var(--ui-field-min-height);
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  cursor: pointer;
-  font-size: var(--ui-size);
-  font-weight: var(--ui-weight);
+  justify-content: flex-end;
+  gap: var(--ui-control-gap);
 }
 .project-settings-remove { margin-right: auto; }
 
@@ -643,8 +639,8 @@ button { color: inherit; }
   left: 0;
   width: 100vw;
   display: grid;
-  place-items: start center;
-  padding: min(14dvh, 116px) 16px 16px;
+  place-items: center;
+  padding: var(--ui-dialog-inset);
   overflow: hidden;
   background: var(--ui-scrim);
   -webkit-backdrop-filter: none;
@@ -653,28 +649,31 @@ button { color: inherit; }
 
 .workspace-creator {
   width: min(430px, 100%);
-  max-height: calc(100dvh - 32px);
+  max-height: calc(100dvh - (2 * var(--ui-dialog-inset)));
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   animation: workspace-creator-in 150ms ease-out;
 }
 
 .workspace-creator > header {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 28px;
+  flex: 0 0 auto;
+  grid-template-columns: var(--ui-field-min-height) minmax(0, 1fr) var(--ui-icon-slot);
   align-items: center;
-  gap: 10px;
-  padding: 16px 16px 13px;
+  gap: var(--ui-panel-inset);
+  padding: var(--ui-dialog-inset);
   border-bottom: 1px solid var(--ui-divider);
 }
 
 .workspace-creator-icon {
-  width: 34px;
-  height: 34px;
+  width: var(--ui-field-min-height);
+  height: var(--ui-field-min-height);
   display: grid;
   place-items: center;
   color: var(--accent);
   border: 1px solid var(--accent-border);
-  border-radius: 10px;
+  border-radius: var(--ui-row-radius);
   background: var(--accent-soft);
 }
 
@@ -687,15 +686,16 @@ button { color: inherit; }
 }
 
 .workspace-creator > header p {
-  margin: 2px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--ui-text-secondary);
   font-size: var(--type-supporting);
   line-height: 1.35;
 }
 
 .workspace-creator > header > button {
-  width: 28px;
-  height: 28px;
+  --alto-icon-button-size: var(--ui-icon-slot);
+  width: var(--ui-icon-slot);
+  height: var(--ui-icon-slot);
   display: grid;
   place-items: center;
   padding: 0;
@@ -704,27 +704,28 @@ button { color: inherit; }
 
 .workspace-creator-form {
   display: grid;
-  gap: 11px;
-  max-height: calc(100dvh - 132px);
+  min-height: 0;
+  gap: var(--ui-panel-inset);
   overflow-y: auto;
-  padding: 15px 16px 16px;
+  padding: var(--ui-dialog-inset);
 }
 
 .workspace-creator-form label {
+  min-width: 0;
   display: grid;
-  gap: 5px;
+  gap: var(--space-1);
   color: var(--ui-text);
   font-size: var(--ui-size);
   font-weight: var(--ui-weight);
 }
 
-.workspace-creator-form label > span { display: flex; justify-content: space-between; }
+.workspace-creator-form label > span { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--ui-row-gap); }
 .workspace-creator-form label small { color: var(--ui-text-secondary); font-size: var(--type-supporting); font-weight: var(--weight-regular); }
 .workspace-creator-form input,
 .workspace-creator-form textarea {
   width: 100%;
   min-width: 0;
-  padding: 8px 10px;
+  padding: var(--ui-row-block-padding) var(--ui-field-inline-padding);
   color: var(--ui-text);
   border: 1px solid var(--ui-field-border);
   border-radius: var(--ui-field-radius);
@@ -735,19 +736,20 @@ button { color: inherit; }
   resize: vertical;
 }
 .workspace-creator-form :is(input, textarea)::placeholder { color: var(--ui-text-secondary); }
-.workspace-creator-form input { height: 35px; }
+.workspace-creator-form input { height: auto; }
 .workspace-creator-form input:focus,
 .workspace-creator-form textarea:focus {
   border-color: var(--ui-focus);
   box-shadow: none;
   outline: 2px solid var(--ui-focus); outline-offset: -2px; }
 
-.workspace-creator-note { margin: -2px 0 0; color: var(--ui-text-secondary); font-size: var(--type-supporting); }
-.workspace-creator-form footer { display: flex; justify-content: flex-end; gap: 7px; margin-top: 2px; }
-.workspace-creator-form footer button {
-  min-height: 31px;
-  padding: 0 12px;
-  cursor: pointer;
+.workspace-creator-note { margin: 0; color: var(--ui-text-secondary); font-size: var(--type-supporting); }
+.workspace-creator-form footer {
+  --alto-button-height: var(--ui-field-min-height);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--ui-control-gap);
 }
 .workspace-creator-form button:disabled { opacity: 0.48; cursor: not-allowed; }
 
@@ -2918,11 +2920,11 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 
 .plugin-row {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) 32px;
+  grid-template-columns: var(--ui-icon-slot) minmax(0, 1fr) var(--ui-field-min-height);
   align-items: center;
-  gap: var(--space-2);
-  min-height: 52px;
-  padding: var(--space-1) var(--space-2);
+  gap: var(--ui-row-gap);
+  min-height: var(--ui-choice-row-min-height);
+  padding: var(--ui-row-gap) var(--ui-row-inline-padding);
 }
 
 .plugin-row:hover { background: var(--surface-hover); }
@@ -2930,8 +2932,8 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 
 .plugin-disclosure,
 .plugin-disclosure-spacer {
-  width: 24px;
-  height: 24px;
+  width: var(--ui-icon-slot);
+  height: var(--ui-icon-slot);
 }
 
 .plugin-disclosure {
@@ -2985,12 +2987,12 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 .plugin-state-failed { color: var(--red); }
 
 .plugin-children {
-  margin: 0 var(--space-2) var(--space-2) 20px;
-  padding-left: var(--space-2);
+  margin: 0 var(--ui-panel-inset) var(--ui-panel-inset) var(--ui-icon-slot);
+  padding-left: var(--ui-panel-inset);
   border-left: 1px solid color-mix(in srgb, var(--border-soft) 76%, transparent);
 }
 
-.plugin-children .plugin-row { min-height: 48px; }
+.plugin-children .plugin-row { min-height: var(--ui-choice-row-min-height); }
 
 .plugin-switch {
   position: relative;
@@ -3030,7 +3032,7 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 }
 
 .plugins-empty {
-  padding: var(--space-4);
+  padding: var(--ui-dialog-inset);
   color: var(--settings-helper-text);
   font-size: var(--type-supporting);
   text-align: center;
@@ -3069,7 +3071,7 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   width: 100vw;
   display: grid;
   place-items: center;
-  padding: var(--space-4);
+  padding: var(--ui-dialog-inset);
   overflow: hidden;
   background: var(--ui-scrim);
   -webkit-backdrop-filter: none;
@@ -3079,9 +3081,9 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 }
 
 .program-modal {
-  width: min(960px, calc(100vw - (2 * var(--space-4))));
-  height: min(680px, calc(100dvh - (2 * var(--space-4))));
-  min-height: min(520px, calc(100dvh - (2 * var(--space-4))));
+  width: min(960px, 100%);
+  height: min(680px, calc(100dvh - (2 * var(--ui-dialog-inset))));
+  min-height: min(520px, calc(100dvh - (2 * var(--ui-dialog-inset))));
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
   overflow: hidden;
@@ -3090,13 +3092,15 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 
 .program-modal-sidebar {
   min-width: 0;
-  padding: var(--space-4) var(--space-3);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--ui-dialog-inset) var(--ui-panel-inset);
   border-right: 1px solid var(--ui-border);
   background: var(--ui-surface-inset);
 }
 
 .program-modal-sidebar-title {
-  padding: 0 var(--space-2) var(--space-3);
+  padding: 0 var(--ui-row-inline-padding) var(--ui-panel-inset);
   color: var(--ui-text-strong);
   font-size: var(--type-body);
   font-weight: var(--weight-medium);
@@ -3104,11 +3108,8 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 
 .program-modal-nav-item {
   width: 100%;
-  min-height: 30px;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
   color: var(--ui-text);
   border: 0;
   border-radius: var(--ui-row-radius);
@@ -3121,12 +3122,12 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 .program-modal-nav-item.active { color: var(--ui-text-strong); background: var(--ui-selected); }
 
 .program-modal-search {
-  height: var(--control-default);
+  min-height: var(--ui-field-min-height);
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin: 0 0 var(--space-4);
-  padding: 0 var(--space-2);
+  gap: var(--ui-row-gap);
+  margin: 0 0 var(--ui-panel-inset);
+  padding: var(--ui-row-block-padding) var(--ui-field-inline-padding);
   color: var(--ui-text-secondary);
   border: 1px solid var(--ui-field-border);
   border-radius: var(--ui-field-radius);
@@ -3137,9 +3138,9 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 .program-modal-search input { width: 100%; min-width: 0; padding: 0; color: var(--ui-text); border: 0; outline: 0; background: transparent; font-size: var(--ui-size); }
 .program-modal-search input::placeholder { color: var(--ui-text-secondary); }
 
-.program-modal-nav-group { display: grid; gap: 2px; }
-.program-modal-nav-group + .program-modal-nav-group { margin-top: var(--space-4); }
-.program-modal-nav-group > span { padding: 0 var(--space-2) var(--space-1); color: var(--ui-text-secondary); font-size: var(--type-supporting); font-weight: var(--weight-medium); }
+.program-modal-nav-group { display: grid; gap: var(--space-1); }
+.program-modal-nav-group + .program-modal-nav-group { margin-top: var(--ui-panel-inset); }
+.program-modal-nav-group > span { padding: 0 var(--ui-row-inline-padding) var(--space-1); color: var(--ui-text-secondary); font-size: var(--type-supporting); font-weight: var(--weight-medium); }
 .program-modal-nav-item { font-size: var(--type-label); }
 
 .program-modal-content {
@@ -3147,18 +3148,20 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 28px 32px 36px;
+  padding: var(--ui-dialog-inset);
   background: var(--ui-surface);
 }
 
+.program-modal .program-modal-content { container: settings-content / inline-size; }
+
 .program-modal-titlebar {
   width: 100%;
-  min-height: var(--control-default);
+  min-height: var(--ui-field-min-height);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
-  margin: 0 0 var(--space-4);
+  gap: var(--ui-panel-inset);
+  margin: 0 0 var(--ui-dialog-inset);
 }
 
 .program-modal-titlebar h1 { margin: 0; color: var(--ui-text-strong); font: var(--weight-medium) 20px/1.3 var(--display); letter-spacing: normal; }
@@ -3167,8 +3170,8 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 
 .settings-page,
 .plugins-workspace { width: 100%; margin: 0; }
-.settings-page { display: grid; gap: 24px; }
-.settings-section { display: grid; gap: 10px; }
+.settings-page { display: grid; gap: var(--ui-dialog-inset); }
+.settings-section { display: grid; gap: var(--ui-panel-inset); }
 .settings-section > h2 { margin: 0; color: var(--ui-text-strong); font-size: var(--type-label); font-weight: var(--weight-medium); }
 
 .settings-card {
@@ -3180,12 +3183,12 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 
 .settings-row {
   width: 100%;
-  min-height: 56px;
+  min-height: var(--ui-choice-row-min-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 10px 14px;
+  gap: var(--ui-panel-inset);
+  padding: var(--ui-row-gap) var(--ui-row-inline-padding);
   color: var(--ui-text);
   border: 0;
   border-bottom: 1px solid var(--ui-divider);
@@ -3198,10 +3201,10 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 .settings-row.is-interactive:where(:hover:not(:disabled)) { background: var(--ui-hover); }
 .settings-row:disabled { opacity: 0.55; cursor: not-allowed; }
 
-.settings-row-copy { min-width: 0; display: grid; gap: 3px; }
+.settings-row-copy { min-width: 0; display: grid; flex: 1 1 auto; gap: var(--space-1); overflow-wrap: anywhere; }
 .settings-row-copy strong { color: var(--ui-text-strong); font-size: var(--type-label); font-weight: var(--weight-medium); }
 .settings-row-copy small { color: var(--ui-text-secondary); font-size: var(--type-supporting); line-height: 1.4; }
-.settings-row-control { min-width: 0; display: flex; flex: 0 0 auto; align-items: center; color: var(--ui-text-secondary); font-size: var(--type-label); }
+.settings-row-control { min-width: 0; max-width: 60%; display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: var(--ui-control-gap); color: var(--ui-text-secondary); font-size: var(--type-label); }
 .settings-row-control > span:not(.settings-switch, .settings-radio-mark) { color: var(--ui-text-secondary); }
 .settings-row-control code { max-width: 300px; overflow: hidden; color: var(--ui-text-secondary); font: var(--type-supporting) var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 
@@ -3249,9 +3252,10 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 }
 
 .settings-row select {
-  min-width: 150px;
-  height: 32px;
-  padding: 0 28px 0 10px;
+  min-width: min(150px, 100%);
+  max-width: 100%;
+  min-height: var(--ui-field-min-height);
+  padding: var(--ui-row-block-padding) calc(var(--ui-field-inline-padding) + var(--ui-icon-slot)) var(--ui-row-block-padding) var(--ui-field-inline-padding);
   color: var(--ui-text);
   border: 1px solid var(--ui-field-border);
   border-radius: var(--ui-field-radius);
@@ -3260,9 +3264,9 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   font-size: var(--ui-size);
 }
 
-.settings-project-card { padding: 10px; }
+.settings-project-card { padding: var(--ui-panel-inset); }
 .settings-project-card .project-settings { padding: 0; border: 0; }
-.settings-project-card .project-settings-row { min-height: 44px; }
+.settings-project-card .project-settings-row { min-height: var(--ui-choice-row-min-height); }
 .settings-project-card .project-settings-select strong { font-size: 12.5px; }
 
 
@@ -3273,16 +3277,18 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   .program-modal {
     min-height: 0;
     grid-template-columns: 190px minmax(0, 1fr);
-    border-radius: var(--radius-row);
   }
-  .program-modal-content { padding: 24px 22px 30px; }
-  .program-modal-titlebar { margin-bottom: var(--space-4); }
-  .settings-row { gap: var(--space-3); padding-inline: var(--space-3); }
+}
+
+@container settings-content (max-width: 520px) {
+  .settings-row:not(.is-interactive) { flex-direction: column; align-items: stretch; gap: var(--ui-row-gap); }
+  .settings-row:not(.is-interactive) .settings-row-control { width: 100%; max-width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .settings-row-control code { max-width: 100%; }
 }
 
 @container program-overlay (max-width: 480px) {
   .program-modal { display: block; overflow-y: auto; }
-  .program-modal-sidebar { border-right: 0; border-bottom: 1px solid var(--border-soft); }
+  .program-modal-sidebar { overflow: visible; border-right: 0; border-bottom: 1px solid var(--ui-divider); }
   .program-modal-content { overflow: visible; }
 }
 
@@ -3344,17 +3350,13 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 }
 
 @media (max-width: 760px) {
-  .program-modal-backdrop { padding: 8px; }
+  .program-modal-backdrop { padding: var(--ui-panel-inset); }
   .program-modal {
     width: 100%;
-    height: calc(100dvh - 16px);
+    height: calc(100dvh - (2 * var(--ui-panel-inset)));
     min-height: 0;
     grid-template-columns: 190px minmax(0, 1fr);
-    border-radius: var(--radius-row);
   }
-  .program-modal-content { padding: 24px 22px 30px; }
-  .program-modal-titlebar { margin-bottom: var(--space-4); }
-  .settings-row { gap: var(--space-3); padding-inline: var(--space-3); }
   .shell-responsive-stack { flex-direction: column; }
   .shell-responsive-stack > .shell-box { width: 100%; }
   .shell-responsive-stack > [role="aside"] {
@@ -3384,7 +3386,7 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 
 @media (max-width: 480px) {
   .program-modal { display: block; overflow-y: auto; }
-  .program-modal-sidebar { border-right: 0; border-bottom: 1px solid var(--border-soft); }
+  .program-modal-sidebar { overflow: visible; border-right: 0; border-bottom: 1px solid var(--ui-divider); }
   .program-modal-content { overflow: visible; }
   .conversation-feed { padding-top: 18px; }
   .activity-user { margin-left: 7%; }

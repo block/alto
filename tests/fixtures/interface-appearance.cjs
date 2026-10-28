@@ -18,6 +18,7 @@ async function check() {
       import themePlugin from './program/plugins/theme.client';
       import searchPlugin from './program/plugins/search.client';
       import {WorkspaceTabActionMenu} from './program/plugins/workspace-tab-menu.client';
+      import {NewWorkspaceDialog} from './program/plugins/ui/project-settings';
       import {Composer} from './program/plugins/ui/composer';
       import {uiStyles} from './program/plugins/ui/appearance';
 
@@ -70,13 +71,16 @@ async function check() {
         permissionMode="full" workspaceLabel="/repo" workspaceOptions={[]} capabilities={[]} placeholder="Message" focusHeight={156} maxHeight={180} autoFocus={false}
         disabled={false} readOnly={false} sending={false} activeTurn={false} onImagesChange={()=>{}} onAttachmentsChange={()=>{}} onAttachFile={async()=>{}}
         onModelChange={()=>{}} onEffortChange={()=>{}} onPermissionModeChange={()=>{}} onWorkspaceChange={()=>{}} onSubmit={()=>{}} onInterrupt={()=>{}}/>}
+      function Creator(){const active=useSyncExternalStore(overlays.subscribe,overlays.snapshot);return active==='creator'?<NewWorkspaceDialog disabled={false} onClose={()=>overlays.close('creator')} onCreate={async()=>{}}/>:null}
       function App(){useSyncExternalStore(ui.subscribe,ui.snapshot);const Settings=surfaces.get('default-settings'),Search=roots.get('default-search');return <><div data-shell-node="workspace" className="fixture-workspace"><main className="workspace-layout-root">
         <div className="fixture-content"><button id="menu-trigger" className={uiStyles.button} onClick={()=>overlays.open('menu')}>Tab options</button></div><Draft/>
-        </main></div><Settings surface={{id:'settings',kind:'settings'}}/><Search/><Menu/></>}
+        </main></div><Settings surface={{id:'settings',kind:'settings'}}/><Search/><Menu/><Creator/></>}
       const root=createRoot(document.getElementById('root'));
       flushSync(()=>root.render(<App/>));
       window.frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
       window.openSettings=()=>flushSync(()=>overlays.open('settings'));
+      window.openCreator=()=>flushSync(()=>overlays.open('creator'));
+      window.setWorkspaceInset=value=>{document.querySelector('.fixture-workspace').style.paddingLeft=value+'px'};
       window.cmdK=()=>flushSync(()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'k',metaKey:true,bubbles:true,cancelable:true})));
       window.key=(selector,key)=>flushSync(()=>document.querySelector(selector).dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true})));
       window.click=selector=>flushSync(()=>document.querySelector(selector).click());
@@ -104,7 +108,12 @@ async function check() {
             contrast:contrast(over(foreground,background),background),outlineWidth:parseFloat(style.outlineWidth),outlineStyle:style.outlineStyle,outlineContrast:contrast(over(rgba(style.outlineColor),outside),outside),
             x:box.x,right:box.right,width:box.width,backgroundImage:style.backgroundImage}]}));
       };
-      window.bounds=selector=>{const box=document.querySelector(selector).getBoundingClientRect();return{left:box.left,right:box.right,width:innerWidth,scroll:document.documentElement.scrollWidth}};
+      window.bounds=selector=>{const box=document.querySelector(selector).getBoundingClientRect(),workspace=document.querySelector('.fixture-workspace>main').getBoundingClientRect();return{left:box.left,right:box.right,top:box.top,bottom:box.bottom,width:innerWidth,height:innerHeight,scroll:document.documentElement.scrollWidth,workspaceLeft:workspace.left,workspaceRight:workspace.right,workspaceWidth:workspace.width}};
+      window.geometry=selector=>{const element=document.querySelector(selector),style=getComputedStyle(element);return{padding:[style.paddingTop,style.paddingRight,style.paddingBottom,style.paddingLeft],gap:style.columnGap,minHeight:style.minHeight,height:element.getBoundingClientRect().height,direction:style.flexDirection}};
+      window.settingsRowBounds=()=>[...document.querySelectorAll('.settings-row')].map(row=>{const copy=row.querySelector('.settings-row-copy'),control=row.querySelector('.settings-row-control'),style=getComputedStyle(row);return{label:copy.querySelector('strong').textContent,row:row.getBoundingClientRect().toJSON(),inset:[parseFloat(style.paddingLeft),parseFloat(style.paddingRight)],copy:copy.getBoundingClientRect().toJSON(),control:control.getBoundingClientRect().toJSON(),fields:[...control.querySelectorAll('select,textarea,input:not([type=color]),.theme-mode-picker,.theme-palette-control,.theme-accent-control,.theme-accent-presets,.theme-color-picker')].map(field=>({name:field.className||field.tagName,box:field.getBoundingClientRect().toJSON()})),direction:style.flexDirection,interactive:row.classList.contains('is-interactive'),copyWidth:copy.clientWidth,copyScroll:copy.scrollWidth}});
+      window.reach=(selector,scroll=true)=>{const element=document.querySelector(selector);if(scroll){element.scrollIntoView({block:'end',inline:'nearest'});for(let parent=element.parentElement;parent;parent=parent.parentElement)if(/auto|scroll/.test(getComputedStyle(parent).overflowY))parent.scrollTop=parent.scrollHeight;}const box=element.getBoundingClientRect(),clips=[];
+        for(let parent=element.parentElement;parent;parent=parent.parentElement){const style=getComputedStyle(parent);if(/auto|scroll|hidden|clip/.test(style.overflowY)){const clip=parent.getBoundingClientRect();clips.push({top:clip.top,bottom:clip.bottom,scroll:parent.scrollTop,max:parent.scrollHeight-parent.clientHeight})}}
+        return{top:box.top,bottom:box.bottom,height:innerHeight,clips};};
       window.searchClearance=()=>{const panel=document.querySelector('.search-palette').getBoundingClientRect(),field=document.querySelector('.search-palette-input').getBoundingClientRect();return{left:field.left-panel.left,right:panel.right-field.right,top:field.top-panel.top}};
       window.settingsCopyBounds=()=>[...document.querySelectorAll('.theme-settings-card .settings-row')].map(row=>{const copy=row.querySelector('.settings-row-copy');return{label:copy.querySelector('strong').textContent,width:copy.clientWidth,scroll:copy.scrollWidth}});
       window.teardown=()=>{flushSync(()=>root.unmount());disableAppearance();workspaceOwner.dispose();featureOwner.dispose()};
@@ -138,6 +147,22 @@ async function check() {
     '--ui-panel-shadow': 'rgb(10, 20, 30) 0px 4px 9px 0px', '--ui-dialog-shadow': 'rgb(30, 20, 10) 0px 7px 11px 0px',
   }
   const setSentinels = enabled => run(`for(const [token,value] of Object.entries(${JSON.stringify(sentinel)})){${enabled ? 'document.documentElement.style.setProperty(token,value)' : 'document.documentElement.style.removeProperty(token)'}}`)
+  const geometrySentinel = {
+    '--ui-panel-inset': '16px', '--ui-dialog-inset': '28px', '--ui-row-min-height': '38px',
+    '--ui-row-block-padding': '9px', '--ui-row-inline-padding': '20px', '--ui-row-gap': '11px',
+    '--ui-choice-row-min-height': '60px', '--ui-field-min-height': '40px', '--ui-field-inline-padding': '18px',
+    '--ui-control-gap': '10px', '--ui-control-inline-padding': '22px', '--ui-icon-slot': '26px',
+  }
+  const setGeometrySentinels = enabled => run(`for(const [token,value] of Object.entries(${JSON.stringify(geometrySentinel)})){${enabled ? 'document.documentElement.style.setProperty(token,value)' : 'document.documentElement.style.removeProperty(token)'}}`)
+  const assertGeometry = async (selector, expected) => {
+    const actual = await run(`geometry(${JSON.stringify(selector)})`)
+    for (const [property, value] of Object.entries(expected)) assert.deepEqual(actual[property], value, `${selector} ${property} follows shared geometry`)
+  }
+  const settleGeometry = async () => {
+    await settle()
+    await run('Promise.all(document.getAnimations().filter(animation=>Number.isFinite(animation.effect?.getComputedTiming().iterations)).map(animation=>animation.finished.catch(()=>{})))')
+    await settle()
+  }
   const expectedColor = token => sentinel[token].slice(1).match(/../g).map(value => parseInt(value, 16)).concat(1)
   const assertRole = async (selector, property, token) => {
     const measured = (await sample([selector]))[selector][property]
@@ -147,6 +172,39 @@ async function check() {
   const assertFits = async selector => {
     const bounds = await run(`bounds(${JSON.stringify(selector)})`)
     assert.ok(bounds.left >= 0 && bounds.right <= bounds.width && bounds.scroll <= bounds.width, selector + ': ' + JSON.stringify(bounds))
+  }
+  const assertDialogFits = async selector => {
+    const bounds = await run(`bounds(${JSON.stringify(selector)})`)
+    assert.ok(bounds.left >= bounds.workspaceLeft - 1 && bounds.right <= bounds.workspaceRight + 1 && bounds.top >= -1 && bounds.bottom <= bounds.height + 1 && bounds.scroll <= bounds.width + 1,
+      selector + ' stays inside the available workspace and viewport: ' + JSON.stringify(bounds))
+  }
+  const assertFieldsFit = async (panelSelector, fieldSelector) => {
+    const fields = await run(`(()=>{const panel=document.querySelector(${JSON.stringify(panelSelector)}).getBoundingClientRect();return[...document.querySelectorAll(${JSON.stringify(fieldSelector)})].map(field=>({field:field.getBoundingClientRect().toJSON(),panel:panel.toJSON()}))})()`)
+    assert.ok(fields.length, fieldSelector + ' renders actual fields')
+    for (const { field, panel } of fields) assert.ok(field.width > 0 && field.left >= panel.left && field.right <= panel.right + 1, fieldSelector + ' fits its enclosing dialog: ' + JSON.stringify({ field, panel }))
+  }
+  const assertSettingsClearance = async stacked => {
+    const container = await run(`(()=>{const element=document.querySelector('.program-modal-content'),style=getComputedStyle(element);return{name:style.containerName,type:style.containerType,width:element.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)}})()`)
+    for (const row of await run('settingsRowBounds()')) {
+      assert.ok(row.copyScroll <= row.copyWidth + 1, 'Settings supporting copy fits: ' + JSON.stringify(row))
+      assert.ok(row.copy.right <= row.control.left + 1 || row.copy.bottom <= row.control.top + 1, 'Settings copy and control do not overlap: ' + JSON.stringify(row))
+      assert.ok(row.control.left >= row.row.left + row.inset[0] - 1 && row.control.right <= row.row.right - row.inset[1] + 1, 'Settings control stays inside the row insets: ' + JSON.stringify(row))
+      for (const field of row.fields) assert.ok(field.box.left >= row.control.left - 1 && field.box.right <= row.control.right + 1, 'Settings palette/field stays inside its control: ' + JSON.stringify({ label: row.label, control: row.control, field }))
+      if (stacked && !row.interactive) assert.equal(row.direction, 'column', row.label + ' stacks at the actual content width: ' + JSON.stringify(container))
+    }
+  }
+  const assertReachable = async selector => {
+    await run(`reach(${JSON.stringify(selector)})`)
+    await settle()
+    const reached = await run(`reach(${JSON.stringify(selector)},false)`)
+    assert.ok(reached.top >= -1 && reached.bottom <= reached.height + 1 && reached.clips.every(clip => reached.top >= clip.top - 1 && reached.bottom <= clip.bottom + 1),
+      selector + ' is reachable by scrolling: ' + JSON.stringify(reached))
+    return reached
+  }
+  const artifact = async name => {
+    if (!process.env.ALTO_INTERFACE_APPEARANCE_ARTIFACT_DIR) return
+    await fs.mkdir(process.env.ALTO_INTERFACE_APPEARANCE_ARTIFACT_DIR, { recursive: true })
+    await fs.writeFile(path.join(process.env.ALTO_INTERFACE_APPEARANCE_ARTIFACT_DIR, name + '.png'), (await win.webContents.capturePage()).toPNG())
   }
   const contrast = async (selectors, minimum, context) => {
     await run('Promise.all(document.getAnimations().filter(animation=>Number.isFinite(animation.effect?.getComputedTiming().iterations)).map(animation=>animation.finished.catch(()=>{})))')
@@ -273,6 +331,7 @@ async function check() {
         win.setContentSize(width, 800)
         await settle()
         await assertFits('.program-modal')
+        await assertSettingsClearance(width <= 480)
         if (width <= 480) {
           for (const copy of await run('settingsCopyBounds()')) assert.ok(copy.scroll <= copy.width + 1, mode + ': supporting Settings copy stays clear of its control ' + JSON.stringify(copy))
         }
@@ -333,6 +392,105 @@ async function check() {
       }
       await run(`key('.search-palette input','Escape')`)
     }
+
+    // Distinct sentinels expose feature overrides that would otherwise look
+    // correct only while the shared defaults happen to have the same values.
+    win.setContentSize(1100, 800)
+    await setGeometrySentinels(true)
+    await assertGeometry('#menu-trigger', { gap: '10px', padding: ['9px', '22px', '9px', '22px'] })
+    await run(`click('#menu-trigger')`)
+    await settleGeometry()
+    await assertGeometry('.workspace-tab-action-menu', { padding: ['16px', '16px', '16px', '16px'] })
+    await assertGeometry('.workspace-tab-action-menu button', { minHeight: '38px', gap: '11px', padding: ['9px', '20px', '9px', '20px'] })
+    await run('disableAppearance();installAppearance()')
+    await assertGeometry('.workspace-tab-action-menu button', { minHeight: '38px', padding: ['9px', '20px', '9px', '20px'] })
+    await run(`key('.workspace-tab-action-menu button','Escape');openSettings()`)
+    await settleGeometry()
+    await assertGeometry('.program-modal-backdrop', { padding: ['28px', '28px', '28px', '28px'] })
+    await assertGeometry('.program-modal-content', { padding: ['28px', '28px', '28px', '28px'] })
+    await assertGeometry('.settings-row', { minHeight: '60px', padding: ['11px', '20px', '11px', '20px'] })
+    await run(`nav('Workspaces');click('button[aria-label="Add workspace"]')`)
+    await settleGeometry()
+    await assertGeometry('.project-settings-form', { padding: ['16px', '16px', '16px', '16px'], gap: '16px' })
+    await assertGeometry('.project-settings-form input', { minHeight: '40px', height: 40, padding: ['9px', '18px', '9px', '18px'] })
+    await run(`key('.program-modal-search input','Escape');cmdK()`)
+    await settleGeometry()
+    await assertGeometry('.search-results', { padding: ['16px', '16px', '16px', '16px'] })
+    await assertGeometry('.search-result', { minHeight: '60px', gap: '11px', padding: ['9px', '20px', '9px', '20px'] })
+    await setGeometrySentinels(false)
+    await assertGeometry('.search-result', { minHeight: '52px' })
+    assert.equal((await sample(['.search-palette-input']))['.search-palette-input'].outlineStyle, 'none', 'Geometry reapplication does not add a purple Cmd+K field outline')
+    await run(`key('.search-palette input','Escape')`)
+
+    // Simulate a sidebar/split pane while retaining the wide browser viewport.
+    await run(`setWorkspaceInset(440);openSettings();nav('Appearance')`)
+    await settleGeometry()
+    assert.equal((await run(`bounds('.program-modal')`)).workspaceWidth, 660)
+    await assertDialogFits('.program-modal')
+    await assertFieldsFit('.program-modal', '.program-modal-search,.settings-row select,.theme-mode-picker')
+    await assertSettingsClearance(true)
+    await artifact('settings-constrained-660')
+    await run(`nav('Workspaces');click('button[aria-label="Add workspace"]')`)
+    await settleGeometry()
+    await assertFieldsFit('.program-modal', '.project-settings-form input,.project-settings-form textarea')
+    await assertReachable('.project-settings-save')
+    await run(`key('.program-modal-search input','Escape');cmdK()`)
+    await settleGeometry()
+    await assertDialogFits('.search-palette')
+    await assertFieldsFit('.search-palette', '.search-palette-input')
+    await assertReachable('.search-result:last-child')
+    await artifact('search-constrained-660')
+    await run(`key('.search-palette input','Escape');setWorkspaceInset(0)`)
+
+    for (const [width, height] of [[900, 480], [390, 480]]) {
+      win.setContentSize(width, height)
+      await run(`openSettings();nav('Appearance')`)
+      await settleGeometry()
+      await assertDialogFits('.program-modal')
+      await assertFieldsFit('.program-modal', '.program-modal-search,.settings-row select,.theme-mode-picker')
+      await assertSettingsClearance(width < 480)
+      await assertReachable('.theme-settings-card .settings-row:last-child')
+      await artifact(`settings-short-${width}x${height}`)
+      await run(`nav('Workspaces');click('button[aria-label="Add workspace"]')`)
+      await settleGeometry()
+      await assertFieldsFit('.program-modal', '.project-settings-form input,.project-settings-form textarea')
+      const save = await assertReachable('.project-settings-save')
+      assert.ok(save.clips.some(clip => clip.max > 0 && clip.scroll > 0), 'The short Settings form can scroll to its Save action')
+      await run(`key('.program-modal-search input','Escape');cmdK()`)
+      await settleGeometry()
+      await assertDialogFits('.search-palette')
+      await assertReachable('.search-result:last-child')
+      assert.equal((await sample(['.search-palette-input']))['.search-palette-input'].outlineStyle, 'none')
+      await artifact(`search-short-${width}x${height}`)
+      await run(`key('.search-palette input','Escape')`)
+    }
+    for (const [width, height] of [[900, 480], [390, 320]]) {
+      win.setContentSize(width, height)
+      await run('openCreator()')
+      await settleGeometry()
+      await assertDialogFits('.workspace-creator')
+      await assertFieldsFit('.workspace-creator', '.workspace-creator-form input,.workspace-creator-form textarea')
+      const create = await assertReachable('.workspace-creator-form button[type="submit"]')
+      if (height < 400) assert.ok(create.clips.some(clip => clip.max > 0 && clip.scroll > 0), 'The short creator scrolls its form while retaining its header')
+      await artifact(`creator-short-${width}x${height}`)
+      await run(`click('.workspace-creator>header>button')`)
+    }
+    win.setContentSize(1100, 800)
+    await settle()
+    await run(`click('.composer-permission-trigger')`)
+    await settleGeometry()
+    await assertGeometry('.composer-permission-picker', { padding: ['12px', '12px', '12px', '12px'] })
+    const permissionRows = await run(`(()=>{window.originalPermissionPicker=document.querySelector('.composer-permission-picker');return[...originalPermissionPicker.querySelectorAll('button:has(.permission-option-copy small)')].map(row=>({height:getComputedStyle(row).minHeight,columns:getComputedStyle(row).gridTemplateColumns.split(' ')}))})()`)
+    assert.ok(permissionRows.length >= 2, 'The real Composer permission menu contains description choices')
+    for (const row of permissionRows) {
+      assert.equal(row.height, '52px', 'Permission descriptions retain two-line choice density')
+      assert.equal(row.columns[0], '24px', 'Permission icon column shares the icon slot')
+      assert.equal(row.columns.at(-1), '24px', 'Permission check column shares the icon slot')
+    }
+    await run('disableAppearance();installAppearance()')
+    assert.ok(await run(`originalPermissionPicker===document.querySelector('.composer-permission-picker')&&preserved('[data-cordis-composer-editor]','originalEditor')`), 'Geometry replacement preserves the open permission picker and Composer draft nodes')
+    await assertGeometry('.composer-permission-picker>button', { minHeight: '52px', padding: ['6px', '12px', '6px', '12px'] })
+    await run(`key('.composer-permission-trigger','Escape')`)
     assert.ok(await run(`preserved('[data-cordis-composer-editor]','originalEditor')`), 'Every appearance/state update preserves the original Composer draft node')
     await run('teardown()')
     assert.deepEqual(await run('styleIds()'), [], 'All fixture-owned styles clean up')

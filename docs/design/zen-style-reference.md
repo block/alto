@@ -150,6 +150,13 @@ Preserve visible keyboard focus even where individual Zen overrides suppress it.
 
 Each pass should be reviewed across light and dark themes, several accent hues, horizontal and vertical tabs, and split panes. Interaction changes should preserve keyboard operation, immediate hover response, and active composer state.
 
+Steps 1–3 now use shared appearance and geometry roles. Compact rows are 32px,
+two-line choices are 52px, icon/action slots are 24px, and panel/dialog insets are
+12px/24px. Both tab orientations reserve trailing actions without shifting their
+titles. Settings, search, and pickers fit the available pane and scroll in short
+windows. The approved rounded tabs, composer, and accent glass remain intact.
+Step 4 remains an optional subsequent pass.
+
 [zen-revision]: https://github.com/zen-browser/desktop/tree/7133db8aee16c3cdf042307e9e11071359d92851
 [zen-colors]: https://github.com/zen-browser/desktop/blob/7133db8aee16c3cdf042307e9e11071359d92851/src/zen/common/styles/zen-theme.css#L22-L121
 [zen-toolbar-states]: https://github.com/zen-browser/desktop/blob/7133db8aee16c3cdf042307e9e11071359d92851/src/zen/common/styles/zen-theme.css#L167-L188
