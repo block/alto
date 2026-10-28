@@ -44,14 +44,6 @@ html[data-alto-theme='dark'] {
   --header-cluster: rgba(36, 39, 48, 0.84);
   --header-cluster-border: rgba(255, 255, 255, 0.07);
   --header-cluster-shadow: 0 1px 2px rgba(0, 0, 0, 0.16), 0 7px 20px rgba(0, 0, 0, 0.14);
-  --floating-panel: rgba(38, 41, 51, 0.96);
-  --floating-panel-border: rgba(255, 255, 255, 0.09);
-  --floating-panel-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 18px 48px rgba(0, 0, 0, 0.32);
-  --floating-row-hover: rgba(255, 255, 255, 0.055);
-  --button-background: rgba(42, 45, 55, 0.72);
-  --button-background-hover: rgba(42, 45, 55, 0.9);
-  --button-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-  --button-shadow-hover: 0 2px 7px rgba(0, 0, 0, 0.2);
   --code-block-background: #262931;
   --code-block-border: rgba(223, 227, 239, 0.09);
   --code-block-text: #d2d6e2;
@@ -99,7 +91,7 @@ html[data-alto-theme='dark'] .ghostty-terminal-surface {
   background: var(--bg);
 }
 
-html[data-alto-theme='dark'] .shell-kernel main {
+html[data-alto-theme='dark'] .shell-kernel main:not(.program-modal-content) {
   background:
     radial-gradient(circle at 51% -18%, rgba(76, 66, 112, 0.16), transparent 40%),
     linear-gradient(135deg, #1f2229 0%, #1c1f26 54%, #191c22 100%);
@@ -120,62 +112,10 @@ html[data-alto-theme='dark'] .composer-inline-code-block {
   background: rgba(42, 45, 55, 0.78);
 }
 
-html[data-alto-theme='dark'] :is(
-  .composer-workspace-picker,
-  .composer-permission-picker,
-  .composer-model-picker,
-  .skill-picker,
-  .workspace-thread-picker,
-  .workspace-project-picker
-) {
-  border-color: var(--border);
-  background: rgba(39, 42, 52, 0.98);
-  box-shadow: 0 20px 52px rgba(0, 0, 0, 0.3), 0 2px 7px rgba(0, 0, 0, 0.18);
-}
-
-html[data-alto-theme='dark'] :is(
-  .composer-workspace-picker,
-  .composer-permission-picker,
-  .composer-model-picker,
-  .skill-picker
-) button:hover {
-  background: var(--accent-soft);
-}
-
-html[data-alto-theme='dark'] .program-modal {
-  border-color: var(--border);
-  background: #1d2027;
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.46), 0 2px 8px rgba(0, 0, 0, 0.24);
-}
-
-html[data-alto-theme='dark'] .program-modal-sidebar {
-  border-color: var(--border-soft);
-  background: rgba(24, 27, 34, 0.9);
-}
-
-html[data-alto-theme='dark'] .program-modal-content { background: #21242c; }
-html[data-alto-theme='dark'] .program-modal-search,
-html[data-alto-theme='dark'] .settings-card {
-  border-color: var(--border);
-  background: rgba(42, 45, 55, 0.72);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.035);
-}
-
-html[data-alto-theme='dark'] .settings-row select {
-  color: var(--text);
-  border-color: var(--border);
-  background: rgba(26, 29, 37, 0.72);
-}
-
 html[data-alto-theme='dark'] .browser-workspace-pane,
 html[data-alto-theme='dark'] .browser-workspace-empty,
 html[data-alto-theme='dark'] .browser-workspace-unavailable {
   background: var(--canvas);
-}
-
-html[data-alto-theme='dark'] .browser-workspace-toolbar > input {
-  color: var(--text);
-  background: var(--panel-solid);
 }
 
 .theme-settings-card { overflow: visible; }
@@ -185,9 +125,9 @@ html[data-alto-theme='dark'] .browser-workspace-toolbar > input {
   grid-template-columns: repeat(3, 1fr);
   gap: 3px;
   padding: 3px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--panel-soft) 72%, transparent);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-control-radius);
+  background: var(--ui-surface-inset);
 }
 
 .theme-mode-picker button {
@@ -198,19 +138,20 @@ html[data-alto-theme='dark'] .browser-workspace-toolbar > input {
   justify-content: center;
   gap: 6px;
   padding: 0 9px;
-  color: var(--muted);
+  color: var(--ui-text);
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--ui-control-radius);
   background: transparent;
-  font: 500 11.5px/1 var(--sans);
+  font: var(--ui-weight) var(--ui-size)/var(--ui-line) var(--ui-font);
   cursor: pointer;
 }
 
-.theme-mode-picker button:hover { color: var(--text); }
+.theme-mode-picker button:where(:hover:not(:disabled)) { color: var(--ui-text);   background: var(--ui-hover);
+}
 .theme-mode-picker button.active {
-  color: var(--text-strong);
-  background: var(--panel-solid);
-  box-shadow: 0 1px 3px rgba(28, 32, 44, 0.1);
+  color: var(--ui-text-strong);
+  background: var(--ui-selected);
+  box-shadow: none;
 }
 
 .theme-accent-control {
@@ -298,11 +239,13 @@ html[data-alto-theme='dark'] .browser-workspace-toolbar > input {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--text-secondary);
-  font-size: var(--type-label);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-size);
 }
 
 @container program-overlay (max-width: 680px) {
+  .theme-settings-card .settings-row { flex-direction: column; align-items: stretch; }
+  .theme-settings-card .settings-row-control { width: 100%; max-width: 100%; justify-content: flex-start; flex-wrap: wrap; }
   .theme-mode-picker { width: 100%; }
   .theme-mode-picker button { min-width: 0; }
   .theme-accent-control { justify-content: flex-start; }
@@ -462,11 +405,6 @@ html[data-alto-theme-plugin='active'][data-alto-chrome-theme] {
   --text-strong: var(--alto-chrome-strong);
   --header-cluster: color-mix(in srgb, var(--alto-chrome-panel) 80%, transparent);
   --header-cluster-border: color-mix(in srgb, var(--alto-chrome-strong) 8%, transparent);
-  --floating-panel: color-mix(in srgb, var(--alto-chrome-panel) 96%, transparent);
-  --floating-panel-border: color-mix(in srgb, var(--alto-chrome-strong) 9%, transparent);
-  --floating-row-hover: color-mix(in srgb, var(--alto-chrome-text) 6%, transparent);
-  --button-background: color-mix(in srgb, var(--alto-chrome-panel) 72%, transparent);
-  --button-background-hover: color-mix(in srgb, var(--alto-chrome-panel) 92%, transparent);
 }
 
 html[data-alto-theme-plugin='active'][data-alto-chrome-theme] .shell-kernel {
@@ -662,3 +600,6 @@ html[data-alto-code-theme][data-alto-theme] {
   --diffs-token-deleted: var(--code-block-diff-deleted);
   --diffs-token-changed: var(--code-block-property);
 }
+
+.theme-mode-picker button:active:not(:disabled) { background: var(--ui-pressed); }
+.theme-mode-picker button:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }

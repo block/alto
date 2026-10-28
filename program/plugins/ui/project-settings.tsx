@@ -16,6 +16,7 @@ import type {
   LocalProjectInput,
 } from '../../../src/shared/protocol.js'
 import { ConversationPaneOverlay } from './conversation-overlay.js'
+import { uiStyles } from './appearance.js'
 
 interface ProjectDraft {
   id?: string
@@ -67,6 +68,7 @@ function ProjectFields({
       <label>
         <span>Primary folder</span>
         <input
+          className={uiStyles.field}
           value={draft.primaryRoot}
           autoFocus={focusPrimary}
           required
@@ -80,6 +82,7 @@ function ProjectFields({
       <label>
         <span>Name <small>optional</small></span>
         <input
+          className={uiStyles.field}
           value={draft.name}
           placeholder={folderName(draft.primaryRoot) || 'Workspace name'}
           onChange={(event) => onChange({
@@ -91,6 +94,7 @@ function ProjectFields({
       <label>
         <span>Attached folders <small>one per line</small></span>
         <textarea
+          className={uiStyles.field}
           value={draft.additionalRoots}
           rows={2}
           placeholder="/path/to/related-repository"
@@ -159,6 +163,7 @@ export function ProjectSettings({
       <header>
         <span>Folders</span>
         <button
+          className={uiStyles.iconButton}
           type="button"
           aria-label="Add workspace"
           title="Add workspace"
@@ -183,7 +188,7 @@ export function ProjectSettings({
             key={project.id}
           >
             <button
-              className="project-settings-select"
+              className={`${uiStyles.row} project-settings-select`}
               type="button"
               disabled={disabled}
               title={project.primaryRoot}
@@ -197,7 +202,7 @@ export function ProjectSettings({
             </button>
             {!project.source && (
               <button
-                className="project-settings-edit"
+                className={`${uiStyles.iconButton} project-settings-edit`}
                 type="button"
                 aria-label={`Edit ${project.name}`}
                 title={`Edit ${project.name}`}
@@ -218,7 +223,7 @@ export function ProjectSettings({
         <form className="project-settings-form" onSubmit={(event) => void submit(event)}>
           <header>
             <strong>{draft.id ? 'Edit workspace' : 'New workspace'}</strong>
-            <button type="button" aria-label="Cancel" onClick={() => setDraft(undefined)}>
+            <button className={uiStyles.iconButton} type="button" aria-label="Cancel" onClick={() => setDraft(undefined)}>
               <X size={13} />
             </button>
           </header>
@@ -230,12 +235,12 @@ export function ProjectSettings({
           {problem && <div className="project-settings-error" role="alert">{problem}</div>}
           <footer>
             {draft.id && (
-              <button className="project-settings-remove" type="button" disabled={busy} onClick={() => void remove()}>
+              <button className={`${uiStyles.button} ghost danger project-settings-remove`} type="button" disabled={busy} onClick={() => void remove()}>
                 <Trash2 size={13} />
                 Remove
               </button>
             )}
-            <button className="project-settings-save" type="submit" disabled={busy}>Save</button>
+            <button className={`${uiStyles.button} primary project-settings-save`} type="submit" disabled={busy}>Save</button>
           </footer>
         </form>
       )}
@@ -283,7 +288,7 @@ export function NewWorkspaceDialog({
       }}
     >
       <section
-        className="workspace-creator"
+        className={`${uiStyles.dialog} workspace-creator`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="workspace-creator-title"
@@ -295,7 +300,7 @@ export function NewWorkspaceDialog({
             <strong id="workspace-creator-title">New workspace</strong>
             <p id="workspace-creator-description">Group chats around one or more local folders.</p>
           </div>
-          <button type="button" aria-label="Close" disabled={busy} onClick={onClose}>
+          <button className={uiStyles.iconButton} type="button" aria-label="Close" disabled={busy} onClick={onClose}>
             <X size={14} />
           </button>
         </header>
@@ -303,8 +308,8 @@ export function NewWorkspaceDialog({
           <ProjectFields draft={draft} focusPrimary onChange={setDraft} />
           {problem && <div className="project-settings-error" role="alert">{problem}</div>}
           <footer>
-            <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
-            <button className="primary" type="submit" disabled={busy || disabled}>
+            <button className={uiStyles.button} type="button" disabled={busy} onClick={onClose}>Cancel</button>
+            <button className={`${uiStyles.button} primary`} type="submit" disabled={busy || disabled}>
               {busy ? 'Creating…' : 'Create workspace'}
             </button>
           </footer>

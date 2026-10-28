@@ -3,10 +3,10 @@
 }
 
 .recent-chat-switcher {
-  --alto-floating-panel-border: rgba(255, 255, 255, 0.72);
-  --alto-floating-panel-radius: var(--radius-md, 18px);
-  --alto-floating-panel-background: rgba(246, 247, 250, 0.95);
-  --alto-floating-panel-shadow: 0 22px 54px rgba(30, 33, 47, 0.2), 0 3px 10px rgba(30, 33, 47, 0.07);
+  --alto-floating-panel-border: var(--ui-border);
+  --alto-floating-panel-radius: var(--ui-panel-radius);
+  --alto-floating-panel-background: var(--ui-surface);
+  --alto-floating-panel-shadow: var(--ui-panel-shadow);
   box-sizing: border-box;
   width: min(520px, 100%);
   max-height: min(456px, calc(100dvh - 40px));
@@ -18,9 +18,9 @@
 
 .recent-chat-switcher header {
   padding: 0 9px 7px;
-  color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 470;
+  color: var(--ui-text-secondary);
+  font-size: var(--type-supporting);
+  font-weight: var(--ui-weight);
   letter-spacing: 0.005em;
 }
 
@@ -41,12 +41,12 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 112px);
   align-items: center;
   padding: 0 10px;
-  color: var(--text);
+  color: var(--ui-text);
   border: 0;
-  border-radius: var(--radius-sm, 12px);
+  border-radius: var(--ui-row-radius);
   outline: 0;
   background: transparent;
-  font: 12px/1.2 var(--sans);
+  font: var(--weight-regular) var(--ui-size)/var(--ui-line) var(--ui-font);
   text-align: left;
   cursor: default;
 }
@@ -56,8 +56,8 @@
 }
 
 .recent-chat-switcher-list button.selected {
-  color: var(--text-strong);
-  background: rgba(86, 91, 113, 0.09);
+  color: var(--ui-text-strong);
+  background: var(--ui-selected);
 }
 
 .recent-chat-leading {
@@ -75,8 +75,8 @@
 }
 
 .recent-chat-switcher-list button small {
-  color: var(--dim);
-  font-size: 10.5px;
+  color: var(--ui-text-secondary);
+  font-size: var(--type-supporting);
   text-align: right;
 }
 
@@ -84,7 +84,7 @@
   .recent-chat-switcher {
     width: 100%;
     max-height: calc(100dvh - 40px);
-    border-radius: var(--radius-md, 18px);
+    border-radius: var(--ui-panel-radius);
   }
 
   .recent-chat-switcher-list button {

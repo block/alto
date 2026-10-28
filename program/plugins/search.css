@@ -3,11 +3,6 @@
 }
 
 .search-palette {
-  --alto-floating-panel-background: var(--composer-surface);
-  --alto-floating-panel-border: var(--border);
-  --alto-floating-panel-radius: var(--radius-composer-card);
-  --alto-floating-panel-shadow: var(--shadow-chat);
-  --alto-floating-panel-backdrop: none;
   width: min(620px, 100%);
   max-height: min(560px, calc(100dvh - 48px));
   display: flex;
@@ -16,30 +11,27 @@
 }
 
 .search-palette-input {
-  min-height: 58px;
+  min-height: 48px;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
-  padding: 0 18px;
-  color: var(--muted);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  margin: var(--space-2) var(--space-2) 0;
+  padding: 0 var(--space-3);
 }
 
 .search-palette-input input {
   min-width: 0;
   height: 100%;
   padding: 0;
-  color: var(--text);
-  border: 0;
-  outline: 0;
-  background: transparent;
-  font: 400 15px/1.5 var(--sans);
-  letter-spacing: normal;
 }
 
-.search-palette-input input::placeholder {
-  color: var(--composer-placeholder-ink);
+/* The active palette and text caret identify the focused search field. Keep
+   its edge neutral; result rows retain their keyboard focus treatment. */
+.search-palette-input:focus-within {
+  border-color: var(--ui-field-border);
+  outline: none;
+  box-shadow: none;
 }
 
 .search-results {
@@ -48,7 +40,7 @@
   overflow-y: auto;
   padding: 8px;
   overscroll-behavior: contain;
-  scrollbar-color: color-mix(in srgb, var(--muted) 22%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--ui-text-secondary) 22%, transparent) transparent;
   scrollbar-width: thin;
 }
 
@@ -58,13 +50,13 @@
 
 .search-results::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
-  border-radius: var(--radius-dense);
-  background: color-mix(in srgb, var(--muted) 22%, transparent);
+  border-radius: var(--ui-row-radius);
+  background: color-mix(in srgb, var(--ui-text-secondary) 22%, transparent);
   background-clip: padding-box;
 }
 
 .search-results::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  background: color-mix(in srgb, var(--ui-text-secondary) 40%, transparent);
   background-clip: padding-box;
 }
 
@@ -76,31 +68,18 @@
   align-items: center;
   gap: 10px;
   padding: 7px 11px;
-  color: var(--text);
-  border: 0;
-  border-radius: var(--radius-result-row);
-  outline: 0;
-  background: transparent;
   text-align: left;
   cursor: default;
-  transition: color 120ms ease, background 120ms ease;
 }
-
-.search-result:hover { background: var(--floating-row-hover, rgba(79, 85, 105, 0.055)); }
-.search-result.active { background: var(--floating-row-selected, var(--accent-soft)); }
-.search-result:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring); }
-.search-result:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .search-result-copy { min-width: 0; display: grid; gap: 2px; }
 .search-result-copy strong,
 .search-result-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.search-result-copy strong { color: var(--text-strong); font-size: 13.5px; font-weight: 560; }
-.search-result-copy span { color: var(--muted); font-size: 11.5px; }
 .search-result-meta { min-width: 18px; display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; }
-.search-result-check { color: var(--accent); }
-.search-empty { padding: 30px 16px; color: var(--muted); font-size: 12px; text-align: center; }
+.search-result-check { color: var(--ui-action); }
+.search-empty { padding: 30px 16px; color: var(--ui-text-secondary); font-size: var(--ui-size); text-align: center; }
 
 @media (max-width: 480px) {
   .search-backdrop { padding: 12px; }
-  .search-palette { max-height: calc(100dvh - 24px); --alto-floating-panel-radius: var(--radius-dialog); }
+  .search-palette { max-height: calc(100dvh - 24px); }
 }

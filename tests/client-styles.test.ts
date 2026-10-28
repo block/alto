@@ -321,14 +321,14 @@ describe('client style contract', () => {
     expect(client).toContain('session.newThread(null)')
   })
 
-  it('uses translucent blurred materials for floating conversation controls', async () => {
+  it('shares floating roles while preserving translucent reading controls', async () => {
     const [defaultUiCss, steerCss] = await Promise.all([
       readFile(defaultUiCssUrl, 'utf8'),
       readFile(steerCssUrl, 'utf8'),
     ])
 
     expect(defaultUiCss).toMatch(/\.conversation-jump-latest\s*{[^}]*background: color-mix\(in srgb, var\(--panel-solid\) 52%, transparent\);[^}]*backdrop-filter: blur\(22px\)/s)
-    expect(steerCss).toMatch(/\.steer-queue\s*{[^}]*background: color-mix\(in srgb, var\(--panel-solid\) 56%, transparent\);[^}]*backdrop-filter: blur\(22px\)/s)
+    expect(steerCss).toMatch(/\.steer-queue\s*{[^}]*background: var\(--ui-surface\);[^}]*box-shadow: var\(--ui-panel-shadow\);[^}]*backdrop-filter: none;/s)
   })
 
   it('uses a quiet file-diff icon for turn review without splitting the summary pill', async () => {
@@ -415,7 +415,7 @@ describe('client style contract', () => {
     expect(workspaceLayoutCss).toMatch(/\.workspace-tabbar\s*{[^}]*background: color-mix\(in srgb, var\(--pane-tabbar-background, var\(--canvas\)\) 90%, transparent\);[^}]*backdrop-filter: blur\(14px\)/s)
     expect(paneTabsCss).toMatch(/\.pane-tab-drag-preview\s*{[^}]*background: color-mix\(in srgb, var\(--panel\) 88%, transparent\);[^}]*backdrop-filter: blur\(16px\)/s)
     expect(markdownLink).toContain('clientStyles.floatingPanel')
-    expect(diffViewerCss).toMatch(/\.diff-viewer-body > \.file-tree\s*{[^}]*background: color-mix\(in srgb, var\(--panel-soft\) 76%, transparent\);[^}]*backdrop-filter: blur\(12px\)/s)
+    expect(diffViewerCss).toMatch(/\.diff-viewer-body > \.file-tree\s*{[^}]*background: var\(--ui-surface-inset\);/s)
     expect(diffViewerClient).toMatch(/\[data-diffs-header\]\[data-sticky\]\s*{[^}]*background-color: color-mix\(in srgb, var\(--diffs-bg\) 88%, transparent\);[^}]*backdrop-filter: blur\(14px\)/s)
   })
 
@@ -586,8 +586,8 @@ describe('client style contract', () => {
     expect(sidebarCss).toMatch(/\.shell-sidebar-action\s*\{[^}]*width: 100%;[^}]*justify-content: flex-start;/s)
     expect(sidebarCss).not.toContain('.button.shell-sidebar-action')
     expect(defaultUiCss).not.toContain('.button.shell-sidebar-action')
-    expect(sidebarCss).toContain('--sidebar-inactive-text: color-mix(in srgb, var(--text) 55%, var(--muted));')
+    expect(sidebarCss).toContain('--sidebar-inactive-text: var(--ui-text-secondary);')
     expect(sidebarCss).toContain('.history-workspace-heading:not(.active),\n.history-entry:not(.active)')
-    expect(sidebarCss).toMatch(/html\[data-alto-theme='dark'\] \[data-shell-node="conversation-history"\]\s*{[^}]*--sidebar-inactive-text: var\(--muted\);/s)
+    expect(sidebarCss).toMatch(/html\[data-alto-theme='dark'\] \[data-shell-node="conversation-history"\]\s*{[^}]*--sidebar-inactive-text: var\(--ui-text-secondary\);/s)
   })
 })

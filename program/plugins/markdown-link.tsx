@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clientStyles } from '../../src/client/plugin-api.js'
+import { uiStyles } from './ui/appearance.js'
 
 export function MarkdownLink({
   preview,
@@ -77,7 +78,7 @@ export function MarkdownLink({
       {children}
     </a>
     {open && preview && anchorRef.current && createPortal(
-      <div ref={previewRef} id={previewId} role="tooltip" className={`${clientStyles.floatingPanel} markdown-link-preview`}>
+      <div ref={previewRef} id={previewId} role="tooltip" className={`${clientStyles.floatingPanel} ${uiStyles.tooltip} markdown-link-preview`}>
         {preview}
       </div>,
       anchorRef.current.ownerDocument.body,

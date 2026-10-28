@@ -149,7 +149,7 @@ async function check() {
     loader: { '.css': 'text' }, define: { 'process.env.NODE_ENV': '"production"' },
   })
   const css = (await Promise.all([
-    'src/client/styles.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/ui/user-input.css',
+    'src/client/styles.css', 'program/plugins/ui/appearance-tokens.css', 'program/plugins/ui/controls.css', 'program/plugins/ui/surfaces.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/ui/user-input.css',
   ].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer((request, response) => {
     if (request.url === '/fonts/Inter[opsz,wght].ttf') {

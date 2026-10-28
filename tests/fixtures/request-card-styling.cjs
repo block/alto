@@ -51,7 +51,7 @@ async function check() {
     ` }, bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     loader: { '.css': 'text' }, define: { 'process.env.NODE_ENV': '"production"' },
   })
-  const css = (await Promise.all(['src/client/styles.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/ui/user-input.css'].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
+  const css = (await Promise.all(['src/client/styles.css', 'program/plugins/ui/appearance-tokens.css', 'program/plugins/ui/controls.css', 'program/plugins/ui/surfaces.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/ui/user-input.css'].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer((_request, response) => response.end('<!doctype html><style>' + css + 'body{background:var(--canvas);overflow:auto}main{max-width:768px;margin:auto;padding:18px}</style><main><div id="root"></div></main>'))
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const win = new BrowserWindow({ show: false, width: 1000, height: 1000, webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, backgroundThrottling: false } })

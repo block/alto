@@ -26,7 +26,7 @@ async function check() {
     define: { 'process.env.NODE_ENV': '"production"' },
   })
   const css = (await Promise.all([
-    'src/client/styles.css', 'program/plugins/ui/default.css', 'program/plugins/markdown.css',
+    'src/client/styles.css', 'program/plugins/ui/appearance-tokens.css', 'program/plugins/ui/controls.css', 'program/plugins/ui/surfaces.css', 'program/plugins/ui/default.css', 'program/plugins/markdown.css',
     'program/plugins/markdown-viewer.css', 'program/plugins/theme.css',
   ].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer((_request, response) => {

@@ -32,6 +32,7 @@ import {
   threadWorkStatus,
 } from './thread-status-api.js'
 import { ConversationPaneOverlay } from './ui/conversation-overlay.js'
+import { uiStyles } from './ui/appearance.js'
 import { useStoreSelector } from './ui/store-selector.js'
 import { ThreadStatusIndicator } from './ui/thread-status.js'
 import styles from './search.css'
@@ -199,15 +200,16 @@ function SearchPalette({
   return (
     <ConversationPaneOverlay className={`${clientStyles.overlayLayer} search-backdrop`} onMouseDown={onClose}>
       <section
-        className={`${clientStyles.floatingPanel} search-palette`}
+        className={`${clientStyles.floatingPanel} ${uiStyles.dialog} search-palette`}
         role="dialog"
         aria-modal="true"
         aria-label={label}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="search-palette-input">
+        <div className={`${uiStyles.field} search-palette-input`}>
           <Search size={18} aria-hidden="true" />
           <input
+            className={uiStyles.input}
             ref={inputRef}
             value={query}
             aria-label={label}
@@ -220,7 +222,7 @@ function SearchPalette({
           {results.map((item, index) => (
             <button
               ref={(node) => { resultRefs.current[index] = node }}
-              className={`search-result ${index === activeIndex ? 'active' : ''}`}
+              className={`${uiStyles.row} search-result ${index === activeIndex ? 'active' : ''}`}
               type="button"
               role="option"
               aria-selected={index === activeIndex}
@@ -230,8 +232,8 @@ function SearchPalette({
               key={item.id}
             >
               <span className="search-result-copy">
-                <strong>{item.label}</strong>
-                {item.preview ?? (item.detail && <span>{item.detail}</span>)}
+                <strong className={uiStyles.title}>{item.label}</strong>
+                {(item.preview || item.detail) && <span className={uiStyles.description}>{item.preview ?? item.detail}</span>}
               </span>
               <span className="search-result-meta">
                 <ThreadStatusIndicator status={item.status} />

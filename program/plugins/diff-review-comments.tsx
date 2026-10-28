@@ -16,6 +16,7 @@ import type {
   ClientUiService,
 } from '../../src/client/plugin-api.js'
 import type { DiffReviewDocument } from './diff-viewer-api.js'
+import { uiStyles } from './ui/appearance.js'
 import type {
   ClientWorkspaceLayoutService,
   WorkspacePaneTarget,
@@ -180,7 +181,7 @@ export function ReviewAnnotation({
     <article className="diff-review-comment">
       <div>
         <span>{lineLabel(comment)}</span>
-        <button type="button" aria-label="Remove review comment" title="Remove" onClick={() => remove(comment.id)}>
+        <button className={`${uiStyles.iconButton} danger`} type="button" aria-label="Remove review comment" title="Remove" onClick={() => remove(comment.id)}>
           <Trash2 size={13} strokeWidth={1.7} />
         </button>
       </div>
@@ -215,12 +216,13 @@ export function ReviewCommentComposer({
     }
   }
   return (
-    <section className="diff-review-draft">
+    <section className={`${uiStyles.panel} diff-review-draft`}>
       <div className="diff-review-draft-heading">
         <span>{draft.path}</span>
         <span>{lineLabel(range)}</span>
       </div>
       <textarea
+        className={uiStyles.field}
         ref={input}
         value={body}
         rows={3}
@@ -230,8 +232,8 @@ export function ReviewCommentComposer({
         onKeyDown={keyDown}
       />
       <div className="diff-review-draft-actions">
-        <button type="button" onClick={cancel}>Cancel</button>
-        <button className="primary" type="button" disabled={!body.trim()} onClick={() => add(body)}>Add comment</button>
+        <button className={uiStyles.button} type="button" onClick={cancel}>Cancel</button>
+        <button className={`${uiStyles.button} primary`} type="button" disabled={!body.trim()} onClick={() => add(body)}>Add comment</button>
       </div>
     </section>
   )

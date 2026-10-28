@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { uiStyles } from './ui/appearance.js'
 import { clientStyles, type BrowserPlugin, type ClientUiService } from '../../src/client/plugin-api.js'
 import { errorMessage } from '../../src/shared/protocol.js'
 import { AGENT_SWITCHER_ACTION, AGENT_SWITCHER_OVERLAY, AGENT_SWITCHER_TOGGLE } from './agent-switcher-api.js'
@@ -164,15 +165,16 @@ export function AgentSwitcherDialog({ session, ui }: { session: ClientSessionSer
     <ConversationPaneOverlay className={`${clientStyles.overlayLayer} agent-switcher-layer`} onMouseDown={close}>
       <section
         id="agent-switcher-dialog"
-        className={`${clientStyles.floatingPanel} agent-switcher-panel`}
+        className={`${clientStyles.floatingPanel} ${uiStyles.dialog} agent-switcher-panel`}
         role="dialog"
         aria-modal="true"
         aria-label="Agent, model, and reasoning"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="agent-switcher-search">
+        <div className={`${uiStyles.field} agent-switcher-search`}>
           <Search size={17} aria-hidden="true" />
           <input
+            className={uiStyles.input}
             ref={input}
             value={query}
             aria-label="Search agents and models"
@@ -202,7 +204,7 @@ export function AgentSwitcherDialog({ session, ui }: { session: ClientSessionSer
                   else optionRefs.current.delete(option.key)
                 }}
                 id={optionDomId(option.key)}
-                className={`agent-switcher-option${active ? ' is-active' : ''}${option.current ? ' is-current' : ''}`}
+                className={`${uiStyles.row} agent-switcher-option${active ? ' is-active' : ''}${option.current ? ' is-current' : ''}`}
                 type="button"
                 role="option"
                 aria-selected={active}
@@ -215,8 +217,8 @@ export function AgentSwitcherDialog({ session, ui }: { session: ClientSessionSer
                 key={option.key}
               >
                 <span className="agent-switcher-option-copy">
-                  <strong>{option.modelLabel}</strong>
-                  <span>{option.providerLabel} · {option.providerLocation}</span>
+                  <strong className={uiStyles.title}>{option.modelLabel}</strong>
+                  <span className={uiStyles.description}>{option.providerLabel} · {option.providerLocation}</span>
                 </span>
                 <span className="agent-switcher-option-meta">
                   {option.disabledReason
@@ -236,7 +238,7 @@ export function AgentSwitcherDialog({ session, ui }: { session: ClientSessionSer
               <div className="agent-switcher-efforts" role="group" aria-label="Reasoning effort">
                 {selected.efforts.map((choice) => (
                   <button
-                    className="agent-switcher-effort"
+                    className={`${uiStyles.segment} agent-switcher-effort`}
                     type="button"
                     aria-pressed={choice.value === effort}
                     title={choice.description}

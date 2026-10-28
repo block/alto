@@ -127,6 +127,7 @@ async function check() {
   })
   const css = (await Promise.all([
     'src/client/styles.css', 'src/client/pane-toolbar.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css',
+    'program/plugins/ui/appearance-tokens.css', 'program/plugins/ui/controls.css', 'program/plugins/ui/surfaces.css',
   ].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer(async (request, response) => {
     if (request.url?.startsWith('/fonts/')) {

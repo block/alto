@@ -1,3 +1,4 @@
+import { uiStyles } from './ui/appearance.js'
 import { ArrowUpRight, Check, CircleAlert, Clock3, GitPullRequest, RefreshCw, Search, Settings2, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -220,7 +221,7 @@ export function PullRequestsChrome({ host, ui }: { host: ClientHostService; ui: 
     <>
       {mount && createPortal(<button ref={buttonRef} className={`${clientStyles.iconButton} icon-button shell-control pr-dashboard-toggle${open ? ' active' : ''}`} type="button" data-hotkey-action={PR_TOGGLE_ACTION} aria-label="Pull requests" title="Pull requests" aria-haspopup="dialog" aria-controls="pull-requests-panel" aria-expanded={open} onClick={() => ui.overlays.toggle(PR_PANEL)}><GitPullRequest size={15} /></button>, mount)}
       {createPortal(
-        <aside id="pull-requests-panel" ref={panelRef} className={`${clientStyles.floatingPanel} pr-dashboard-flyout${open ? ' is-open' : ''}`} role="dialog" aria-label="My pull requests" aria-modal="false" aria-hidden={!open} inert={!open}>
+        <aside id="pull-requests-panel" ref={panelRef} className={`${clientStyles.floatingPanel} ${uiStyles.panel} pr-dashboard-flyout${open ? ' is-open' : ''}`} role="dialog" aria-label="My pull requests" aria-modal="false" aria-hidden={!open} inert={!open}>
           <PullRequestsList host={host} visible={open} close={close} />
         </aside>, document.querySelector('.shell-kernel') ?? document.body,
       )}

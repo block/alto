@@ -21,6 +21,10 @@
   --alto-button-border-hover: transparent;
   --alto-button-shadow: none;
   --alto-button-shadow-hover: none;
+  --ui-text: var(--workspace-tab-ink);
+  --ui-text-strong: var(--workspace-tab-ink);
+  --ui-text-secondary: var(--workspace-tab-ink);
+  --ui-focus: var(--workspace-tab-focus);
 }
 
 :is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab {

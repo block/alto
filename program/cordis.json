@@ -410,6 +410,14 @@
           ]
         },
         {
+          "id": "interface-appearance",
+          "name": "Interface Appearance",
+          "description": "Shares typography, control states, fields, and floating surfaces across the application.",
+          "client": "plugins/interface-appearance.client.ts",
+          "enabled": true,
+          "config": {}
+        },
+        {
           "id": "search",
           "name": "Quick Search",
           "description": "Opens commands, chats, and settings through Cmd+K.",

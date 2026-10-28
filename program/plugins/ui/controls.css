@@ -1,0 +1,181 @@
+/* Public primitives own paint and type; features retain target sizes and layout.
+   A native button still gets shared type and keyboard focus before opting in. */
+:where(button) {
+  font-family: var(--ui-font);
+  font-size: var(--ui-size);
+  font-weight: var(--ui-weight);
+  line-height: var(--ui-line);
+}
+
+:where(button:focus-visible) {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+:is(.alto-button, .button) {
+  color: var(--alto-button-color, var(--ui-text));
+  border-color: var(--alto-button-border, transparent);
+  border-radius: var(--alto-button-radius, var(--ui-control-radius));
+  background: var(--alto-button-background, var(--ui-control-fill));
+  box-shadow: var(--alto-button-shadow, none);
+  font-family: var(--ui-font);
+  font-size: var(--alto-button-font-size, var(--ui-size));
+  font-weight: var(--alto-button-font-weight, var(--ui-weight));
+  line-height: var(--ui-line);
+  transition: none;
+}
+
+:is(.alto-button, .button):hover:not(:disabled) {
+  border-color: var(--alto-button-border-hover, transparent);
+  background: var(--alto-button-background-hover, var(--ui-hover));
+  box-shadow: var(--alto-button-shadow-hover, none);
+}
+
+:is(.alto-button, .button):active:not(:disabled) {
+  background: var(--ui-pressed);
+  transform: none;
+}
+
+:is(.alto-button, .button).ghost {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+:is(.alto-button, .button).ghost:hover:not(:disabled) {
+  background: var(--alto-button-background-hover, var(--ui-hover));
+}
+
+:is(.alto-button, .button).ghost:active:not(:disabled) { background: var(--ui-pressed); }
+
+:is(.alto-button, .button).primary,
+.composer .send-button:not(.stop):not(:disabled) {
+  color: var(--ui-on-action);
+  border-color: transparent;
+  background: var(--ui-action);
+  box-shadow: none;
+}
+
+:is(.alto-button, .button).primary:hover:not(:disabled),
+.composer .send-button:not(.stop):not(:disabled):hover {
+  color: var(--ui-on-action);
+  border-color: transparent;
+  background: var(--ui-action-hover);
+  box-shadow: none;
+  filter: none;
+}
+
+:is(.alto-button, .button).primary:active:not(:disabled),
+.composer .send-button:not(.stop):not(:disabled):active { background: var(--ui-action-pressed); }
+
+:is(.alto-button, .button).danger { color: var(--ui-danger); }
+:is(.alto-button, .button).danger:hover:not(:disabled) { background: color-mix(in srgb, var(--ui-danger) 9%, transparent); }
+:is(.alto-button, .button).danger:active:not(:disabled) { background: color-mix(in srgb, var(--ui-danger) 14%, transparent); }
+
+:where(.alto-button, .button, .alto-icon-button, .icon-button) {
+  --icon-scale: 1;
+  --icon-opacity: 1;
+}
+
+:is(.alto-icon-button, .icon-button) {
+  color: var(--alto-button-color, var(--ui-text));
+  border-radius: var(--alto-icon-button-radius, var(--ui-control-radius));
+  transition: none;
+}
+
+:is(.alto-icon-button, .icon-button):hover:not(:disabled) {
+  color: var(--alto-button-color, var(--ui-text));
+  background: var(--alto-button-background-hover, var(--ui-hover));
+}
+
+:is(.alto-icon-button, .icon-button):is([aria-pressed='true'], [aria-haspopup][aria-expanded='true']):not(:disabled),
+:where(.alto-toolbar, .alto-pane-toolbar) .alto-icon-button[aria-pressed='true']:not(:disabled) {
+  color: var(--alto-button-color, var(--ui-text));
+  background: var(--ui-selected);
+}
+
+:is(.alto-icon-button, .icon-button):active:not(:disabled),
+:is(.alto-icon-button, .icon-button):is([aria-pressed='true'], [aria-haspopup][aria-expanded='true']):active:not(:disabled) {
+  background: var(--ui-pressed);
+}
+
+:is(.alto-icon-button, .icon-button).danger { color: var(--ui-danger); }
+:is(.alto-icon-button, .icon-button).danger:hover:not(:disabled) { color: var(--ui-danger); background: color-mix(in srgb, var(--ui-danger) 9%, transparent); }
+:is(.alto-icon-button, .icon-button).danger:active:not(:disabled) { background: color-mix(in srgb, var(--ui-danger) 14%, transparent); }
+
+/* Composer's existing controls use the same roles without replacing the editor
+   owner or changing its surface, shape, or target heights. */
+.composer {
+  --composer-action-ink: var(--ui-text);
+  --composer-action-fill: var(--ui-control-fill);
+  --composer-action-hover-fill: var(--ui-hover);
+}
+
+.composer :is(.composer-attach, button.composer-workspace-trigger, .composer-permission-trigger, .composer-model-trigger) {
+  --icon-scale: 1;
+  --icon-opacity: 1;
+  color: var(--ui-text);
+  border-radius: var(--ui-control-radius);
+  background: transparent;
+  font-family: var(--ui-font);
+  font-weight: var(--ui-weight);
+  transition: none;
+}
+
+.composer :is(.composer-attach, button.composer-workspace-trigger, .composer-permission-trigger, .composer-model-trigger):hover:not(:disabled) {
+  color: var(--ui-text);
+  background: var(--ui-hover);
+}
+
+.composer :is(button.composer-workspace-trigger, .composer-permission-trigger, .composer-model-trigger)[aria-expanded='true']:not(:disabled) {
+  background: var(--ui-selected);
+}
+
+.composer .composer-permission-trigger.mode-auto,
+.composer .composer-permission-trigger.mode-auto:is(:hover, :active, :focus-visible):not(:disabled) { color: var(--ui-action); }
+
+.composer :is(.composer-attach, button.composer-workspace-trigger, .composer-permission-trigger, .composer-model-trigger):active:not(:disabled),
+.send-button.stop:active:not(:disabled) { background: var(--ui-pressed); }
+
+/* Structured toolbar modes predate the shared segment class. */
+.alto-toolbar-modes > button {
+  color: var(--ui-text);
+  border-radius: var(--ui-control-radius);
+  font-family: var(--ui-font);
+  font-size: var(--ui-size);
+  font-weight: var(--ui-weight);
+  transition: none;
+}
+
+.alto-toolbar-modes > button:hover:not(:disabled) { color: var(--ui-text); background: var(--ui-hover); }
+
+.alto-toolbar-modes > button.is-active,
+.alto-toolbar-modes > button:first-child.is-active,
+.alto-toolbar-modes > button.is-active:hover:not(:disabled) {
+  color: var(--ui-text-strong);
+  background: var(--ui-selected);
+}
+
+.alto-toolbar-modes > button:active:not(:disabled),
+.alto-toolbar-modes > button.is-active:active:not(:disabled) { background: var(--ui-pressed); }
+
+:is(.alto-button, .button, .alto-icon-button, .icon-button, .alto-toolbar-modes > button):focus-visible,
+.composer :is(.composer-attach, button.composer-workspace-trigger, .composer-permission-trigger, .composer-model-trigger, .send-button):focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Restore disabled controls after legacy hover selectors. */
+:is(.alto-icon-button, .icon-button):disabled,
+.composer :is(.composer-attach, button.composer-workspace-trigger, .composer-permission-trigger, .composer-model-trigger):disabled {
+  color: var(--alto-button-color, var(--ui-text));
+  background: transparent;
+}
+
+.send-button:disabled { color: var(--ui-text); background: var(--ui-control-fill); }
+
+@media (forced-colors: active) {
+  :is(.alto-button, .button, .alto-icon-button, .icon-button):focus-visible,
+  .composer button:focus-visible { outline-color: Highlight; }
+}

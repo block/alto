@@ -19,27 +19,13 @@
 }
 
 .cordis-mermaid figcaption button {
+  --alto-icon-button-size: 26px;
   width: 26px;
   height: 26px;
   display: grid;
   place-items: center;
   padding: 0;
-  color: var(--muted);
-  border: 0;
-  border-radius: 7px;
-  outline: 0;
-  background: transparent;
   cursor: pointer;
-}
-
-.cordis-mermaid figcaption button:hover,
-.cordis-mermaid figcaption button:focus-visible {
-  color: var(--text);
-  background: color-mix(in srgb, white 62%, transparent);
-}
-
-.cordis-mermaid figcaption button:focus-visible {
-  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
 .cordis-mermaid-stage {
@@ -118,7 +104,7 @@
 .cordis-mermaid-overlay {
   z-index: 140;
   padding: var(--space-3);
-  background: color-mix(in srgb, var(--canvas) 35%, transparent);
+  background: var(--ui-scrim);
 }
 
 .cordis-mermaid-expanded {
@@ -130,7 +116,6 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  --alto-floating-panel-background: var(--panel-solid);
 }
 
 .cordis-mermaid-expanded-header {
@@ -141,8 +126,8 @@
   gap: var(--space-2);
   flex: none;
   padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border-soft);
-  font: var(--weight-medium) var(--type-label) / var(--line-control) var(--sans);
+  border-bottom: 1px solid var(--ui-divider);
+  font: var(--ui-weight) var(--ui-size) / var(--ui-line) var(--ui-font);
 }
 
 .cordis-mermaid-expanded-controls {
@@ -156,7 +141,7 @@
   min-width: 5ch;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  color: var(--muted);
+  color: var(--ui-text-secondary);
 }
 
 .cordis-mermaid-expanded-controls .cordis-mermaid-fit {
@@ -171,11 +156,12 @@
   overscroll-behavior: contain;
   /* Match the renderer’s light diagram palette in either application theme. */
   color-scheme: light;
+  --ui-focus: CanvasText;
   background: Canvas;
 }
 
 .cordis-mermaid-expanded-viewport:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ui-focus);
   outline-offset: -2px;
 }
 

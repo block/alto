@@ -1,0 +1,215 @@
+/* These roles own paint and type. Features own bounds, layout, and content.
+   Explicit roles keep inline cards and native content outside popup styling. */
+:root :is(.alto-popup-panel, .alto-dialog, .alto-tooltip, [role='menu'], [role='dialog'], [role='tooltip']) {
+  --alto-floating-panel-background: var(--ui-surface);
+  --alto-floating-panel-border: var(--ui-border);
+  --alto-floating-panel-radius: var(--ui-panel-radius);
+  --alto-floating-panel-shadow: var(--ui-panel-shadow);
+  --alto-floating-panel-backdrop: none;
+  color: var(--ui-text);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-panel-radius);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-panel-shadow);
+  font-family: var(--ui-font);
+  font-size: var(--ui-size);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root :is(.alto-dialog, [role='dialog']:where(:not(.alto-popup-panel, .alto-tooltip, [aria-modal='false']))) {
+  --alto-floating-panel-radius: var(--ui-dialog-radius);
+  --alto-floating-panel-shadow: var(--ui-dialog-shadow);
+  border-radius: var(--ui-dialog-radius);
+  box-shadow: var(--ui-dialog-shadow);
+}
+
+:root :is(.alto-tooltip, [role='tooltip']) {
+  --alto-floating-panel-radius: var(--ui-row-radius);
+  border-radius: var(--ui-row-radius);
+  font-size: var(--type-supporting);
+}
+
+.alto-choice-row {
+  --icon-opacity: 1;
+  --icon-scale: 1;
+  color: var(--ui-text);
+  border: 0;
+  border-radius: var(--ui-row-radius);
+  background: transparent;
+  font-family: var(--ui-font);
+  font-size: var(--ui-size);
+  font-weight: var(--weight-regular);
+  line-height: var(--ui-line);
+  text-align: start;
+  transition: none;
+}
+
+.alto-choice-row:where(:hover:not(:disabled):not([aria-disabled='true'])) {
+  background: var(--ui-hover);
+}
+
+.alto-choice-row:where([aria-selected='true'], [aria-checked='true'], [aria-current='page'], .is-active, .active, .is-selected) {
+  color: var(--ui-text-strong);
+  background: var(--ui-selected);
+}
+
+.alto-choice-row:where(:active:not(:disabled):not([aria-disabled='true'])) {
+  background: var(--ui-pressed);
+}
+
+.alto-choice-row:where(:focus-visible) {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: -2px;
+}
+
+.alto-choice-row:where(:disabled, [aria-disabled='true']) {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.alto-control-title,
+:root [data-native-overlay='workspace-pane-kind'] :is(.workspace-pane-kind-header, .workspace-pane-kind-options) strong {
+  color: var(--ui-text-strong);
+  font-size: var(--ui-size);
+  font-weight: var(--ui-weight);
+}
+
+.alto-control-description,
+:root [data-native-overlay='workspace-pane-kind'] :is(.workspace-pane-kind-header small, .workspace-pane-kind-footer) {
+  color: var(--ui-text-secondary);
+  font-size: var(--type-supporting);
+  font-weight: var(--weight-regular);
+  line-height: var(--line-body);
+}
+
+/* A decorated field can be an input/select itself or an enclosing search row.
+   The inner input remains transparent so the field paints exactly once. */
+.alto-field {
+  color: var(--ui-text);
+  border: 1px solid var(--ui-field-border);
+  border-radius: var(--ui-field-radius);
+  background: var(--ui-field-fill);
+  box-shadow: none;
+  font-family: var(--ui-font);
+  font-size: var(--ui-size);
+}
+
+.alto-field:where(:is(:focus-visible, :focus-within):not(:disabled)) {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: -2px;
+}
+
+.alto-input {
+  min-width: 0;
+  color: var(--ui-text);
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--ui-font);
+  font-size: var(--type-body);
+  line-height: var(--line-body);
+}
+
+:is(.alto-field, .alto-input)::placeholder {
+  color: var(--ui-text-secondary);
+  opacity: 1;
+}
+
+:is(.alto-field, .alto-input):where(:disabled) {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.alto-segment {
+  color: var(--ui-text);
+  border: 0;
+  border-radius: var(--ui-control-radius);
+  background: transparent;
+  font-family: var(--ui-font);
+  font-size: var(--ui-size);
+  font-weight: var(--ui-weight);
+  transition: none;
+}
+
+.alto-segment:where(:hover:not(:disabled)) { background: var(--ui-hover); }
+.alto-segment:where([aria-pressed='true'], [aria-selected='true'], .active, .is-selected) { color: var(--ui-text-strong); background: var(--ui-selected); }
+.alto-segment:where(:active:not(:disabled)) { background: var(--ui-pressed); }
+.alto-segment:where(:focus-visible) { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+.alto-segment:where(:disabled) { opacity: 0.48; cursor: not-allowed; }
+
+.alto-keycap,
+:root [data-native-overlay='workspace-pane-kind'] kbd {
+  color: var(--ui-text-secondary);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius-dense);
+  background: var(--ui-control-fill);
+  font-family: var(--ui-font);
+  font-size: var(--type-supporting);
+  font-weight: var(--weight-regular);
+  box-shadow: none;
+}
+
+/* Accessible legacy menus use the same row states without coupling the
+   appearance owner to feature selectors or restarting their pane owners.
+   Paint only: each feature retains its row grid, padding, and target size. */
+:root :is([role='menu'], [role='listbox']) :is(
+  [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']
+),
+:root [data-native-overlay='workspace-pane-kind'] .workspace-pane-kind-options > button {
+  --ui-row-background: transparent;
+  --icon-opacity: 1;
+  --icon-scale: 1;
+  color: var(--ui-row-ink, var(--ui-text));
+  border: 0;
+  border-radius: var(--ui-row-radius);
+  background: var(--ui-row-background);
+  font-family: var(--ui-font);
+  font-size: var(--ui-size);
+  transition: none;
+
+  &:where(:hover:not(:disabled):not([aria-disabled='true'])) {
+    background: var(--ui-hover);
+  }
+
+  &:where([aria-selected='true'], [aria-checked='true'], [aria-current='page']) {
+    --ui-row-background: var(--ui-selected);
+    color: var(--ui-row-ink, var(--ui-text-strong));
+    background: var(--ui-row-background);
+  }
+
+  &:where(:active:not(:disabled):not([aria-disabled='true'])) {
+    background: var(--ui-pressed);
+  }
+
+  &:where(:focus-visible) {
+    outline: 2px solid var(--ui-focus);
+    outline-offset: -2px;
+    box-shadow: none;
+  }
+
+  &:where(:disabled, [aria-disabled='true']) {
+    background: var(--ui-row-background);
+    opacity: 0.48;
+    cursor: not-allowed;
+  }
+
+  &:where(.danger, .is-danger, .is-destructive, [data-variant='danger']) {
+    color: var(--ui-danger);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(.alto-popup-panel, .alto-dialog, .alto-tooltip, .alto-choice-row, .alto-segment) {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  :where(.alto-choice-row, .alto-segment, .alto-field):is(:focus-visible, :focus-within) {
+    outline-color: Highlight;
+  }
+}

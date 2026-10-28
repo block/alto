@@ -1,0 +1,33 @@
+/* Pierre renders React annotations into light-DOM slots. Their UI must share
+   the document's appearance owner; unsafeCSS only styles the code shadow root. */
+.diff-review-comment {
+  margin: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  color: var(--ui-text);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-row-radius);
+  background: var(--ui-surface);
+  font-family: var(--ui-font);
+  font-size: var(--ui-size);
+  line-height: var(--line-body);
+}
+
+.diff-review-comment > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--ui-text-secondary);
+  font-size: var(--type-supporting);
+}
+
+.diff-review-comment .alto-icon-button {
+  --alto-icon-button-size: var(--control-icon);
+  flex: none;
+}
+
+.diff-review-comment p {
+  margin: var(--space-1) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

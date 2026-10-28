@@ -77,6 +77,7 @@ import {
 } from './ui/inspectors.js'
 import { PluginsPanel } from './ui/plugins.js'
 import { ProjectSettings } from './ui/project-settings.js'
+import { uiStyles } from './ui/appearance.js'
 import { SettingsRadioMark, SettingsRow, SettingsSwitch } from './ui/settings.js'
 import { currentSessionModelSummary, ModelDefaultsSettings } from './ui/model-defaults.js'
 import defaultStyles from './ui/default.css'
@@ -162,7 +163,7 @@ function ModalNavButton({
   onClick: () => void
 }): ReactNode {
   return (
-    <button className={`program-modal-nav-item ${active ? 'active' : ''}`} type="button" onClick={onClick}>
+    <button className={`${uiStyles.row} program-modal-nav-item ${active ? 'active' : ''}`} type="button" aria-current={active ? 'page' : undefined} onClick={onClick}>
       {icon}
       <span>{label}</span>
     </button>
@@ -250,12 +251,12 @@ function SettingsWorkspace({
 
   return (
     <ConversationPaneOverlay className="program-modal-backdrop" onMouseDown={close}>
-      <section className="program-modal" role="dialog" aria-modal="true" aria-label="Settings" onMouseDown={(event) => event.stopPropagation()}>
+      <section className={`${uiStyles.dialog} program-modal`} role="dialog" aria-modal="true" aria-label="Settings" onMouseDown={(event) => event.stopPropagation()}>
         <aside className="program-modal-sidebar">
           <div className="program-modal-sidebar-title">Settings</div>
-          <label className="program-modal-search">
+          <label className={`${uiStyles.field} program-modal-search`}>
             <Search size={14} />
-            <input value={query} placeholder="Search settings…" onChange={(event) => setQuery(event.target.value)} />
+            <input className={uiStyles.input} value={query} placeholder="Search settings…" onChange={(event) => setQuery(event.target.value)} />
           </label>
           <div className="program-modal-nav-group">
             <span>Personal</span>
@@ -294,7 +295,7 @@ function SettingsWorkspace({
         <main className="program-modal-content">
           <header className="program-modal-titlebar">
             <h1>{sectionTitle}</h1>
-            <button className="icon-button compact" type="button" aria-label="Close settings" onClick={close}><X size={15} /></button>
+            <button className={`${uiStyles.iconButton} icon-button compact`} type="button" aria-label="Close settings" onClick={close}><X size={15} /></button>
           </header>
 
           {section === 'general' && (

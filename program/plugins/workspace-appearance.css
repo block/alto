@@ -62,6 +62,10 @@ html[data-alto-theme='dark'] .workspace-layout-root {
   --text-supporting: var(--workspace-chrome-ink);
   --alto-button-color: var(--workspace-chrome-ink);
   --accent-focus: var(--workspace-chrome-ink);
+  --ui-text: var(--workspace-chrome-ink);
+  --ui-text-strong: var(--workspace-chrome-ink);
+  --ui-text-secondary: var(--workspace-chrome-ink);
+  --ui-focus: var(--workspace-chrome-ink);
   --icon-opacity: 1;
   color: var(--workspace-chrome-ink);
 }

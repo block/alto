@@ -19,6 +19,7 @@ async function check() {
       import verticalTabsPlugin from './program/plugins/vertical-tabs.client';
       import workspaceMaterialPlugin from './program/plugins/workspace-material.client';
       import workspaceTabsAppearancePlugin from './program/plugins/workspace-tabs-appearance.client';
+      import interfaceAppearancePlugin from './program/plugins/interface-appearance.client';
       import verticalHotkeysPlugin from './program/plugins/hotkeys-vertical-tabs.client';
       import {HotkeysService} from './program/plugins/hotkeys.client';
       import {parseWorkspaceLayout} from './program/plugins/workspace-layout-state';
@@ -49,13 +50,13 @@ async function check() {
         disable:()=>flushSync(()=>{for(const cleanup of effects.reverse())cleanup();effects=[]}),
       }};
       const hotkeys=new HotkeysService(ui,{leader:'Alt'});
-      const appearance=fiber(workspaceTabsAppearancePlugin),material=fiber(workspaceMaterialPlugin),groups=fiber(groupsPlugin),vertical=fiber(ctx=>{verticalTabsPlugin(ctx);
+      const controls=fiber(interfaceAppearancePlugin),appearance=fiber(workspaceTabsAppearancePlugin),material=fiber(workspaceMaterialPlugin),groups=fiber(groupsPlugin),vertical=fiber(ctx=>{verticalTabsPlugin(ctx);
         verticalHotkeysPlugin({...ctx,clientVerticalTabs:registry.verticalTabs,clientHotkeys:{registerAction:(owner,action)=>hotkeys.registerAction(owner,action)}})});
       window.enableGroups=groups.enable;window.disableGroups=groups.disable;
       window.enableVertical=vertical.enable;window.disableVertical=vertical.disable;
       window.enableMaterial=material.enable;window.disableMaterial=material.disable;
       window.enableAppearance=appearance.enable;window.disableAppearance=appearance.disable;
-      appearance.enable();
+      controls.enable();appearance.enable();
       material.enable();
       groups.enable();
       window.mounts=0;
@@ -128,7 +129,7 @@ async function check() {
         </>));
       };
       window.unmountPreview=()=>{flushSync(()=>preview.root.unmount());preview.mount.remove();preview.heading.replaceWith(preview.title);preview.content.style.removeProperty('display');preview.pane.className=preview.classes;preview=undefined};
-      window.teardown=()=>{hotkeys.dispose();flushSync(()=>root.unmount())};
+      window.teardown=()=>{hotkeys.dispose();flushSync(()=>root.unmount());controls.disable()};
       window.boot();
     ` },
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',

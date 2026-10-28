@@ -1,0 +1,63 @@
+/* App-wide roles inherit the selected palette, including body-mounted portals.
+   The window's decorative accent and native material remain independent. */
+:root {
+  --ui-font: var(--composer-font);
+  --sans: var(--ui-font);
+  --display: var(--sans);
+  --ui-size: var(--type-label);
+  --ui-weight: var(--weight-medium);
+  --ui-line: var(--line-control);
+  --ui-text: var(--text);
+  --ui-text-strong: var(--text-strong);
+  --ui-text-secondary: color-mix(in srgb, var(--text) 80%, var(--muted));
+  --ui-surface: var(--panel-solid);
+  --ui-surface-inset: var(--canvas);
+  --ui-border: var(--border);
+  --ui-divider: var(--border-soft);
+  --ui-control-fill: color-mix(in srgb, currentColor 6%, transparent);
+  --ui-hover: color-mix(in srgb, currentColor 9%, transparent);
+  --ui-pressed: color-mix(in srgb, currentColor 14%, transparent);
+  --ui-selected: color-mix(in srgb, currentColor 12%, transparent);
+  --ui-control-radius: var(--radius-pill);
+  --ui-row-radius: var(--radius-row);
+  --ui-field-radius: var(--radius-row);
+  --ui-field-fill: color-mix(in srgb, var(--text) 4%, transparent);
+  --ui-field-border: var(--border);
+  --ui-panel-radius: var(--radius-dialog);
+  --ui-panel-shadow: var(--shadow-popover);
+  --ui-dialog-radius: var(--radius-dialog);
+  --ui-dialog-shadow: var(--shadow-modal);
+  --ui-scrim: color-mix(in srgb, var(--bg) 24%, transparent);
+  --ui-action: light-dark(
+    oklch(from var(--accent) clamp(0.35, l, 0.52) c h),
+    oklch(from var(--accent) clamp(0.72, l, 0.84) c h));
+  --ui-on-action: light-dark(white, color-mix(in srgb, black 94%, var(--accent)));
+  --ui-action-hover: color-mix(in srgb, var(--ui-action) 92%, light-dark(black, white));
+  --ui-action-pressed: color-mix(in srgb, var(--ui-action) 84%, light-dark(black, white));
+  --ui-danger: light-dark(
+    oklch(from var(--danger) clamp(0.35, l, 0.52) c h),
+    oklch(from var(--danger) clamp(0.72, l, 0.84) c h));
+  --ui-focus: var(--ui-action);
+  --ui-switch-off: color-mix(in srgb, var(--text) 22%, transparent);
+  --ui-switch-on: var(--ui-action);
+  --ui-switch-thumb: var(--ui-surface);
+  --button-font-size: var(--ui-size);
+  --button-font-weight: var(--ui-weight);
+  /* Existing primitives resolve through the same roles during migration. */
+  --button-background: var(--ui-control-fill);
+  --button-background-hover: var(--ui-hover);
+  --button-radius: var(--ui-control-radius);
+  --button-shadow: none;
+  --button-shadow-hover: none;
+  --surface-hover: var(--ui-hover);
+  --surface-selected: var(--ui-selected);
+  --floating-row-hover: var(--ui-hover);
+  --floating-row-selected: var(--ui-selected);
+  --floating-panel: var(--ui-surface);
+  --floating-panel-border: var(--ui-border);
+  --floating-panel-radius: var(--ui-panel-radius);
+  --floating-panel-shadow: var(--ui-panel-shadow);
+  --accent-focus: var(--ui-focus);
+  --icon-button-radius: var(--ui-control-radius);
+  --toolbar-icon-button-radius: var(--ui-control-radius);
+}
