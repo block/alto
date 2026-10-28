@@ -12,7 +12,8 @@ async function check() {
       import React,{useEffect} from 'react';
       import {createRoot} from 'react-dom/client';
       import {flushSync} from 'react-dom';
-      import {SquareTerminal} from 'lucide-react';
+      import {CheckSquare,Network,SquareTerminal} from 'lucide-react';
+      import {Composer} from './program/plugins/ui/composer';
       import plugin from './program/plugins/workspace-layout.client';
       import groupsPlugin from './program/plugins/workspace-tab-groups.client';
       import verticalTabsPlugin from './program/plugins/vertical-tabs.client';
@@ -34,7 +35,8 @@ async function check() {
       let Surface,registry,root;
       const session={snapshot:()=>state,subscribe:()=>()=>{}};
       const Placeholder=()=>null;
-      const Tool=()=><button type="button" className="alto-button test-tool"><svg width="14" height="14"/><span>Subagents</span></button>;
+      const Tool=()=><><button type="button" className="alto-icon-button icon-button shell-control agents-toggle test-tool" aria-label="Agents"><Network size={15}/><span className="agents-toggle-count">2</span></button>
+        <button type="button" className="alto-button todo-header-button" aria-label="Tasks" title="Tasks"><CheckSquare size={16}/><span>Tasks</span></button></>;
       const ui={subscribe:()=>()=>{},snapshot:()=>0,component:()=>Placeholder,renderer:()=>undefined,contributionRenderer:()=>Tool,
         overlays:{open:()=>{},close:()=>{}},
         registerSurface:(_owner,_id,component)=>{Surface=component},
@@ -103,13 +105,36 @@ async function check() {
       window.bars=()=>{const view=document.querySelector('.workspace-view:not([hidden])');return [...view.querySelectorAll('.workspace-chat-pane')].map(pane=>{const bar=pane.querySelector('.alto-pane-header')??pane.querySelector(':scope > .workspace-pane-header'),r=bar.getBoundingClientRect(),style=getComputedStyle(bar);
         return {kind:pane.className,top:r.top,bottom:r.bottom,left:Math.round(r.left),color:style.backgroundColor,border:style.borderBottomColor,borderWidth:style.borderBottomWidth,height:style.height,minHeight:style.minHeight}})};
       window.commandB=(shift=false)=>flushSync(()=>document.body.dispatchEvent(new KeyboardEvent('keydown',{key:shift?'B':'b',code:'KeyB',metaKey:true,shiftKey:shift,bubbles:true,cancelable:true})));
+      // Reuse the mounted workspace and its real Composer, with representative
+      // transcript markup. The original typed renderer and draft remain mounted.
+      let preview;
+      window.mountPreview=()=>{
+        const pane=document.querySelector('.workspace-view:not([hidden]) .workspace-chat-pane'),content=pane.querySelector('.workspace-typed-pane-content'),title=pane.querySelector('.workspace-pane-title');
+        const mount=document.createElement('div'),heading=document.createElement('div');mount.style.display='contents';heading.className='workspace-pane-title-control';
+        heading.innerHTML='<button type="button" class="workspace-pane-title"><span class="workspace-pane-title-text">A quieter workspace</span></button>';
+        preview={pane,content,title,heading,mount,classes:pane.className,root:createRoot(mount)};
+        content.style.display='none';title.replaceWith(heading);pane.classList.remove('workspace-typed-pane');pane.classList.add('is-focused');pane.append(mount);
+        flushSync(()=>preview.root.render(<>
+          <div className="workspace-pane-conversation"><div className="conversation-stage"><div className="conversation-feed"><div className="conversation-feed-content">
+            <article className="activity-card activity-user"><div className="activity-content activity-markdown"><p>Bring the tabs, conversation, and composer into the same visual family.</p></div></article>
+            <article className="activity-card activity-agent"><div className="activity-content activity-markdown"><p>The navigation now shares its type and surface palette with the conversation. The title follows the reading column, while the tools keep a compact, consistent shape.</p><p>Both tab orientations preserve the same selection, hover, and keyboard focus states.</p></div></article>
+          </div></div></div></div>
+          <div className="workspace-pane-composer"><Composer value="Keep the conversation easy to read." images={[]} attachments={[]} skills={[]} models={[]}
+            permissionMode="full" workspaceLabel="/repo" workspaceOptions={[]} capabilities={[]} placeholder="Let's build" focusHeight={156} maxHeight={180} autoFocus={false}
+            disabled={false} readOnly={false} sending={false} activeTurn={false}
+            onChange={value=>window.previewDraft=value} onImagesChange={()=>{}} onAttachmentsChange={()=>{}} onAttachFile={async()=>{}}
+            onModelChange={()=>{}} onEffortChange={()=>{}} onPermissionModeChange={()=>{}}
+            onWorkspaceChange={()=>{}} onSubmit={()=>{}} onInterrupt={()=>{}}/></div>
+        </>));
+      };
+      window.unmountPreview=()=>{flushSync(()=>preview.root.unmount());preview.mount.remove();preview.heading.replaceWith(preview.title);preview.content.style.removeProperty('display');preview.pane.className=preview.classes;preview=undefined};
       window.teardown=()=>{hotkeys.dispose();flushSync(()=>root.unmount())};
       window.boot();
     ` },
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     loader: { '.css': 'text' }, define: { 'process.env.NODE_ENV': '"production"' },
   })
-  const css = (await Promise.all(['src/client/styles.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css'].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
+  const css = (await Promise.all(['src/client/styles.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/todo.css', 'program/plugins/orchestrator.css'].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer((request, response) => {
     response.end('<!doctype html><style>' + css + '\n#root{height:100vh}#workspace-mount{display:flex;min-width:0;min-height:0;flex:1 1 0}.test-pane{padding:24px;width:100%}.test-pane textarea{width:100%;min-height:100px}.test-terminal{flex:1 1 0}</style><div id="root"><div class="shell-kernel"><div data-shell-node="workspace" class="shell-box shell-direction-row shell-grow shell-surface-canvas"><main data-shell-node="workspace-layout-main" class="shell-box shell-direction-column shell-grow shell-surface-canvas"><div id="workspace-mount"></div></main></div></div></div>')
   })
@@ -297,6 +322,49 @@ async function check() {
     await run("document.activeElement.blur();contrastStatus.remove();contrastGroup.classList.remove('is-active');delete contrastGroup.dataset.tabDrop")
     return colors
   }
+  const assertCoherence = async label => {
+    const measured = await run(`(() => {
+      const pane=document.querySelector('.workspace-view:not([hidden]) .workspace-chat-pane:not(.workspace-typed-pane)'),style=getComputedStyle(pane),ctx=document.createElement('canvas').getContext('2d');
+      const box=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,height:r.height}};
+      const color=value=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=value;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data]};
+      const role=name=>{const probe=document.createElement('i');probe.style.backgroundColor='var('+name+')';pane.append(probe);const result=color(getComputedStyle(probe).backgroundColor);probe.remove();return result};
+      const composer=pane.querySelector('.composer'),bubble=pane.querySelector('.activity-user'),tasks=document.querySelector('.todo-header-button'),agents=document.querySelector('.agents-toggle-count');
+      const tab=document.querySelector('.workspace-tab:not(.workspace-tab-group-label)'),group=document.querySelector('.workspace-tab-group-label'),feed=pane.querySelector('.conversation-feed-content'),view=pane.closest('.workspace-view');
+      const controls=[tab,group,tasks,document.querySelector('.test-tool'),document.querySelector('.workspace-tab-add'),document.querySelector('.workspace-history-controls > button')];
+      return {pane:box(pane),title:box(pane.querySelector('.workspace-pane-title-text')),feed:box(feed),composer:box(composer),tasks:box(tasks),
+        width:parseFloat(style.getPropertyValue('--workspace-column-width')),gutter:parseFloat(style.getPropertyValue('--workspace-column-gutter')),
+        fonts:[tab,pane.querySelector('.workspace-pane-title'),pane.querySelector('.activity-agent .activity-content'),pane.querySelector('[data-cordis-composer-editor]')].map(el=>getComputedStyle(el).fontFamily),
+        fills:{bubble:color(getComputedStyle(bubble).backgroundColor),composer:color(getComputedStyle(composer).backgroundColor),recessed:role('--workspace-surface-recessed'),raised:role('--workspace-surface-raised')},
+        radii:[composer,bubble,...controls].map(el=>getComputedStyle(el).borderRadius),radius:style.getPropertyValue('--workspace-radius').trim(),composerRadius:style.getPropertyValue('--radius-composer').trim(),originalRadius:getComputedStyle(document.documentElement).getPropertyValue('--radius-composer').trim(),
+        roundSupported:CSS.supports('corner-shape','round'),corners:[composer,bubble,...controls].map(el=>getComputedStyle(el).getPropertyValue('corner-shape')),
+        controls:controls.map(box),groupFrame:parseFloat(getComputedStyle(group,'::before').borderTopLeftRadius),groupInset:parseFloat(getComputedStyle(group).getPropertyValue('--workspace-tab-group-inset')),
+        sheetRadius:getComputedStyle(view).getPropertyValue('--workspace-sheet-radius').trim(),sheetEdgeRadius:getComputedStyle(view,'::before').borderTopLeftRadius,vertical:!!document.querySelector('.vertical-tab-rail'),
+        tasksNamed:tasks.getAttribute('aria-label'),tasksLabel:getComputedStyle(tasks.querySelector('span')).display,agentsVisible:agents.getBoundingClientRect().width>0,
+        collapsed:!!document.querySelector('.vertical-tab-rail.is-collapsed'),scroll:document.documentElement.scrollWidth,viewport:innerWidth};
+    })()`)
+    const near = (actual, expected, description) => assert.ok(Math.abs(actual - expected) <= 1, label + ': ' + description + ' ' + JSON.stringify(measured))
+    const column = Math.min(measured.width, measured.pane.width - 2 * measured.gutter)
+    near(measured.composer.width, column, 'composer fits the pane reading column')
+    near(measured.feed.width, column, 'transcript uses the same reading column')
+    near(measured.title.left, measured.composer.left, 'pane title aligns with the reading column')
+    near(measured.feed.left, measured.composer.left, 'transcript and composer align')
+    assert.ok(measured.fonts.every(font => font === measured.fonts[0]), label + ': navigation, title, transcript, and real editor share one font family ' + JSON.stringify(measured.fonts))
+    assert.deepEqual(measured.fills.bubble, measured.fills.recessed, label + ': message uses the recessed surface')
+    assert.deepEqual(measured.fills.composer, measured.fills.raised, label + ': real composer uses the raised surface')
+    assert.notDeepEqual(measured.fills.bubble, measured.fills.composer, label + ': message and composer retain distinct surface roles')
+    assert.equal(measured.originalRadius, '48px', label + ': original composer radius is preserved')
+    assert.equal(measured.composerRadius, measured.originalRadius, label + ': appearance keeps the composer radius')
+    assert.equal(measured.radius, measured.originalRadius, label + ': shared rounding derives from the composer')
+    assert.ok(measured.radii.every(radius => radius === measured.radius), label + ': composer, messages, tabs, group labels, and toolbar controls share the original rounding ' + JSON.stringify(measured.radii))
+    if (measured.roundSupported) assert.ok(measured.corners.every(shape => shape === 'round'), label + ': shared surfaces use round corners')
+    for (const control of measured.controls) assert.ok(parseFloat(measured.radius) >= Math.min(control.width, control.height) / 2, label + ': short controls clamp into circles or pills')
+    assert.equal(measured.groupFrame, parseFloat(measured.radius) + measured.groupInset, label + ': group outline follows the same rounding and inset')
+    assert.equal(measured.sheetRadius, measured.radius, label + ': sheet follows the composer rounding')
+    if (measured.vertical) assert.equal(measured.sheetEdgeRadius, measured.radius, label + ': sheet edge uses the shared radius')
+    assert.deepEqual([measured.tasks.width, measured.tasks.height, measured.tasksNamed, measured.tasksLabel], [32, 32, 'Tasks', 'none'], label + ': Tasks is a named 32px icon control')
+    if (!measured.collapsed) assert.equal(measured.agentsVisible, true, label + ': the Agents count stays visible')
+    assert.ok(measured.scroll <= measured.viewport, label + ': content stays inside the viewport')
+  }
   try {
     await window.loadURL(`http://127.0.0.1:${server.address().port}`)
     await run(bundle.outputFiles[0].text)
@@ -337,7 +405,7 @@ async function check() {
       assert.equal(measured.barColor, measured.railColor, label + ': chrome color')
       assert.notEqual(measured.sheetColor, measured.railColor, label + ': lighter sheet')
       // The edge sits in the band's last row, above any native surface in the content box.
-      assert.deepEqual([measured.edgeTop, measured.edgeBorderTop, measured.edgeRadius, measured.edgeLeft], ['39px', '1px', '18px', '1px'], label + ': curved sheet edge')
+      assert.deepEqual([measured.edgeTop, measured.edgeBorderTop, measured.edgeRadius, measured.edgeLeft], ['39px', '1px', '48px', '1px'], label + ': curved sheet edge')
     }
     const headerless = await band('.workspace-typed-pane > .workspace-pane-header')
     assertBand(headerless, 'Pane kinds without a top bar')
@@ -542,6 +610,40 @@ async function check() {
     window.setContentSize(1200, 760)
     await settle()
     await finishMotion()
+
+    // Preview actual editing UI without replacing or remounting any pane renderer.
+    for (const theme of ['light', 'dark']) {
+      window.setBackgroundColor(theme === 'light' ? '#aaabb1' : '#22242a')
+      await run(`document.documentElement.dataset.altoTheme='${theme}';click('[data-workspace-tab=a]');mountPreview()`)
+      for (const width of [1200, 600]) {
+        window.setContentSize(width, 760)
+        await settle()
+        await finishMotion()
+        for (const orientation of ['vertical', 'horizontal']) {
+          const label = `coherence-${theme}-${orientation}-${width}`
+          await capture(label)
+          await assertCoherence(label)
+          if (theme === 'light' && width === 1200 && orientation === 'vertical') {
+            await run("window.coherenceEditor=document.querySelector('[data-cordis-composer-editor]');coherenceEditor.focus();document.execCommand('insertText',false,' A retained draft.');window.editorSelection={node:getSelection().anchorNode,offset:getSelection().anchorOffset,text:coherenceEditor.textContent};disableAppearance();enableAppearance()")
+            await settle()
+            assert.equal(await run("coherenceEditor===document.querySelector('[data-cordis-composer-editor]') && document.activeElement===coherenceEditor && getSelection().anchorNode===editorSelection.node && getSelection().anchorOffset===editorSelection.offset && coherenceEditor.textContent===editorSelection.text"), true, 'Style changes retain the real editor, focus, draft, and caret')
+            await run('coherenceEditor.blur()')
+          }
+          await run('commandB(true)')
+          await finishMotion()
+        }
+      }
+      await run('unmountPreview()')
+      window.setContentSize(1200, 760)
+      await run("click('[data-workspace-tab=c]');mountPreview()")
+      await settle()
+      await finishMotion()
+      await capture(`coherence-${theme}-vertical-split`)
+      await assertCoherence(theme + ': chat beside a typed terminal pane')
+      await run('unmountPreview()')
+      assert.equal((await run('inspect()')).mounts, mounted, 'Content previews and appearance changes preserve pane mounts')
+      assert.equal(await run("originalDraft===document.getElementById('draft-pane-a') && originalDraft.value==='Keep this draft'"), true, 'The original pane draft remains mounted behind the preview')
+    }
 
     // The same sheet must work when either a headerless or terminal-style
     // pane leads it, including a lower split promoted to full screen.

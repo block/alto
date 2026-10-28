@@ -651,8 +651,8 @@
             },
             {
               "id": "workspace-tabs-appearance",
-              "name": "Tab Appearance",
-              "description": "Keeps workspace tabs and controls readable with consistent selection and focus in both orientations.",
+              "name": "Workspace Appearance",
+              "description": "Shares surface colors, typography, and alignment across workspace chrome and content.",
               "client": "plugins/workspace-tabs-appearance.client.ts",
               "enabled": true,
               "config": {}

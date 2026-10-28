@@ -1,0 +1,68 @@
+/* One surface family and reading grid connect the window chrome to its
+   content. The active theme supplies the colors; native material can vary. */
+.workspace-layout-root {
+  --workspace-surface-sheet: var(--canvas);
+  --workspace-surface-chrome: color-mix(in srgb, var(--workspace-surface-sheet) 97%, black);
+  --workspace-surface-raised: var(--panel-solid);
+  --workspace-surface-recessed: var(--panel-soft);
+  --workspace-chrome: var(--workspace-surface-chrome);
+  --workspace-material-tint: color-mix(in srgb, var(--workspace-surface-raised) 16%, transparent);
+  --workspace-column-width: var(--composer-content-width);
+  --workspace-column-gutter: var(--composer-content-gutter);
+  --workspace-column-inset: max(var(--workspace-column-gutter), calc((100% - var(--workspace-column-width)) / 2));
+  --conversation-reading-width: var(--workspace-column-width);
+  --composer-surface: var(--workspace-surface-raised);
+  --workspace-radius: var(--radius-composer);
+  --workspace-sheet-radius: var(--workspace-radius);
+  --sans: var(--composer-font);
+  --display: var(--sans);
+  font-family: var(--sans);
+}
+
+.workspace-layout-root .activity-user:not(.activity-source-edit) {
+  border-radius: var(--workspace-radius);
+  corner-shape: round;
+  background: var(--workspace-surface-recessed);
+}
+
+/* Typed panes retain the toolbar insets that belong to their own content. */
+.workspace-layout-root .workspace-chat-pane:not(.workspace-typed-pane) > .workspace-pane-header {
+  padding-inline-start: var(--workspace-column-inset);
+}
+
+.workspace-layout-root .workspace-chat-pane .conversation-feed {
+  padding-inline: var(--workspace-column-inset);
+}
+
+.workspace-layout-root .workspace-pane-title { color: var(--text); }
+
+/* The composer's existing round geometry guides surfaces and controls.
+   Short tabs and buttons naturally clamp this radius into pill shapes. */
+.workspace-layout-root :is(.workspace-tabbar, .vertical-tab-rail) :is(
+  .workspace-tab,
+  .workspace-tab-close,
+  .workspace-tab-add,
+  .vertical-tab-rail-toggle,
+  .workspace-tabbar-tools button,
+  .workspace-history-controls > button
+) {
+  border-radius: var(--workspace-radius);
+  corner-shape: round;
+}
+
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs-with-groups {
+  --workspace-tab-group-radius: calc(var(--workspace-radius) + var(--workspace-tab-group-inset));
+}
+
+/* Tasks joins the neighboring toolbar icons and keeps its accessible name.
+   Other labels, including the Agents count, keep their own presentation. */
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabbar-tools .todo-header-button {
+  --alto-button-height: var(--control-default);
+  width: var(--control-default);
+  height: var(--control-default);
+  display: grid;
+  padding: 0;
+  place-items: center;
+}
+
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabbar-tools .todo-header-button > span { display: none; }

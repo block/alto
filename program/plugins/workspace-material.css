@@ -21,7 +21,7 @@
        antialiased again by the corner cutout. */
     --workspace-sheet-edge: 0px;
     --workspace-sheet-shadow: 0 1px 8px rgb(0 0 0 / 8%), 0 0 2px rgb(0 0 0 / 4%);
-    background: color-mix(in srgb, white 16%, transparent);
+    background: var(--workspace-material-tint, color-mix(in srgb, var(--panel-solid) 16%, transparent));
   }
 
   html[data-desktop-platform='darwin'] :is(.workspace-tabbar, .vertical-tab-rail) {
@@ -56,7 +56,7 @@
   }
 
   html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view[role='tabpanel'] {
-    background: linear-gradient(to bottom, transparent var(--workspace-pane-header-height), var(--canvas) var(--workspace-pane-header-height));
+    background: linear-gradient(to bottom, transparent var(--workspace-pane-header-height), var(--workspace-surface-sheet, var(--canvas)) var(--workspace-pane-header-height));
     /* Cut out the actual sheet corner; translucent paint cannot cover an
        opaque content pixel and reveal the native material underneath it. */
     mask-image: linear-gradient(#000, #000), radial-gradient(circle at 100% 100%, transparent calc(var(--workspace-sheet-radius) - 0.5px), #000 var(--workspace-sheet-radius));
@@ -70,7 +70,7 @@
     .workspace-chat-pane,
     .workspace-typed-pane-content > .alto-pane
   ) {
-    background: linear-gradient(to bottom, transparent var(--workspace-pane-header-height), var(--workspace-pane-background, var(--canvas)) var(--workspace-pane-header-height));
+    background: linear-gradient(to bottom, transparent var(--workspace-pane-header-height), var(--workspace-pane-background, var(--workspace-surface-sheet, var(--canvas))) var(--workspace-pane-header-height));
   }
 
   html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view[role='tabpanel']::after {
