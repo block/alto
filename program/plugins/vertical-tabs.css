@@ -1,0 +1,255 @@
+/* Tabs on the side: a column of full-width rows beside the content sheet,
+   with an icon-only mode that keeps every tab one click away. */
+.vertical-tab-rail {
+  --vertical-tab-rail-width: 232px;
+  --vertical-tab-titlebar-height: var(--workspace-title-band-height);
+  /* Clears the native window buttons drawn at the top-left on macOS. */
+  --vertical-tab-window-controls: 76px;
+  --vertical-tab-height: var(--control-default);
+  --vertical-tab-collapsed-width: 48px;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  width: var(--vertical-tab-rail-width);
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  background: var(--workspace-chrome);
+  transition: width 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.vertical-tab-rail.is-collapsed { width: var(--vertical-tab-collapsed-width); }
+.vertical-tab-rail.is-resizing { transition: none; user-select: none; }
+
+/* Renaming needs room for the input, so a collapsed rail widens until it finishes. */
+.vertical-tab-rail.is-collapsed:has(.workspace-tab.is-renaming) { width: var(--vertical-tab-rail-width); }
+
+/* The rail's top row replaces the top bar: it is the window drag region,
+   leaves room for the macOS window buttons, and holds back and forward. */
+.vertical-tab-rail-header {
+  min-height: var(--vertical-tab-titlebar-height);
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding-inline: var(--space-2);
+  -webkit-app-region: drag;
+}
+
+html[data-desktop-platform='darwin'] .vertical-tab-rail-header {
+  padding-inline-start: var(--vertical-tab-window-controls);
+}
+
+.vertical-tab-rail-header > .workspace-shell-contribution { display: flex; align-items: center; }
+
+.vertical-tab-rail.is-collapsed .vertical-tab-rail-header,
+html[data-desktop-platform='darwin'] .vertical-tab-rail.is-collapsed .vertical-tab-rail-header {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.vertical-tab-rail.is-collapsed .workspace-history-controls {
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 0;
+}
+
+/* Collapsed on macOS, the window buttons get their own row and set the rail's width. */
+html[data-desktop-platform='darwin'] .vertical-tab-rail.is-collapsed { width: var(--vertical-tab-window-controls); }
+html[data-desktop-platform='darwin'] .vertical-tab-rail.is-collapsed .vertical-tab-rail-header {
+  padding-block-start: var(--vertical-tab-titlebar-height);
+}
+
+/* The top bar's tools sit beneath the tabs, ending with the collapse control. */
+.vertical-tab-rail-footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+}
+
+.vertical-tab-rail-footer > .workspace-tabbar-tools {
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.vertical-tab-rail-toggle {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  color: var(--muted);
+  -webkit-app-region: no-drag;
+}
+
+.vertical-tab-rail.is-collapsed .vertical-tab-rail-footer,
+.vertical-tab-rail.is-collapsed .vertical-tab-rail-footer .workspace-tabbar-tools {
+  flex-direction: column;
+  align-items: center;
+}
+
+.vertical-tab-rail.is-collapsed .vertical-tab-rail-footer { padding-inline: 0; }
+.vertical-tab-rail.is-collapsed .vertical-tab-rail-toggle { margin-inline-start: 0; }
+.vertical-tab-rail.is-collapsed .workspace-tabbar-tools button > span { display: none; }
+.vertical-tab-rail.is-collapsed .workspace-tabbar-tools .alto-button { padding-inline: var(--space-2); }
+
+.vertical-tab-rail .workspace-tabs {
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: stretch;
+  --workspace-tab-group-gap: calc(var(--space-1) / 2);
+  gap: var(--workspace-tab-group-gap);
+  padding: var(--space-1) var(--space-2) var(--space-4);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-x: auto;
+  overscroll-behavior-y: contain;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--space-4)), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--space-4)), transparent);
+  -webkit-app-region: no-drag;
+}
+
+.vertical-tab-rail.is-collapsed .workspace-tabs { padding-inline: var(--space-1); }
+
+.vertical-tab-rail .workspace-tab {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: auto;
+  min-height: 0;
+  flex: 0 0 var(--vertical-tab-height);
+  gap: var(--space-2);
+  padding-inline: var(--space-2) 0;
+}
+
+.vertical-tab-rail .workspace-tab > .workspace-tab-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vertical-tab-rail .workspace-tab-name-input { margin-inline: 0 var(--space-1); }
+
+.workspace-tab-icon {
+  display: grid;
+  flex: 0 0 16px;
+  place-items: center;
+  color: var(--muted);
+  font-style: normal;
+}
+
+.workspace-tab.is-active > .workspace-tab-icon,
+.workspace-tab:hover > .workspace-tab-icon { color: var(--text); }
+
+/* Chat tabs show only their titles; collapsed, the title's first letter stands in. */
+.workspace-tab-monogram {
+  font-size: var(--type-label);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+.vertical-tab-rail:not(.is-collapsed) .workspace-tab:not(.is-renaming) > .workspace-tab-monogram,
+.vertical-tab-rail .workspace-tab.is-renaming > .workspace-tab-monogram { display: none; }
+
+.vertical-tab-rail .workspace-tab-thread-status {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+}
+
+/* Group labels read as section headings for the tabs beneath them. */
+.vertical-tab-rail .workspace-tab-group-label {
+  font-size: var(--type-label);
+  font-weight: var(--weight-medium);
+}
+
+.vertical-tab-rail .workspace-tab-group-label > span:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vertical-tab-rail .workspace-tab-group-label .workspace-tab-group-count { margin-inline-start: 0; }
+
+/* The new-chat control becomes a labeled row at the end of the list. */
+.vertical-tab-rail .workspace-tab-add-control { width: 100%; }
+.vertical-tab-rail .workspace-tab-add {
+  width: 100%;
+  height: var(--vertical-tab-height);
+  display: flex;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-sm, 12px);
+  font: inherit;
+  font-size: var(--type-label);
+}
+.vertical-tab-rail .workspace-tab-add::after { content: 'New chat'; }
+
+/* Icon-only rail: titles, counts, and close buttons give way to centered icons. */
+.vertical-tab-rail.is-collapsed .workspace-tab,
+.vertical-tab-rail.is-collapsed .workspace-tab-add {
+  justify-content: center;
+  padding-inline: 0;
+}
+.vertical-tab-rail.is-collapsed .workspace-tab:not(.is-renaming) > .workspace-tab-title,
+.vertical-tab-rail.is-collapsed .workspace-tab:not(.is-renaming) > .workspace-tab-close,
+.vertical-tab-rail.is-collapsed .workspace-tab-group-label > span,
+.vertical-tab-rail.is-collapsed .workspace-tab-ungroup-target,
+.vertical-tab-rail.is-collapsed .workspace-tab-add::after { display: none; }
+
+.vertical-tab-rail.is-collapsed .workspace-tab:not(.is-renaming) > .workspace-tab-thread-status {
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-end: 2px;
+}
+
+.vertical-tab-rail.is-collapsed .workspace-tabs { --workspace-tab-group-line-inset: var(--space-1); }
+.vertical-tab-rail.is-collapsed .workspace-tabs .workspace-tab-group-member { padding-inline-start: 0; }
+
+/* A collapsed group label shrinks to a short colored bar. */
+.vertical-tab-rail.is-collapsed .workspace-tab-group-label {
+  flex-basis: 14px;
+}
+.vertical-tab-rail.is-collapsed .workspace-tab-group-label::after {
+  content: '';
+  inline-size: 20px;
+  block-size: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--tab-group-color, var(--accent));
+}
+
+.vertical-tab-rail-resize {
+  position: absolute;
+  z-index: 3;
+  inset-block: 0;
+  inset-inline-end: -3px;
+  inline-size: 6px;
+  cursor: col-resize;
+  -webkit-app-region: no-drag;
+}
+
+.vertical-tab-rail-resize:hover,
+.vertical-tab-rail-resize:focus-visible,
+.vertical-tab-rail.is-resizing .vertical-tab-rail-resize {
+  outline: none;
+  background: linear-gradient(to right, transparent 2px, color-mix(in srgb, var(--accent) 42%, transparent) 2px 4px, transparent 4px);
+}
+
+/* A pinned conversation sidebar overlays the workspace's leading edge. */
+@media (min-width: 761px) {
+  html[data-sidebar-mode='pinned'] .workspace-body[data-tab-orientation='vertical'] {
+    padding-left: calc(var(--sidebar-pane-width) + (2 * var(--space-3)));
+  }
+  html[data-sidebar-mode='pinned'] .workspace-body[data-tab-orientation='vertical'] > .workspace-views { padding-inline-start: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vertical-tab-rail { transition: none; }
+}

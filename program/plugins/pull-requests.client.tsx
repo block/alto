@@ -180,13 +180,13 @@ function useToggleMount(ui: ClientUiService): HTMLElement | null {
   const revision = useSyncExternalStore(ui.subscribe, ui.snapshot)
   const [mount, setMount] = useState<HTMLElement | null>(null)
   useLayoutEffect(() => {
-    const sync = (): boolean => {
+    const sync = (): void => {
       const target = document.querySelector<HTMLElement>(TOGGLE_MOUNT)
       setMount((current) => current === target ? current : target)
-      return target !== null
     }
-    if (sync()) return
-    const observer = new MutationObserver(() => { if (sync()) observer.disconnect() })
+    sync()
+    // Keep observing: the toolbar can move, for example into a side tab rail.
+    const observer = new MutationObserver(sync)
     observer.observe(document.querySelector('.shell-kernel') ?? document.body, { childList: true, subtree: true })
     return () => observer.disconnect()
   }, [revision])

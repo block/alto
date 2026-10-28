@@ -8,6 +8,7 @@ import {
   Maximize2,
   MessageSquarePlus,
   Minimize2,
+  PanelsTopLeft,
   Pencil,
   Plus,
   Rows2,
@@ -76,6 +77,7 @@ import type {
   WorkspaceTabAddon,
   WorkspaceTabAction,
   WorkspaceTabTarget,
+  WorkspaceTabRail,
   WorkspaceTabStrip,
   WorkspaceTabStripProps,
 } from './workspace-layout-api.js'
@@ -257,6 +259,7 @@ export class WorkspaceLayoutRegistry implements ClientWorkspaceLayoutService {
   private readonly pageEntries = new Map<string, WorkspacePage>()
   private activePageId: string | undefined
   private tabStripEntry: WorkspaceTabStrip | undefined
+  private tabRailEntry: WorkspaceTabRail | undefined
   private readonly listeners = new Set<() => void>()
   private controller: WorkspaceLayoutController | undefined
   private tabTargets: readonly WorkspaceTabTarget[] = []
@@ -481,6 +484,10 @@ export class WorkspaceLayoutRegistry implements ClientWorkspaceLayoutService {
     return this.tabStripEntry
   }
 
+  tabRail(): WorkspaceTabRail | undefined {
+    return this.tabRailEntry
+  }
+
   pages(): readonly WorkspacePage[] {
     return [...this.pageEntries.values()]
   }
@@ -534,6 +541,19 @@ export class WorkspaceLayoutRegistry implements ClientWorkspaceLayoutService {
         this.emit()
       }
     }, `clientWorkspaceLayout.registerTabStrip(${JSON.stringify(strip.id)})`)
+    return { dispose: async () => dispose() }
+  }
+
+  registerTabRail(owner: Context, rail: WorkspaceTabRail) {
+    const dispose = owner.effect(() => {
+      if (this.tabRailEntry) throw new Error(`workspace tab rail "${this.tabRailEntry.id}" is already registered`)
+      this.tabRailEntry = rail
+      this.emit()
+      return () => {
+        if (this.tabRailEntry === rail) this.tabRailEntry = undefined
+        this.emit()
+      }
+    }, `clientWorkspaceLayout.registerTabRail(${JSON.stringify(rail.id)})`)
     return { dispose: async () => dispose() }
   }
 
@@ -603,6 +623,7 @@ export class WorkspaceLayoutRegistry implements ClientWorkspaceLayoutService {
     this.tabActionEntries.clear()
     this.tabNameSources.clear()
     this.tabStripEntry = undefined
+    this.tabRailEntry = undefined
     this.paneKindEntries.clear()
     this.pageEntries.clear()
     this.activePageId = undefined
@@ -2036,9 +2057,23 @@ export function dockWorkspaceTab(
   })
 }
 
-function DefaultWorkspaceTabStrip({ layout, change, renderTab, beginDrag, children, tabActions = [], overlays, rootRef }: WorkspaceTabStripProps): ReactNode {
+/** Vertical tabs lead with the focused pane's kind, much as browser tabs show a favicon. */
+export function WorkspaceTabIcon({ view, kinds }: { view: WorkspaceView; kinds: readonly WorkspacePaneKind[] }): ReactNode {
+  const kind = workspacePane(view.root, view.focusedPaneId)?.kind ?? 'chat'
+  // Chats are the usual tab, so only other pane kinds carry an icon. A chat
+  // keeps its title's first letter for rails that show icons alone.
+  if (kind === 'chat') {
+    return <i className="workspace-tab-icon workspace-tab-monogram" aria-hidden="true" title={view.name}>
+      {Array.from(view.name.trim())[0]?.toLocaleUpperCase() ?? ''}
+    </i>
+  }
+  const Icon = kinds.find((entry) => entry.id === kind)?.icon ?? PanelsTopLeft
+  return <i className="workspace-tab-icon" aria-hidden="true" title={view.name}><Icon size={14} strokeWidth={1.7} /></i>
+}
+
+function DefaultWorkspaceTabStrip({ orientation = 'horizontal', layout, change, renderTab, beginDrag, children, tabActions = [], overlays, rootRef }: WorkspaceTabStripProps): ReactNode {
   const [menu, setMenu] = useState<{ view: WorkspaceView; x: number; y: number; trigger: HTMLElement }>()
-  return <div className="workspace-tabs" role="tablist" aria-label="Workspaces"
+  return <div className="workspace-tabs" role="tablist" aria-label="Workspaces" aria-orientation={orientation}
     onDragOver={(event) => {
       if (!event.dataTransfer.types.includes('application/x-alto-workspace-tab')) return
       event.preventDefault()
@@ -2050,7 +2085,9 @@ function DefaultWorkspaceTabStrip({ layout, change, renderTab, beginDrag, childr
       event.preventDefault()
       const target = (event.target as Element).closest<HTMLElement>('[data-workspace-tab]')
       const bounds = target?.getBoundingClientRect()
-      const after = bounds && event.clientX >= bounds.left + bounds.width / 2
+      const after = bounds && (orientation === 'vertical'
+        ? event.clientY >= bounds.top + bounds.height / 2
+        : event.clientX >= bounds.left + bounds.width / 2)
       change((current) => {
         const source = current.views.find((view) => view.id === sourceId)
         if (!source || source.id === target?.dataset.workspaceTab) return current
@@ -2179,6 +2216,7 @@ function WorkspaceLayout({
   const paneKinds = registry.paneKinds()
   const tabAddons = registry.tabAddons()
   const TabStrip = registry.tabStrip()?.renderer ?? DefaultWorkspaceTabStrip
+  const TabRail = registry.tabRail()?.renderer
 
   useLayoutEffect(() => {
     if (!renamingViewId) return
@@ -2980,6 +3018,193 @@ function WorkspaceLayout({
           </div>
         ))
     : null
+  const tabStrip = (
+    <TabStrip orientation={TabRail ? 'vertical' : 'horizontal'} layout={layout} change={setLayout} rootRef={workspaceRootRef} tabActions={registry.tabActions()} overlays={ui.overlays}
+      beginDrag={(id) => { draggingViewId.current = id; showTabDropTarget(undefined) }}
+      renderTab={(view, index, presentation = {}) => {
+      const renaming = renamingViewId === view.id
+      const active = !activePage && view.id === layout.activeViewId
+      const threadIds = workspaceViewThreadIds(view)
+      return (
+        <div
+          className={`workspace-tab${active ? ' is-active' : ''}${renaming ? ' is-renaming' : ''}${presentation.className ? ' ' + presentation.className : ''}`}
+          role="tab"
+          data-workspace-tab={view.id}
+          inert={presentation.inert}
+          data-group-color={presentation.color}
+          data-tab-drop={presentation.dropIndicator}
+          onContextMenu={presentation.onContextMenu}
+          data-hotkey-action={index >= 0 && index < 9 ? `workspace.tab.select.${index + 1}` : undefined}
+          tabIndex={view.id === layout.activeViewId ? 0 : -1}
+          aria-label={view.name}
+          aria-selected={active}
+          draggable={!renaming}
+          key={view.id}
+          onAuxClick={(event) => {
+            if (event.button === 1) closeView(view.id)
+          }}
+          onClick={() => {
+            if (renaming) return
+            registry.showPage()
+            setLayout((current) => activateWorkspaceTab(current, view.id))
+          }}
+          onDoubleClick={(event) => {
+            event.stopPropagation()
+            beginRename(view)
+          }}
+          onKeyDown={(event) => {
+            presentation.onKeyDown?.(event)
+            if (event.defaultPrevented) return
+            if (event.key === 'F2') {
+              event.preventDefault()
+              beginRename(view)
+              return
+            }
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            registry.showPage()
+            setLayout((current) => activateWorkspaceTab(current, view.id))
+          }}
+          onDragStart={(event) => {
+            draggingViewId.current = view.id
+            showTabDropTarget(undefined)
+            event.dataTransfer.effectAllowed = 'move'
+            event.dataTransfer.setData('application/x-alto-workspace-tab', view.id)
+            event.dataTransfer.setData('text/plain', view.id)
+          }}
+          onDragEnd={() => {
+            draggingViewId.current = undefined
+            showTabDropTarget(undefined)
+          }}
+        >
+          {TabRail && <WorkspaceTabIcon view={view} kinds={paneKinds} />}
+          {renaming ? (
+            <>
+            <input
+              ref={renameInput}
+              className="workspace-tab-name-input"
+              value={renamingViewName}
+              readOnly={renameSaving}
+              aria-busy={renameSaving}
+              aria-invalid={Boolean(renameError)}
+              title={renameError || undefined}
+              aria-label={`Rename ${view.name}`}
+              onChange={(event) => setRenamingViewName(event.target.value)}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onBlur={() => void finishRename(true)}
+              onKeyDown={(event) => {
+                event.stopPropagation()
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void finishRename(true)
+                } else if (event.key === 'Escape') {
+                  event.preventDefault()
+                  void finishRename(false)
+                }
+              }}
+            />
+            {renameError && <span className="workspace-tab-rename-error" role="alert" aria-label={renameError} title={renameError}>!</span>}
+            </>
+          ) : (
+            <span className="workspace-tab-title" title="Double-click to rename">{view.name}</span>
+          )}
+          {!renaming && tabAddons.map((addon) => {
+            const Addon = addon.renderer
+            return (
+              <Addon
+                workspaceId={view.id}
+                active={active}
+                threadIds={threadIds}
+                key={addon.id}
+              />
+            )
+          })}
+          {layout.views.length > 1 && (
+            <button
+              className="workspace-tab-close"
+              type="button"
+              data-hotkey-action="workspace.tab.close"
+              aria-label={`Close ${view.name}`}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                closeView(view.id)
+              }}
+            >
+              <X size={11} />
+            </button>
+          )}
+        </div>
+      )
+    }}>
+      <div className="workspace-tab-add-control" ref={workspacePickerRef}>
+        <button
+          className="workspace-tab-add"
+          type="button"
+          data-hotkey-action="workspace.tab.new"
+          title="New chat"
+          aria-label="New chat with no workspace"
+          aria-haspopup="menu"
+          aria-expanded={workspacePickerOpen}
+          onClick={() => addView()}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setWorkspacePickerOpen(true)
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowDown') return
+            event.preventDefault()
+            setWorkspacePickerOpen(true)
+          }}
+        >
+          <Plus size={14} />
+        </button>
+      </div>
+    </TabStrip>
+  )
+  const navigation = (
+    <>
+      <nav className="workspace-history-controls" aria-label="Chat navigation">
+        <button
+          type="button"
+          title="Back"
+          aria-label="Go back to the previous chat"
+          disabled={!canNavigateHistory(-1)}
+          onClick={() => navigateHistory(-1)}
+        >
+          <ArrowLeft size={14} strokeWidth={1.7} />
+        </button>
+        <button
+          type="button"
+          title="Forward"
+          aria-label="Go forward to the next chat"
+          disabled={!canNavigateHistory(1)}
+          onClick={() => navigateHistory(1)}
+        >
+          <ArrowRight size={14} strokeWidth={1.7} />
+        </button>
+      </nav>
+      {renderContributions('header-left')}
+    </>
+  )
+  const tools = (
+    <div className="workspace-tabbar-tools">
+      {renderContributions('header-right')}
+      {Plugins && <Plugins surface={pluginsSurface} />}
+      {Settings && <Settings surface={settingsSurface} />}
+      <div className="workspace-tabbar-tools" data-ui-slot="header-end">
+        {(globalState.ui?.surfaces ?? [])
+          .filter((surface) => surface.data?.slot === 'header-end')
+          .sort((a, b) => Number(a.data?.order ?? 0) - Number(b.data?.order ?? 0))
+          .map((surface) => {
+            const Renderer = ui.renderer(surface)
+            return Renderer ? <Renderer key={surface.id} surface={surface} /> : null
+          })}
+      </div>
+    </div>
+  )
   const historyMouseButton = (event: ReactMouseEvent<HTMLDivElement>): void => {
     const direction = event.button === 3 ? -1 : event.button === 4 ? 1 : undefined
     if (!direction) return
@@ -3042,188 +3267,16 @@ function WorkspaceLayout({
           return view ? focusViewPane(view, paneId) : false
         }}
       />
-      <header className="workspace-tabbar">
-        <div className="workspace-tabbar-leading">
-          <nav className="workspace-history-controls" aria-label="Chat navigation">
-            <button
-              type="button"
-              title="Back"
-              aria-label="Go back to the previous chat"
-              disabled={!canNavigateHistory(-1)}
-              onClick={() => navigateHistory(-1)}
-            >
-              <ArrowLeft size={14} strokeWidth={1.7} />
-            </button>
-            <button
-              type="button"
-              title="Forward"
-              aria-label="Go forward to the next chat"
-              disabled={!canNavigateHistory(1)}
-              onClick={() => navigateHistory(1)}
-            >
-              <ArrowRight size={14} strokeWidth={1.7} />
-            </button>
-          </nav>
-          {renderContributions('header-left')}
-          <TabStrip layout={layout} change={setLayout} rootRef={workspaceRootRef} tabActions={registry.tabActions()} overlays={ui.overlays}
-            beginDrag={(id) => { draggingViewId.current = id; showTabDropTarget(undefined) }}
-            renderTab={(view, index, presentation = {}) => {
-            const renaming = renamingViewId === view.id
-            const active = !activePage && view.id === layout.activeViewId
-            const threadIds = workspaceViewThreadIds(view)
-            return (
-              <div
-                className={`workspace-tab${active ? ' is-active' : ''}${renaming ? ' is-renaming' : ''}${presentation.className ? ' ' + presentation.className : ''}`}
-                role="tab"
-                data-workspace-tab={view.id}
-                inert={presentation.inert}
-                data-group-color={presentation.color}
-                data-tab-drop={presentation.dropIndicator}
-                onContextMenu={presentation.onContextMenu}
-                data-hotkey-action={index >= 0 && index < 9 ? `workspace.tab.select.${index + 1}` : undefined}
-                tabIndex={view.id === layout.activeViewId ? 0 : -1}
-                aria-label={view.name}
-                aria-selected={active}
-                draggable={!renaming}
-                key={view.id}
-                onAuxClick={(event) => {
-                  if (event.button === 1) closeView(view.id)
-                }}
-                onClick={() => {
-                  if (renaming) return
-                  registry.showPage()
-                  setLayout((current) => activateWorkspaceTab(current, view.id))
-                }}
-                onDoubleClick={(event) => {
-                  event.stopPropagation()
-                  beginRename(view)
-                }}
-                onKeyDown={(event) => {
-                  presentation.onKeyDown?.(event)
-                  if (event.defaultPrevented) return
-                  if (event.key === 'F2') {
-                    event.preventDefault()
-                    beginRename(view)
-                    return
-                  }
-                  if (event.key !== 'Enter' && event.key !== ' ') return
-                  event.preventDefault()
-                  registry.showPage()
-                  setLayout((current) => activateWorkspaceTab(current, view.id))
-                }}
-                onDragStart={(event) => {
-                  draggingViewId.current = view.id
-                  showTabDropTarget(undefined)
-                  event.dataTransfer.effectAllowed = 'move'
-                  event.dataTransfer.setData('application/x-alto-workspace-tab', view.id)
-                  event.dataTransfer.setData('text/plain', view.id)
-                }}
-                onDragEnd={() => {
-                  draggingViewId.current = undefined
-                  showTabDropTarget(undefined)
-                }}
-              >
-                {renaming ? (
-                  <>
-                  <input
-                    ref={renameInput}
-                    className="workspace-tab-name-input"
-                    value={renamingViewName}
-                    readOnly={renameSaving}
-                    aria-busy={renameSaving}
-                    aria-invalid={Boolean(renameError)}
-                    title={renameError || undefined}
-                    aria-label={`Rename ${view.name}`}
-                    onChange={(event) => setRenamingViewName(event.target.value)}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => event.stopPropagation()}
-                    onDoubleClick={(event) => event.stopPropagation()}
-                    onBlur={() => void finishRename(true)}
-                    onKeyDown={(event) => {
-                      event.stopPropagation()
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
-                        void finishRename(true)
-                      } else if (event.key === 'Escape') {
-                        event.preventDefault()
-                        void finishRename(false)
-                      }
-                    }}
-                  />
-                  {renameError && <span className="workspace-tab-rename-error" role="alert" aria-label={renameError} title={renameError}>!</span>}
-                  </>
-                ) : (
-                  <span title="Double-click to rename">{view.name}</span>
-                )}
-                {!renaming && tabAddons.map((addon) => {
-                  const Addon = addon.renderer
-                  return (
-                    <Addon
-                      workspaceId={view.id}
-                      active={active}
-                      threadIds={threadIds}
-                      key={addon.id}
-                    />
-                  )
-                })}
-                {layout.views.length > 1 && (
-                  <button
-                    className="workspace-tab-close"
-                    type="button"
-                    data-hotkey-action="workspace.tab.close"
-                    aria-label={`Close ${view.name}`}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      closeView(view.id)
-                    }}
-                  >
-                    <X size={11} />
-                  </button>
-                )}
-              </div>
-            )
-          }}>
-            <div className="workspace-tab-add-control" ref={workspacePickerRef}>
-              <button
-                className="workspace-tab-add"
-                type="button"
-                data-hotkey-action="workspace.tab.new"
-                title="New chat"
-                aria-label="New chat with no workspace"
-                aria-haspopup="menu"
-                aria-expanded={workspacePickerOpen}
-                onClick={() => addView()}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  setWorkspacePickerOpen(true)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key !== 'ArrowDown') return
-                  event.preventDefault()
-                  setWorkspacePickerOpen(true)
-                }}
-              >
-                <Plus size={14} />
-              </button>
-            </div>
-          </TabStrip>
-        </div>
-        <div className="workspace-tabbar-tools">
-          {renderContributions('header-right')}
-          {Plugins && <Plugins surface={pluginsSurface} />}
-          {Settings && <Settings surface={settingsSurface} />}
-          <div className="workspace-tabbar-tools" data-ui-slot="header-end">
-            {(globalState.ui?.surfaces ?? [])
-              .filter((surface) => surface.data?.slot === 'header-end')
-              .sort((a, b) => Number(a.data?.order ?? 0) - Number(b.data?.order ?? 0))
-              .map((surface) => {
-                const Renderer = ui.renderer(surface)
-                return Renderer ? <Renderer key={surface.id} surface={surface} /> : null
-              })}
+      {/* A tab rail replaces the whole top bar and hosts its navigation and tools. */}
+      {!TabRail && (
+        <header className="workspace-tabbar">
+          <div className="workspace-tabbar-leading">
+            {navigation}
+            {tabStrip}
           </div>
-        </div>
-      </header>
+          {tools}
+        </header>
+      )}
       {workspacePickerOpen && (
         <div ref={workspacePickerMenuRef} className="workspace-project-picker" role="menu" aria-label="Choose tab workspace">
           {newTabOptions.map((option) => (
@@ -3250,37 +3303,41 @@ function WorkspaceLayout({
         />
       )}
       {renderContributions('main')}
-      <div
-        className="workspace-views"
-        onDragOver={dragWorkspaceTabOverPane}
-        onDragLeave={(event) => {
-          const next = event.relatedTarget
-          if (!(next instanceof Node) || !event.currentTarget.contains(next)) {
-            showTabDropTarget(undefined)
-          }
-        }}
-        onDrop={dropWorkspaceTabIntoPane}
-      >
-        {pages.map((page) => {
-          const Page = page.renderer
-          const visible = page.id === activePage?.id
-          return <div className="workspace-view" role="region" aria-label={page.label} hidden={!visible} key={'page:' + page.id}><Page visible={visible} /></div>
-        })}
-        {/* Hidden workspaces stay mounted: their chat sessions and native panes own live state. */}
-        {layout.views.map((view) => {
-          const visible = !activePage && view.id === layout.activeViewId
-          return (
-            <div
-              className="workspace-view"
-              role="tabpanel"
-              aria-hidden={!visible}
-              hidden={!visible}
-              key={view.id}
-            >
-              <LayoutTree workspaceId={view.id} node={view.root} actions={actionsFor(view)} />
-            </div>
-          )
-        })}
+      {/* The views keep one position whether or not a rail is present, so panes never remount. */}
+      <div className="workspace-body" data-tab-orientation={TabRail ? 'vertical' : 'horizontal'}>
+        {TabRail && <TabRail strip={tabStrip} navigation={navigation} tools={tools} layout={layout} />}
+        <div
+          className="workspace-views"
+          onDragOver={dragWorkspaceTabOverPane}
+          onDragLeave={(event) => {
+            const next = event.relatedTarget
+            if (!(next instanceof Node) || !event.currentTarget.contains(next)) {
+              showTabDropTarget(undefined)
+            }
+          }}
+          onDrop={dropWorkspaceTabIntoPane}
+        >
+          {pages.map((page) => {
+            const Page = page.renderer
+            const visible = page.id === activePage?.id
+            return <div className="workspace-view" role="region" aria-label={page.label} hidden={!visible} key={'page:' + page.id}><Page visible={visible} /></div>
+          })}
+          {/* Hidden workspaces stay mounted: their chat sessions and native panes own live state. */}
+          {layout.views.map((view) => {
+            const visible = !activePage && view.id === layout.activeViewId
+            return (
+              <div
+                className="workspace-view"
+                role="tabpanel"
+                aria-hidden={!visible}
+                hidden={!visible}
+                key={view.id}
+              >
+                <LayoutTree workspaceId={view.id} node={view.root} actions={actionsFor(view)} />
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

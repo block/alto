@@ -650,6 +650,24 @@
               "config": {}
             },
             {
+              "id": "vertical-tabs",
+              "name": "Vertical Tabs",
+              "description": "Adds a resizable side tab column that can collapse to icons, and switches between it and the top tabs.",
+              "client": "plugins/vertical-tabs.client.tsx",
+              "enabled": false,
+              "config": {},
+              "children": [
+                {
+                  "id": "hotkeys-vertical-tabs",
+                  "name": "Vertical Tabs Shortcuts",
+                  "description": "Switches tab orientation with Command-Shift-B and collapses the side tab column with Command-B.",
+                  "client": "plugins/hotkeys-vertical-tabs.client.ts",
+                  "enabled": true,
+                  "config": {}
+                }
+              ]
+            },
+            {
               "id": "seal",
               "name": "Seal",
               "description": "Receives Neovim prompts in the focused chat or the chat to the left of the active pane, using its existing queue and steering controls.",

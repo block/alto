@@ -131,10 +131,58 @@ html[data-alto-theme='dark'] [data-group-color] {
   transition-delay: 0s, 0s, 0s, 0s, 0s, 0s, 0s, var(--workspace-tab-group-duration);
 }
 
+/* Vertical strips stack members under their label and mark them with a
+   colored line instead of a frame. Collapsing animates height rather than width. */
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-label,
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-member,
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-label[aria-expanded='true'] + .workspace-tab-group-member {
+  margin-inline: 0;
+}
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-label { color: var(--text); }
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-label::before { display: none; }
+/* The line sits under the label's first letter, and member titles start a
+   step further in, so the group reads as one indented column. */
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-member {
+  padding-inline-start: var(--space-4);
+  transition: flex-basis var(--workspace-tab-group-duration) var(--workspace-tab-group-easing),
+    margin-block var(--workspace-tab-group-duration) var(--workspace-tab-group-easing),
+    opacity 180ms ease, visibility 0s;
+}
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-member::before,
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-label[aria-expanded='true'] + .workspace-tab-group-member::before,
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-member.is-group-end::before {
+  /* Offsets start inside the tab's 1px border, so reach past it to meet the next slice. */
+  inset-block: calc(-1px - 0.5 * var(--workspace-tab-group-gap));
+  inset-inline: var(--workspace-tab-group-line-inset, var(--space-2)) auto;
+  inline-size: 2px;
+  border: 0;
+  border-radius: 0;
+  background: var(--tab-group-color);
+}
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-member.is-group-end::before {
+  inset-block-end: var(--space-1);
+  border-end-start-radius: var(--radius-pill);
+  border-end-end-radius: var(--radius-pill);
+}
+/* The line starts clear of the label's rounded corner, matching its end. */
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-label[aria-expanded='true'] + .workspace-tab-group-member::before {
+  inset-block-start: var(--space-1);
+  border-start-start-radius: var(--radius-pill);
+  border-start-end-radius: var(--radius-pill);
+}
+.workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-member.is-group-collapsed {
+  flex-basis: 0px;
+  border-block-width: 0;
+  margin-inline: 0;
+  margin-block-end: calc(-1 * var(--workspace-tab-group-gap));
+  transition-delay: 0s, 0s, 0s, var(--workspace-tab-group-duration);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .workspace-tab-group-label,
   .workspace-tab-group-label::before,
   .workspace-tab-group-member,
+  .workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-member,
   .workspace-tab-group-count,
   .workspace-tab-group-toggle > svg { transition: none; }
 }
@@ -150,6 +198,15 @@ html[data-alto-theme='dark'] [data-group-color] {
 }
 .workspace-tabs [data-tab-drop='before']::after { inset-inline-start: 0; }
 .workspace-tabs [data-tab-drop='after']::after { inset-inline-end: 0; }
+.workspace-tabs[aria-orientation='vertical'] [data-tab-drop='before']::after,
+.workspace-tabs[aria-orientation='vertical'] [data-tab-drop='after']::after {
+  inset-block: auto;
+  inset-inline: var(--space-1);
+  inline-size: auto;
+  block-size: calc(var(--space-1) / 2);
+}
+.workspace-tabs[aria-orientation='vertical'] [data-tab-drop='before']::after { inset-block-start: 0; }
+.workspace-tabs[aria-orientation='vertical'] [data-tab-drop='after']::after { inset-block-end: 0; }
 .workspace-tabs [data-tab-drop='inside'] { outline: 2px solid var(--tab-group-color, var(--accent)); outline-offset: -2px; }
 .workspace-tab-ungroup-target {
   flex: 0 0 auto;
