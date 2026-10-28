@@ -130,10 +130,6 @@ html[data-desktop-platform='darwin'] .vertical-tab-rail.is-collapsed .vertical-t
   padding-inline: var(--space-2) 0;
 }
 
-/* Keep hover feedback under the pointer. Group members retain their own
-   collapse transitions, as do the chevrons and counts inside group labels. */
-.vertical-tab-rail .workspace-tab:not(.workspace-tab-group-member) { transition: none; }
-
 .vertical-tab-rail .workspace-tab > .workspace-tab-title {
   min-width: 0;
   flex: 1 1 auto;
@@ -151,9 +147,6 @@ html[data-desktop-platform='darwin'] .vertical-tab-rail.is-collapsed .vertical-t
   color: var(--muted);
   font-style: normal;
 }
-
-.workspace-tab.is-active > .workspace-tab-icon,
-.workspace-tab:hover > .workspace-tab-icon { color: var(--text); }
 
 /* Chat tabs show only their titles; collapsed, the title's first letter stands in. */
 .workspace-tab-monogram {
@@ -173,7 +166,6 @@ html[data-desktop-platform='darwin'] .vertical-tab-rail.is-collapsed .vertical-t
 /* Group labels read as section headings for the tabs beneath them. */
 .vertical-tab-rail .workspace-tab-group-label {
   font-size: var(--type-label);
-  font-weight: var(--weight-medium);
 }
 
 .vertical-tab-rail .workspace-tab-group-label > span:first-child {
@@ -249,6 +241,10 @@ html[data-desktop-platform='darwin'] .vertical-tab-rail.is-collapsed .vertical-t
 .vertical-tab-rail.is-resizing .vertical-tab-rail-resize {
   outline: none;
   background: linear-gradient(to right, transparent 2px, color-mix(in srgb, var(--accent) 42%, transparent) 2px 4px, transparent 4px);
+}
+
+.vertical-tab-rail-resize:focus-visible {
+  background: linear-gradient(to right, transparent 2px, var(--workspace-tab-focus, var(--accent)) 2px 4px, transparent 4px);
 }
 
 /* A pinned conversation sidebar overlays the workspace's leading edge. */

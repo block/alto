@@ -1,0 +1,98 @@
+/* Top tabs and the side rail share one palette and interaction hierarchy.
+   Their layout and the native window material are owned separately. */
+:is(.workspace-tabbar, .vertical-tab-rail) {
+  --workspace-tab-ink: var(--text-strong);
+  --workspace-tab-secondary: color-mix(in srgb, var(--text-strong) 80%, var(--text));
+  --workspace-tab-hover: color-mix(in srgb, var(--panel-solid) 36%, transparent);
+  --workspace-tab-selected: color-mix(in srgb, var(--panel-solid) 80%, transparent);
+  --workspace-tab-pressed: color-mix(in srgb, var(--text-strong) 14%, var(--panel-solid));
+  --workspace-tab-focus: color-mix(in srgb, var(--accent) 64%, var(--text-strong));
+  /* Enabled navigation needs readable ink on glass, including its icons,
+     counts, and running indicators. Semantic accent colors stay independent. */
+  --muted: var(--workspace-tab-secondary);
+  --dim: var(--workspace-tab-secondary);
+  --text-muted: var(--workspace-tab-secondary);
+  --text-secondary: var(--workspace-tab-secondary);
+  --icon-opacity: 1;
+  --alto-button-color: var(--workspace-tab-secondary);
+  --alto-button-background: transparent;
+  --alto-button-background-hover: var(--workspace-tab-hover);
+  --alto-button-border: transparent;
+  --alto-button-border-hover: transparent;
+  --alto-button-shadow: none;
+  --alto-button-shadow-hover: none;
+}
+
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab {
+  color: var(--workspace-tab-ink);
+  font-weight: var(--weight-regular);
+}
+
+/* Group color marks membership; selection and hover have their own fills. */
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs [data-group-color] {
+  --tab-group-fill: color-mix(in srgb, var(--tab-group-color) 4%, transparent);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs .workspace-tab.workspace-tab-group-label[aria-expanded] {
+  color: var(--workspace-tab-ink);
+  font-weight: var(--weight-medium);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs .workspace-tab:hover:not([data-tab-drop]) {
+  color: var(--workspace-tab-ink);
+  background: var(--workspace-tab-hover);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs .workspace-tab.workspace-tab-group-label:hover:not([data-tab-drop]) {
+  background: color-mix(in srgb, var(--tab-group-color) 10%, transparent);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs .workspace-tab.is-active:not([data-tab-drop]),
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs .workspace-tab.workspace-tab-group-label.is-active:not([data-tab-drop]) {
+  color: var(--workspace-tab-ink);
+  border-color: transparent;
+  background: var(--workspace-tab-selected);
+  font-weight: var(--weight-medium);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs .workspace-tab.is-active:hover:not([data-tab-drop]) {
+  background: var(--workspace-tab-selected);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab.is-active > .workspace-tab-icon,
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab:hover > .workspace-tab-icon { color: inherit; }
+
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabbar-tools button { color: var(--workspace-tab-secondary); }
+
+:is(.workspace-tabbar, .vertical-tab-rail) :is(
+  .workspace-history-controls > button,
+  .workspace-tab-close,
+  .workspace-tab-add,
+  .vertical-tab-rail-toggle,
+  .workspace-tabbar-tools button
+):hover:not(:disabled) {
+  color: var(--workspace-tab-ink);
+  background: var(--workspace-tab-hover);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabbar-tools :is(
+  button[aria-pressed='true'],
+  button[aria-haspopup][aria-expanded='true']
+) {
+  color: var(--workspace-tab-focus);
+  background: var(--workspace-tab-selected);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs .workspace-tab:active:not([data-tab-drop]),
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs .workspace-tab.is-active:active:not([data-tab-drop]),
+:is(.workspace-tabbar, .vertical-tab-rail) :is(.workspace-tab-close, .workspace-tab-add, .vertical-tab-rail-toggle, .workspace-tabbar-tools button, .workspace-history-controls > button):active:not(:disabled) {
+  background: var(--workspace-tab-pressed);
+}
+:is(.workspace-tabbar, .vertical-tab-rail) :is(.workspace-tab, .workspace-tab-close, .workspace-tab-add, .vertical-tab-rail-toggle, .workspace-tabbar-tools button, .workspace-history-controls > button):focus-visible:not([data-tab-drop]) {
+  outline: 2px solid var(--workspace-tab-focus);
+  outline-offset: -2px;
+  background: var(--workspace-tab-selected);
+}
+
+/* Pointer feedback is immediate; group labels and members retain their
+   geometry transitions, as do the chevrons and counts inside group labels. */
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab:not(.workspace-tab-group-member):not(.workspace-tab-group-label) { transition: none; }
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab-group-label {
+  transition: margin-inline-start var(--workspace-tab-group-duration) var(--workspace-tab-group-easing);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab-group-label { transition: none; }
+}

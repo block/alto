@@ -17,6 +17,7 @@ async function check() {
       import groupsPlugin from './program/plugins/workspace-tab-groups.client';
       import verticalTabsPlugin from './program/plugins/vertical-tabs.client';
       import workspaceMaterialPlugin from './program/plugins/workspace-material.client';
+      import workspaceTabsAppearancePlugin from './program/plugins/workspace-tabs-appearance.client';
       import verticalHotkeysPlugin from './program/plugins/hotkeys-vertical-tabs.client';
       import {HotkeysService} from './program/plugins/hotkeys.client';
       import {parseWorkspaceLayout} from './program/plugins/workspace-layout-state';
@@ -46,11 +47,13 @@ async function check() {
         disable:()=>flushSync(()=>{for(const cleanup of effects.reverse())cleanup();effects=[]}),
       }};
       const hotkeys=new HotkeysService(ui,{leader:'Alt'});
-      const material=fiber(workspaceMaterialPlugin),groups=fiber(groupsPlugin),vertical=fiber(ctx=>{verticalTabsPlugin(ctx);
+      const appearance=fiber(workspaceTabsAppearancePlugin),material=fiber(workspaceMaterialPlugin),groups=fiber(groupsPlugin),vertical=fiber(ctx=>{verticalTabsPlugin(ctx);
         verticalHotkeysPlugin({...ctx,clientVerticalTabs:registry.verticalTabs,clientHotkeys:{registerAction:(owner,action)=>hotkeys.registerAction(owner,action)}})});
       window.enableGroups=groups.enable;window.disableGroups=groups.disable;
       window.enableVertical=vertical.enable;window.disableVertical=vertical.disable;
       window.enableMaterial=material.enable;window.disableMaterial=material.disable;
+      window.enableAppearance=appearance.enable;window.disableAppearance=appearance.disable;
+      appearance.enable();
       material.enable();
       groups.enable();
       window.mounts=0;
@@ -207,11 +210,92 @@ async function check() {
     const pixel = ([x, y]) => [...bitmap.subarray((Math.floor(y) * size.width + Math.floor(x)) * 4, (Math.floor(y) * size.width + Math.floor(x)) * 4 + 4)]
     const chrome = pixel(points.rail)
     assert.deepEqual(pixel(points.gutter), chrome, label + ': gutters expose the shared material')
-    assert.deepEqual(pixel(points.corner), chrome, label + ': rounded corner exposes the same material as the rail')
+    // The sheet casts a faint black shadow onto the material at its corner.
+    // It must still expose the glass rather than an opaque corner fill.
+    const corner = pixel(points.corner)
+    assert.equal(corner[3], chrome[3], label + ': rounded corner keeps the material alpha')
+    for (let channel = 0; channel < 3; channel++) {
+      assert.ok(corner[channel] <= chrome[channel] && corner[channel] >= chrome[channel] * .88,
+        label + ': rounded corner exposes the material beneath a faint shadow ' + JSON.stringify({ corner, chrome }))
+    }
     for (const pane of points.panes) {
       assert.deepEqual(pixel(pane.header), pane.top === 0 ? chrome : pane.headerCanvas, label + ': title band and lower split header colors')
       assert.deepEqual(pixel(pane.body), pane.expected, label + ': opaque content body ' + JSON.stringify(pane))
     }
+  }
+  const assertTabsContrast = async (theme, orientation, suffix = '') => {
+    // These representative material colors are test inputs, not a guarantee
+    // about the native material over every possible desktop background.
+    const backdrop = theme === 'light' ? [184, 184, 189, 1] : [69, 71, 76, 1]
+    const prefix = 'contrast-' + theme + '-' + orientation + suffix
+    const read = () => run(`(() => {
+      const host=document.querySelector(${JSON.stringify(orientation === 'vertical' ? '.vertical-tab-rail' : '.workspace-tabbar')}),ctx=document.createElement('canvas').getContext('2d');
+      const rgba=value=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=value;ctx.fillRect(0,0,1,1);const c=[...ctx.getImageData(0,0,1,1).data];c[3]/=255;return c};
+      const over=(a,b)=>a.slice(0,3).map((v,i)=>v*a[3]+b[i]*(1-a[3])).concat(1);
+      const luminance=c=>c.slice(0,3).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4}).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
+      const contrast=(a,b)=>{const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)};
+      const inspect=selector=>{
+        const element=host.querySelector(selector),style=getComputedStyle(element),chain=[];
+        for(let node=element;node&&node!==host.parentElement;node=node.parentElement)chain.unshift(getComputedStyle(node));
+        const background=chain.reduce((bg,s)=>over(rgba(s.backgroundColor),bg),${JSON.stringify(backdrop)});
+        const opacity=chain.reduce((a,s)=>a*Number(s.opacity),1),foreground=rgba(style.color);foreground[3]*=opacity;
+        const r=element.getBoundingClientRect();
+        return {ratio:contrast(over(foreground,background),background),background,color:rgba(style.color),opacity,weight:Number(style.fontWeight),outline:parseFloat(style.outlineWidth),outlineColor:rgba(style.outlineColor),outlineRatio:contrast(over(rgba(style.outlineColor),background),background),focus:element.matches(':focus-visible'),transition:style.transitionProperty,rect:{x:r.x,y:r.y,width:r.width,height:r.height}};
+      };
+      return {normal:inspect('.workspace-tab:not(.is-active):not(.workspace-tab-group-label) .workspace-tab-title'),selected:inspect('.workspace-tab.is-active .workspace-tab-title'),row:inspect('.workspace-tab:not(.is-active):not(.workspace-tab-group-label)'),activeRow:inspect('.workspace-tab.is-active'),group:inspect('.workspace-tab-group-label > span:first-child'),groupRow:inspect('.workspace-tab-group-label'),icon:inspect(${JSON.stringify(orientation === 'vertical' ? '.workspace-tab-icon svg' : '.workspace-tab-add svg')}),tool:inspect('.test-tool'),disabled:inspect('.workspace-history-controls > button:disabled'),status:inspect('.contrast-status'),green:rgba(getComputedStyle(host).getPropertyValue('--green'))};
+    })()`)
+    const mouse = (type, rect, extra = {}) => window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
+      type, x: rect.x + Math.min(24, rect.width / 2), y: rect.y + rect.height / 2, ...extra,
+    })
+    await run("window.contrastStatus=document.createElement('i');contrastStatus.className='workspace-tab-thread-status contrast-status';contrastStatus.style.color='var(--green)';contrastStatus.textContent='●';document.querySelector('.workspace-tab:not(.is-active):not(.workspace-tab-group-label)').append(contrastStatus)")
+    window.setBackgroundColor(theme === 'light' ? '#aaabb1' : '#22242a')
+    await mouse('mouseMoved', { x: 1100, y: 700, width: 0, height: 0 })
+    await settle()
+    const normal = await read()
+    for (const label of ['normal', 'selected', 'group', 'tool']) assert.ok(normal[label].ratio >= 4.5, theme + ': readable ' + label + ' ' + normal[label].ratio)
+    assert.ok(normal.icon.ratio >= 3, theme + ': readable navigation icon')
+    assert.ok(normal.disabled.opacity < .5, theme + ': disabled navigation remains dim')
+    assert.ok(normal.selected.weight > normal.normal.weight, theme + ': selection has stronger text')
+    assert.deepEqual(normal.status.color, normal.green, theme + ': semantic status color is preserved')
+    assert.doesNotMatch(normal.row.transition, /(^|,\s*)(all|color|background[^,]*|border-color)(,|$)/, 'Hover paint changes immediately')
+    await capture(prefix + '-rest')
+    await mouse('mouseMoved', normal.row.rect)
+    await settle()
+    const hovered = await read()
+    assert.notDeepEqual(hovered.row.background, normal.row.background, theme + ': hover is visible')
+    assert.notDeepEqual(hovered.row.background, hovered.activeRow.background, theme + ': hover differs from selection')
+    assert.ok(hovered.normal.ratio >= 4.5, theme + ': readable hovered title')
+    const colors = { ink: normal.normal.color, secondary: normal.tool.color, groupInk: normal.group.color, normal: normal.row.background, group: normal.groupRow.background, selected: normal.activeRow.background, hover: hovered.row.background, pressed: {} }
+    await capture(prefix + '-hover')
+    for (const target of ['row', 'activeRow']) {
+      await mouse('mouseMoved', normal[target].rect)
+      const before = await read()
+      await mouse('mousePressed', normal[target].rect, { button: 'left', buttons: 1, clickCount: 1 })
+      const pressed = await read()
+      assert.notDeepEqual(pressed[target].background, before[target].background, theme + ': pressed ' + target + ' differs from hover')
+      colors.pressed[target] = pressed[target].background
+      await mouse('mouseReleased', { x: 1100, y: 700, width: 0, height: 0 }, { button: 'left', buttons: 0, clickCount: 1 })
+    }
+    await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 })
+    await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 })
+    await run("document.querySelector('.workspace-tab.is-active').focus({preventScroll:true})")
+    const focused = await read()
+    assert.ok(focused.activeRow.focus && focused.activeRow.outline >= 2, theme + ': keyboard focus has a visible outline')
+    assert.ok(focused.activeRow.outlineRatio >= 3, theme + ': focus outline contrasts against its fill')
+    assert.deepEqual(focused.row.rect, normal.row.rect, theme + ': states preserve row geometry')
+    colors.focus = focused.activeRow.background
+    colors.outline = focused.activeRow.outlineColor
+    await capture(prefix + '-focus')
+    await run("window.contrastGroup=document.querySelector('.workspace-tab-group-label');contrastGroup.classList.add('is-active');contrastGroup.focus({preventScroll:true})")
+    const selectedGroup = await read()
+    await run("contrastGroup.dataset.tabDrop='inside'")
+    const drop = await read()
+    assert.notDeepEqual(drop.groupRow.background, selectedGroup.groupRow.background, theme + ': drop feedback takes priority over selected focus')
+    assert.notDeepEqual(drop.groupRow.background, normal.groupRow.background, theme + ': drop feedback differs from an ordinary group heading')
+    colors.drop = drop.groupRow.background
+    await capture(prefix + '-group-drop')
+    await run("document.activeElement.blur();contrastStatus.remove();contrastGroup.classList.remove('is-active');delete contrastGroup.dataset.tabDrop")
+    return colors
   }
   try {
     await window.loadURL(`http://127.0.0.1:${server.address().port}`)
@@ -393,6 +477,7 @@ async function check() {
       features: [{ name: 'prefers-reduced-transparency', value }],
     })
     await transparencyPreference('no-preference')
+    const appearanceByTheme = new Map()
     for (const theme of ['light', 'dark']) {
       await run(`Object.assign(document.documentElement.dataset,{altoTheme:'${theme}',desktopPlatform:'darwin',altoThemePlugin:'active',altoChromeTheme:'alto'})`)
       for (const width of [1200, 600]) {
@@ -418,15 +503,29 @@ async function check() {
           assert.equal((await run("document.querySelector('.vertical-tab-rail-header').getBoundingClientRect().height")), 40, 'The rail header keeps the band height')
         }
         assertNativeMaterial(await material(), theme + ' at ' + width + 'px');
+        let verticalColors
         if (width === 1200) {
+          verticalColors = await assertTabsContrast(theme, 'vertical')
           await assertMaterialPixels(theme + ': side-by-side panes')
-          await run('commandB(true)')
-          await finishMotion()
-          assertNativeMaterial(await material(), theme + ': horizontal tabs share the material')
-          await run('commandB(true)')
-          await finishMotion()
-          assertNativeMaterial(await material(), theme + ': switching back to vertical')
         }
+        await run('commandB(true)')
+        await finishMotion()
+        assertNativeMaterial(await material(), theme + ': horizontal tabs share the material')
+        const horizontalState = await run('inspect()')
+        assert.ok(horizontalState.scroll <= width, theme + ': horizontal tabs stay within ' + width + 'px')
+        assert.ok(horizontalState.tool.right <= width, theme + ': horizontal tools stay visible')
+        if (width === 1200) {
+          const horizontalColors = await assertTabsContrast(theme, 'horizontal')
+          assert.deepEqual(horizontalColors, verticalColors, theme + ': both orientations share all tab colors and state fills')
+          appearanceByTheme.set(theme, horizontalColors)
+          await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-transparency', value: 'no-preference' }, { name: 'prefers-reduced-motion', value: 'reduce' }] })
+          assert.equal(await run("getComputedStyle(document.querySelector('.workspace-tab-group-label')).transitionProperty"), 'none', 'Reduced motion disables horizontal group label transitions')
+          await transparencyPreference('no-preference')
+        }
+        await capture(`horizontal-${theme}-${width}`)
+        await run('commandB(true)')
+        await finishMotion()
+        assertNativeMaterial(await material(), theme + ': switching back to vertical')
         await capture(`vertical-${theme}-${width}`)
       }
       await transparencyPreference('reduce')
@@ -480,7 +579,9 @@ async function check() {
     assert.equal((await run('inspect()')).railStrip, undefined, 'Command-B is released with the fiber')
     assert.equal(state.tabs.some(tab => tab.icon), false)
     assert.equal(await run("!!document.querySelector('[data-plugin-style=vertical-tabs]')"), false)
+    assert.equal(await run("!!document.querySelector('[data-plugin-style=workspace-tabs-appearance]')"), true, 'Shared appearance outlives the vertical fiber')
     assertNativeMaterial(await material(), 'Disabling the vertical fiber retains the shared material')
+    assert.deepEqual(await assertTabsContrast('dark', 'horizontal', '-vertical-disabled'), appearanceByTheme.get('dark'), 'Disabling vertical tabs retains the horizontal tab appearance')
     assert.equal(state.mounts, mounted)
     assert.equal(await run("originalDraft===document.getElementById('draft-pane-a') && originalDraft.value==='Keep this draft'"), true)
 

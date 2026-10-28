@@ -650,6 +650,14 @@
               "config": {}
             },
             {
+              "id": "workspace-tabs-appearance",
+              "name": "Tab Appearance",
+              "description": "Keeps workspace tabs and controls readable with consistent selection and focus in both orientations.",
+              "client": "plugins/workspace-tabs-appearance.client.ts",
+              "enabled": true,
+              "config": {}
+            },
+            {
               "id": "workspace-material",
               "name": "macOS Window Material",
               "description": "Applies native translucency consistently to workspace chrome while keeping content opaque.",
