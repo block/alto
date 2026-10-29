@@ -7,9 +7,9 @@
   --workspace-tab-trailing-inset: calc(2 * var(--workspace-tab-action-size) + var(--workspace-tab-action-inset));
   --workspace-tab-ink: var(--workspace-chrome-ink);
   --workspace-tab-secondary: var(--workspace-tab-ink);
-  --workspace-tab-hover: color-mix(in srgb, var(--panel-solid) 16%, transparent);
-  --workspace-tab-selected: color-mix(in srgb, var(--panel-solid) 38%, transparent);
-  --workspace-tab-pressed: color-mix(in srgb, var(--panel-solid) 55%, transparent);
+  --workspace-tab-hover: var(--workspace-control-hover);
+  --workspace-tab-selected: var(--workspace-control-selected);
+  --workspace-tab-pressed: var(--workspace-control-pressed);
   --workspace-tab-focus: var(--workspace-tab-ink);
   /* Enabled navigation needs readable ink on glass, including its icons,
      counts, and running indicators. Semantic accent colors stay independent. */
@@ -121,18 +121,28 @@ html:not([data-desktop-platform='darwin']) .vertical-tab-rail:not(.is-collapsed)
   height: var(--workspace-tab-row-height);
   flex-basis: var(--workspace-tab-row-height);
 }
+/* A separate, compact action reads differently from a full-width chat row. */
+.vertical-tab-rail:not(.is-collapsed) .workspace-tab-add-control {
+  margin-block-start: var(--ui-row-gap);
+}
 .vertical-tab-rail:not(.is-collapsed) .workspace-tab-add {
+  width: fit-content;
+  max-width: 100%;
   height: var(--workspace-tab-row-height);
   display: grid;
-  grid-template-columns: var(--workspace-tab-action-size) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--workspace-tab-action-size);
   align-items: center;
   justify-items: start;
   justify-content: normal;
   gap: var(--ui-row-gap);
-  padding-inline: calc(var(--ui-row-inline-padding) + var(--space-1) / 4);
+  padding-inline: var(--ui-row-inline-padding);
   text-align: start;
 }
-.vertical-tab-rail:not(.is-collapsed) .workspace-tab-add > svg { justify-self: center; }
+.vertical-tab-rail:not(.is-collapsed) .workspace-tab-add > svg {
+  grid-area: 1 / 2;
+  justify-self: center;
+}
+.vertical-tab-rail:not(.is-collapsed) .workspace-tab-add::after { grid-area: 1 / 1; }
 :is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabbar-tools :is(.alto-icon-button, .icon-button) {
   --alto-icon-button-size: var(--workspace-tab-row-height);
   --toolbar-icon-button-size: var(--workspace-tab-row-height);

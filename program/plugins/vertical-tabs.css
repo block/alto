@@ -90,7 +90,8 @@ html[data-desktop-platform='darwin'] .vertical-tab-rail.is-collapsed .vertical-t
 }
 
 .vertical-tab-rail.is-collapsed .vertical-tab-rail-footer,
-.vertical-tab-rail.is-collapsed .vertical-tab-rail-footer .workspace-tabbar-tools {
+.vertical-tab-rail.is-collapsed .vertical-tab-rail-footer .workspace-tabbar-tools,
+.vertical-tab-rail.is-collapsed .vertical-tab-rail-footer .workspace-shell-contribution {
   flex-direction: column;
   align-items: center;
 }

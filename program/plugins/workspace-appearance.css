@@ -7,6 +7,9 @@
   --workspace-chrome-ink: color-mix(in srgb, var(--text-strong) 75%, light-dark(black, white));
   --workspace-surface-raised: var(--panel-solid);
   --workspace-surface-recessed: var(--panel-soft);
+  --workspace-control-hover: color-mix(in srgb, var(--panel-solid) 16%, transparent);
+  --workspace-control-selected: color-mix(in srgb, var(--panel-solid) 38%, transparent);
+  --workspace-control-pressed: color-mix(in srgb, var(--panel-solid) 55%, transparent);
   --workspace-chrome: var(--workspace-surface-chrome);
   /* A visible accent wash gives the chrome its color while native material
      remains the larger part of the translucent surface. */
@@ -33,6 +36,8 @@ html[data-alto-theme='dark'] .workspace-layout-root {
 .workspace-layout-root .activity-user:not(.activity-source-edit) {
   border-radius: var(--workspace-radius);
   corner-shape: round;
+  padding-block: var(--space-4);
+  padding-inline: max(var(--ui-dialog-inset), calc(var(--workspace-radius) / 2));
   background: var(--workspace-surface-recessed);
 }
 
@@ -46,6 +51,25 @@ html[data-alto-theme='dark'] .workspace-layout-root {
 }
 
 .workspace-layout-root .workspace-pane-title { color: var(--text); }
+
+/* Pane tools and both tab orientations share the same quiet feedback. */
+.workspace-layout-root :is(.workspace-pane-header, .alto-pane-header) :is(.alto-icon-button, .icon-button, .alto-button, .button):not(.primary, .danger) {
+  --alto-button-background-hover: var(--workspace-control-hover);
+  --ui-hover: var(--workspace-control-hover);
+  --ui-selected: var(--workspace-control-selected);
+  --ui-pressed: var(--workspace-control-pressed);
+}
+
+.workspace-layout-root :is(.workspace-pane-actions button, .pane-tab-close, .pane-tab-new, .canvas-dock-button):not(.primary, .danger):hover:not(:disabled) {
+  color: var(--ui-text);
+  background: var(--workspace-control-hover);
+}
+.workspace-layout-root .workspace-pane-actions button[aria-pressed='true']:not(:disabled) {
+  background: var(--workspace-control-selected);
+}
+.workspace-layout-root :is(.workspace-pane-actions button, .pane-tab-close, .pane-tab-new, .canvas-dock-button):not(.primary, .danger):active:not(:disabled) {
+  background: var(--workspace-control-pressed);
+}
 
 /* Top pane controls sit on the same colored glass as the navigation.
    Lower split headers retain the ink of their own content surface. */

@@ -51,7 +51,8 @@
   --ui-danger: light-dark(
     oklch(from var(--danger) clamp(0.35, l, 0.52) c h),
     oklch(from var(--danger) clamp(0.72, l, 0.84) c h));
-  --ui-focus: var(--ui-action);
+  /* Focus belongs to the control's edge, independently of the accent action. */
+  --ui-focus: color-mix(in srgb, var(--ui-text-strong) 72%, var(--ui-surface));
   --ui-switch-off: color-mix(in srgb, var(--text) 22%, transparent);
   --ui-switch-on: var(--ui-action);
   --ui-switch-thumb: var(--ui-surface);
@@ -72,6 +73,8 @@
   --floating-panel-radius: var(--ui-panel-radius);
   --floating-panel-shadow: var(--ui-panel-shadow);
   --accent-focus: var(--ui-focus);
+  --accent-ring: color-mix(in srgb, var(--ui-focus) 20%, transparent);
+  --composer-focus-shadow: 0 0 0 1px var(--ui-focus);
   --icon-button-radius: var(--ui-control-radius);
   --toolbar-icon-button-radius: var(--ui-control-radius);
 }

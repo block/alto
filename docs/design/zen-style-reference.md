@@ -155,7 +155,10 @@ two-line choices are 52px, icon/action slots are 24px, and panel/dialog insets a
 12px/24px. Both tab orientations reserve trailing actions without shifting their
 titles. Settings, search, and pickers fit the available pane and scroll in short
 windows. The approved rounded tabs, composer, and accent glass remain intact.
-Step 4 remains an optional subsequent pass.
+Step 4 has a small initial pass: shared neutral card and attachment-badge
+surfaces, rounded table wrappers, and readable empty-state copy. Regular buttons
+have a 100ms press response when reduced motion is off. Further motion and
+content changes remain optional.
 
 [zen-revision]: https://github.com/zen-browser/desktop/tree/7133db8aee16c3cdf042307e9e11071359d92851
 [zen-colors]: https://github.com/zen-browser/desktop/blob/7133db8aee16c3cdf042307e9e11071359d92851/src/zen/common/styles/zen-theme.css#L22-L121

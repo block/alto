@@ -4,6 +4,7 @@ import controls from './ui/controls.css'
 import surfaces from './ui/surfaces.css'
 import reviewAnnotations from './ui/review-annotations.css'
 import geometry from './ui/geometry.css'
+import focus from './ui/focus.css'
 
 const interfaceAppearance: BrowserPlugin = (ctx) => {
   ctx.clientUi.registerStyle(ctx, 'interface-appearance-tokens', String(tokens))
@@ -11,6 +12,7 @@ const interfaceAppearance: BrowserPlugin = (ctx) => {
   ctx.clientUi.registerStyle(ctx, 'interface-surfaces', String(surfaces))
   ctx.clientUi.registerStyle(ctx, 'interface-review-annotations', String(reviewAnnotations))
   ctx.clientUi.registerStyle(ctx, 'interface-geometry', String(geometry))
+  ctx.clientUi.registerStyle(ctx, 'interface-focus', String(focus))
 }
 
 interfaceAppearance.inject = ['clientUi']

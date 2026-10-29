@@ -105,7 +105,7 @@ async function check() {
           const outside=(parseFloat(style.outlineOffset)>=0?chain.slice(0,-1):chain).reduce((result,current)=>over(rgba(current.backgroundColor),result),[255,255,255,1]);
           const box=element.getBoundingClientRect();return[selector,{color:rgba(style.color),fill:rgba(style.backgroundColor),border:rgba(style.borderTopColor),outline:rgba(style.outlineColor),
             radius:style.borderTopLeftRadius,shadow:style.boxShadow,font:style.fontFamily,size:style.fontSize,weight:style.fontWeight,opacity:style.opacity,
-            contrast:contrast(over(foreground,background),background),outlineWidth:parseFloat(style.outlineWidth),outlineStyle:style.outlineStyle,outlineContrast:contrast(over(rgba(style.outlineColor),outside),outside),
+            contrast:contrast(over(foreground,background),background),borderWidth:parseFloat(style.borderTopWidth),borderContrast:contrast(over(rgba(style.borderTopColor),outside),outside),outlineWidth:parseFloat(style.outlineWidth),outlineStyle:style.outlineStyle,outlineContrast:contrast(over(rgba(style.outlineColor),outside),outside),
             x:box.x,right:box.right,width:box.width,backgroundImage:style.backgroundImage}]}));
       };
       window.bounds=selector=>{const box=document.querySelector(selector).getBoundingClientRect(),workspace=document.querySelector('.fixture-workspace>main').getBoundingClientRect();return{left:box.left,right:box.right,top:box.top,bottom:box.bottom,width:innerWidth,height:innerHeight,scroll:document.documentElement.scrollWidth,workspaceLeft:workspace.left,workspaceRight:workspace.right,workspaceWidth:workspace.width}};
@@ -320,7 +320,11 @@ async function check() {
           await force(selector, ['focus', 'focus-visible'])
           await run(`document.querySelector(${JSON.stringify(selector)}).focus({preventScroll:true})`)
           const measured = (await sample([selector]))[selector]
-          assert.ok(measured.outlineStyle !== 'none' && measured.outlineWidth >= 2 && measured.outlineContrast >= 3, JSON.stringify({ mode, accent, selector, ...measured }))
+          if(selector==='.project-settings-form input'){
+            assert.ok(measured.borderWidth===1 && measured.borderContrast>=3 && measured.outlineStyle==='none' && measured.shadow==='none', JSON.stringify({ mode, accent, selector, ...measured }))
+          }else{
+            assert.ok(measured.outlineStyle !== 'none' && measured.outlineWidth >= 2 && measured.outlineContrast >= 3, JSON.stringify({ mode, accent, selector, ...measured }))
+          }
           await run('document.activeElement.blur()')
           await force(selector, [])
         }

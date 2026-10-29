@@ -57,3 +57,11 @@
 :root :is(.composer-workspace-picker, .composer-permission-picker, .composer-picker-options) > button > svg {
   justify-self: center;
 }
+
+/* A row's preferred width must not become a fixed height when Settings stacks
+   its labels and controls in a narrow pane. */
+@container settings-content (max-width: 520px) {
+  .settings-row:not(.is-interactive) > :is(.settings-row-copy, .settings-row-control) {
+    flex-basis: auto;
+  }
+}

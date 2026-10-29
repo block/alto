@@ -175,6 +175,12 @@
 
 .send-button:disabled { color: var(--ui-text); background: var(--ui-control-fill); }
 
+/* A small press response leaves hover painting and navigation rows immediate. */
+@media (prefers-reduced-motion: no-preference) {
+  :is(.alto-button, .button) { transition: transform 100ms ease-out; }
+  :is(.alto-button, .button):active:not(:disabled) { transform: scale(0.98); }
+}
+
 @media (forced-colors: active) {
   :is(.alto-button, .button, .alto-icon-button, .icon-button):focus-visible,
   .composer button:focus-visible { outline-color: Highlight; }

@@ -123,6 +123,44 @@
   cursor: not-allowed;
 }
 
+/* Keep native select behavior while sharing a quiet, inset chevron across
+   Settings, palette controls, and the older model-picker wrapper. */
+:root :is(.settings-row-control, .theme-palette-control, .model-defaults-select):has(> select:not([multiple]):not([size])) {
+  position: relative;
+
+  & > select {
+    -webkit-appearance: none;
+    appearance: none;
+    padding-inline: calc(var(--ui-field-inline-padding) + var(--space-1)) calc(var(--ui-field-inline-padding) + var(--ui-icon-slot));
+    background-image: none;
+    cursor: pointer;
+  }
+
+  &.settings-row-control > select { width: 100%; }
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    inset-inline-end: var(--ui-field-inline-padding);
+    width: var(--ui-icon-slot);
+    height: var(--ui-icon-slot);
+    transform: translateY(-50%);
+    background-color: var(--ui-text-secondary);
+    mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%3E%3Cpath%20d%3D'm6%209%206%206%206-6'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.7'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%2F%3E%3C%2Fsvg%3E") center / calc(2 * var(--space-2)) no-repeat;
+    pointer-events: none;
+  }
+
+  &.model-defaults-select > svg { display: none; }
+  &:focus-within::after { background-color: var(--ui-text); }
+  &:has(> select:disabled)::after { opacity: 0.48; }
+
+  @media (forced-colors: active) {
+    & > select { -webkit-appearance: auto; appearance: auto; }
+    &::after { content: none; }
+  }
+}
+
 .alto-segment {
   color: var(--ui-text);
   border: 0;
@@ -150,6 +188,38 @@
   font-size: var(--type-supporting);
   font-weight: var(--weight-regular);
   box-shadow: none;
+}
+
+/* Content keeps its reading density and semantic colors. Only neutral frames
+   and compact badges share the same palette and corner families as controls. */
+:root :is(.approval-card, .file-change-card) {
+  color: var(--ui-text);
+  border-color: var(--ui-divider);
+  background: var(--ui-surface);
+  box-shadow: none;
+}
+
+:root :is(.ui-metric, .ui-list-item) {
+  border-color: var(--ui-divider);
+  border-radius: var(--ui-row-radius);
+  background: var(--ui-surface-inset);
+}
+
+:root .activity-attachments > span {
+  color: var(--ui-text);
+  border-color: var(--ui-divider);
+  border-radius: var(--ui-control-radius);
+  background: var(--ui-control-fill);
+}
+
+:root .activity-markdown .markdown-table-shell {
+  border-radius: var(--ui-row-radius);
+}
+
+:root :is(.ui-empty, .history-empty) { color: var(--ui-text-secondary); }
+:root .ui-empty {
+  border-color: var(--ui-divider);
+  border-radius: var(--ui-row-radius);
 }
 
 /* Accessible legacy menus use the same row states without coupling the

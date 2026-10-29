@@ -172,7 +172,7 @@ async function check() {
       if (row.title && firstAction !== undefined) assert.ok(row.title.right <= firstAction + .01, label + ': title stays clear of its action slots ' + JSON.stringify(row))
     }
     for (const control of measured.history) assert.deepEqual([control.width, control.height], [24, 24], label + ': history uses the icon slot size')
-    for (const control of measured.tools) assert.equal(control.height, 32, label + ': footer/top tools share one target height')
+    for (const control of measured.tools) assert.equal(control.height, 32, label + ': rail/top tools share one target height')
     assert.equal(measured.gap, 4, label + ': both orientations share the tab gap')
     if (process.env.ALTO_TAB_GEOMETRY_REPORT) console.log(label + ': ' + JSON.stringify(measured))
     return measured
@@ -185,6 +185,52 @@ async function check() {
     assert.deepEqual(changed.title, original.title, label + ': a status update does not move or shrink the tab title')
     assert.deepEqual(changed.close, original.close, label + ': a status update does not move the close action')
     await run('geometryStatus.remove()')
+  }
+  const tabListStart = () => run(`(() => {
+    const strip=document.querySelector('.workspace-tabs'),rail=document.querySelector('.vertical-tab-rail'),style=getComputedStyle(strip),bounds=strip.getBoundingClientRect();
+    const first=strip.querySelector('.workspace-tab:not(.is-group-collapsed)').getBoundingClientRect();
+    if(!rail)return {orientation:'horizontal',margin:parseFloat(style.marginTop),padding:parseFloat(style.paddingTop)};
+    const footer=rail.querySelector('.vertical-tab-rail-footer'),tools=footer.getBoundingClientRect();
+    return {orientation:'vertical',collapsed:rail.classList.contains('is-collapsed'),top:bounds.top,bottom:bounds.bottom,first:first.top,margin:parseFloat(style.marginTop),padding:parseFloat(style.paddingTop),
+      headerBottom:rail.querySelector('.vertical-tab-rail-header').getBoundingClientRect().bottom,
+      footerTop:tools.top,footerBottom:tools.bottom,railBottom:rail.getBoundingClientRect().bottom,footerAfterStrip:strip.nextElementSibling===footer,
+      controlsFit:[...footer.querySelectorAll('button')].every(button=>{const r=button.getBoundingClientRect();return r.left>=tools.left&&r.right<=tools.right&&r.top>=tools.top&&r.bottom<=tools.bottom})};
+  })()`)
+  const assertTabListStart = async label => {
+    const measured=await tabListStart()
+    if(measured.orientation==='horizontal'){
+      assert.deepEqual([measured.margin,measured.padding],[0,4],label+': horizontal lists keep their existing inset')
+    }else{
+      if(!measured.collapsed)assert.equal(measured.headerBottom,40,label+': the native title band stays fixed')
+      assert.deepEqual([measured.margin,measured.padding,measured.top,measured.first],[0,4,measured.headerBottom,measured.headerBottom+4],label+': tabs follow the title band without reserving curve space')
+      assert.deepEqual([measured.bottom,measured.footerBottom],[measured.footerTop,measured.railBottom],label+': tools sit at the rail bottom outside the scroller')
+      assert.equal(measured.footerAfterStrip,true,label+': keyboard order follows the visible tab list and footer')
+      assert.equal(measured.controlsFit,true,label+': toolbar controls stay inside the rail')
+    }
+    return measured
+  }
+  const assertScrollableTabList = async (label,artifact) => {
+    const before=await assertTabListStart(label)
+    const footer=await run('inspect().footer')
+    await run(`(() => {
+      const strip=document.querySelector('.workspace-tabs'),source=strip.querySelector('.workspace-tab:not(.workspace-tab-group-label)'),rows=document.createDocumentFragment();
+      for(let i=0;i<24;i++){const row=source.cloneNode(true);row.dataset.workspaceTab='overflow-'+i;row.dataset.fixtureOverflow='';row.querySelector('.workspace-tab-title').textContent='Overflow tab '+(i+1);rows.append(row)}
+      strip.insertBefore(rows,strip.querySelector('.workspace-tab-add-control'));strip.scrollTop=72;
+    })()`)
+    await settle()
+    const scrolled=await run(`(() => {
+      const strip=document.querySelector('.workspace-tabs'),bounds=strip.getBoundingClientRect(),x=bounds.left+bounds.width/2;
+      return {top:bounds.top,scroll:strip.scrollTop,overflow:strip.scrollHeight>strip.clientHeight,first:strip.querySelector('.workspace-tab').getBoundingClientRect().top,
+        above:!!document.elementFromPoint(x,bounds.top-1)?.closest('.workspace-tabs'),inside:!!document.elementFromPoint(x,bounds.top+8)?.closest('.workspace-tab')};
+    })()`)
+    assert.equal(scrolled.overflow,true,label+': a long list overflows')
+    assert.ok(scrolled.scroll>0&&scrolled.first<before.top,label+': rows move inside the scroller')
+    assert.deepEqual([scrolled.top,scrolled.above,scrolled.inside],[before.top,false,true],label+': scrolling stays clipped inside the tab viewport')
+    assert.deepEqual(await run('inspect().footer'),footer,label+': list overflow does not move footer controls')
+    if(artifact)await capture(artifact)
+    await run("document.querySelectorAll('[data-fixture-overflow]').forEach(row=>row.remove());document.querySelector('.workspace-tabs').scrollTop=0")
+    await settle()
+    assert.deepEqual(await tabListStart(),before,label+': removing overflow restores the original list geometry')
   }
   const material = () => run(`(() => {
     // Canvas normalizes both rgb() and color(srgb ...) computed colors.
@@ -301,7 +347,7 @@ async function check() {
         const background=chain.reduce((bg,s)=>over(rgba(s.backgroundColor),bg),${JSON.stringify(backdrop)});
         const opacity=chain.reduce((a,s)=>a*Number(s.opacity),1),foreground=rgba(style.color);foreground[3]*=opacity;
         const r=element.getBoundingClientRect();
-        return {ratio:contrast(over(foreground,background),background),background,color:rgba(style.color),opacity,weight:Number(style.fontWeight),outline:parseFloat(style.outlineWidth),outlineColor:rgba(style.outlineColor),outlineRatio:contrast(over(rgba(style.outlineColor),background),background),focus:element.matches(':focus-visible'),transition:style.transitionProperty,rect:{x:r.x,y:r.y,width:r.width,height:r.height}};
+        return {ratio:contrast(over(foreground,background),background),background,fill:rgba(style.backgroundColor),color:rgba(style.color),opacity,weight:Number(style.fontWeight),outline:parseFloat(style.outlineWidth),outlineColor:rgba(style.outlineColor),outlineRatio:contrast(over(rgba(style.outlineColor),background),background),focus:element.matches(':focus-visible'),transition:style.transitionProperty,rect:{x:r.x,y:r.y,width:r.width,height:r.height}};
       };
       const probe=document.createElement('i');document.querySelector('.workspace-layout-root').append(probe);
       const body=Object.fromEntries(['text','text-strong','muted'].map(name=>{probe.style.color='var(--'+name+')';return [name,rgba(getComputedStyle(probe).color)]}));probe.remove();
@@ -328,6 +374,10 @@ async function check() {
     }
   }
   const assertHeaderControls = async theme => {
+    const tool=(await readTabsContrast(theme,'vertical')).tool.rect
+    await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: tool.x + tool.width / 2, y: tool.y + tool.height / 2 })
+    await settle()
+    const hoverFill=(await readTabsContrast(theme,'vertical')).tool.fill
     const read = async () => {
       const measured = await readTabsContrast(theme, 'vertical')
       return { ink: measured.normal.color, header: measured.headers.find(header => header.legacy) }
@@ -338,6 +388,7 @@ async function check() {
       await settle()
       const hovered = await read()
       assert.deepEqual(hovered.header[name].color, hovered.ink, name + ': legacy header hover keeps readable chrome ink')
+      assert.deepEqual(hovered.header[name].fill, hoverFill, name + ': pane controls share the sidebar hover fill')
       await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 })
       await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 })
       await run(`document.querySelector('.workspace-view:not([hidden]) .${className}').focus({preventScroll:true})`)
@@ -458,6 +509,7 @@ async function check() {
     assert.match(state.toolHost, /workspace-tabbar/, 'Tools start in the top bar')
     assert.equal(state.toolsAttribute, null)
     await assertTabGeometry('Initial horizontal geometry')
+    await assertTabListStart('Initial horizontal list')
 
     await run("document.getElementById('draft-pane-a').value='Keep this draft';window.originalDraft=document.getElementById('draft-pane-a');enableVertical()")
     await finishMotion()
@@ -477,6 +529,7 @@ async function check() {
     assert.equal(state.toolsAttribute, 'rail')
     assert.equal(state.railEnd, '232px')
     await assertStableTabStatus('Expanded vertical geometry')
+    await assertScrollableTabList('Expanded opaque tab list')
     // Every pane kind's top bar joins one title band: same height and color as
     // the rail's top row, with the sheet edge curving beneath it.
     const band = selector => run(`(()=>{const view=document.querySelector('.workspace-view:not([hidden])'),bar=view.querySelector('${selector}'),style=getComputedStyle(bar),r=bar.getBoundingClientRect(),edge=getComputedStyle(view,'::before'),rail=document.querySelector('.vertical-tab-rail');
@@ -552,6 +605,7 @@ async function check() {
     await run("document.querySelector('.vertical-tab-rail-resize').focus();key('Home')")
     await finishMotion()
     assert.equal((await run('inspect()')).rail.width, 168)
+    await assertTabListStart('Minimum-width rail tools')
     await run("document.querySelector('.vertical-tab-rail-resize').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))")
     await finishMotion()
     assert.equal((await run('inspect()')).rail.width, 232)
@@ -563,6 +617,7 @@ async function check() {
     assert.equal(state.rail.width, 48)
     assert.equal(state.stored.collapsed, true)
     assert.ok(state.tabs.every(tab => tab.icon && !tab.titleVisible), JSON.stringify(state.tabs))
+    await assertTabListStart('Collapsed tab list')
     await capture('vertical-collapsed-light')
     await run("document.querySelector('[data-workspace-tab=c]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))")
     await finishMotion()
@@ -590,6 +645,7 @@ async function check() {
     assert.equal(state.headerStrip, true)
     assert.equal(state.bar.height, 52)
     await assertStableTabStatus('Restored horizontal geometry')
+    await assertTabListStart('Restored horizontal list')
     const expandedMembers = await run("[...document.querySelectorAll('.workspace-tab-group-member')].map(row=>row.getBoundingClientRect().width)")
     await run("click('[data-workspace-group]');document.querySelector('.workspace-tabs').getAnimations({subtree:true}).forEach(animation=>{animation.pause();animation.currentTime=100})")
     const foldingMembers = await run("[...document.querySelectorAll('.workspace-tab-group-member')].map(row=>({width:row.getBoundingClientRect().width,height:row.getBoundingClientRect().height,inert:row.inert}))")
@@ -711,8 +767,15 @@ async function check() {
           assert.equal((await run("document.querySelector('.vertical-tab-rail-header').getBoundingClientRect().height")), 40, 'The rail header keeps the band height')
         }
         assertNativeMaterial(await material(), theme + ' at ' + width + 'px');
+        await assertTabListStart(theme + ': vertical list at ' + width + 'px')
         let verticalColors
         if (width === 1200) {
+          if(theme==='light')await assertScrollableTabList('Expanded native tab list','vertical-scroll-light-1200')
+          await transparencyPreference('reduce')
+          await settle()
+          await assertTabListStart(theme + ': expanded reduced-transparency list')
+          await transparencyPreference('no-preference')
+          await settle()
           verticalColors = await assertTabsContrast(theme, 'vertical')
           await assertMaterialPixels(theme + ': side-by-side panes')
         }
