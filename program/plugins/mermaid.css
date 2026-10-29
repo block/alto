@@ -5,7 +5,7 @@
   color: var(--text);
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--panel-solid) 88%, white);
+  background: var(--ui-surface);
 }
 
 .cordis-mermaid figcaption {
@@ -154,10 +154,7 @@
   min-width: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  /* Match the renderer’s light diagram palette in either application theme. */
-  color-scheme: light;
-  --ui-focus: CanvasText;
-  background: Canvas;
+  background: var(--ui-surface);
 }
 
 .cordis-mermaid-expanded-viewport:focus-visible {

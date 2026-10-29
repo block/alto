@@ -69,6 +69,7 @@ html:not([data-desktop-platform='darwin']) .vertical-tab-rail:not(.is-collapsed)
 }
 .vertical-tab-rail:not(.is-collapsed) .workspace-tabs {
   --workspace-tab-group-line-inset: var(--ui-row-inline-padding);
+  --workspace-tab-group-member-indent: calc(var(--ui-row-inline-padding) + var(--ui-row-gap));
   padding-inline: var(--ui-panel-inset);
 }
 
@@ -112,8 +113,13 @@ html:not([data-desktop-platform='darwin']) .vertical-tab-rail:not(.is-collapsed)
 :is(.workspace-tabbar, .vertical-tab-rail:not(.is-collapsed)) .workspace-tab > :is(.workspace-tab-thread-status, .workspace-tab-group-count) {
   inset-inline-end: calc(var(--workspace-tab-action-size) + var(--workspace-tab-action-inset));
 }
-.vertical-tab-rail:not(.is-collapsed) .workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab-group-member:not(.is-group-collapsed) {
-  padding-inline-start: calc(var(--ui-row-inline-padding) + var(--space-1) / 2 + var(--ui-row-gap));
+/* Keep the continuous group line in a gutter outside the rounded tab surface.
+   Shared hover, selection, and focus states then all clear the line. */
+.vertical-tab-rail:not(.is-collapsed) .workspace-tabs-with-groups[aria-orientation='vertical'] .workspace-tab.workspace-tab-group-member {
+  --workspace-tab-group-line-inset: calc(-1 * var(--ui-row-gap));
+  width: calc(100% - var(--workspace-tab-group-member-indent));
+  margin-inline-start: var(--workspace-tab-group-member-indent);
+  padding-inline-start: var(--ui-row-inline-padding);
 }
 
 .workspace-tabbar .workspace-tab-add {

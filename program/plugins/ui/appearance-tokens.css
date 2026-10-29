@@ -1,6 +1,7 @@
 /* App-wide roles inherit the selected palette, including body-mounted portals.
    The window's decorative accent and native material remain independent. */
 :root {
+  accent-color: var(--ui-action);
   --ui-font: var(--composer-font);
   --sans: var(--ui-font);
   --display: var(--sans);

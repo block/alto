@@ -15,6 +15,8 @@ import { uiStyles } from './ui/appearance.js'
 import type { Mermaid, MermaidConfig, RenderResult } from 'mermaid'
 import type { Plugin } from 'cordis'
 import type { MarkdownCodeBlockProps } from './markdown-api.js'
+import { DEFAULT_THEME, normalizeAccent } from './theme-api.js'
+import { useThemeAppearance, type ClientThemeAppearance } from './theme-runtime.js'
 import styles from './mermaid.css'
 
 export interface MermaidDiagramConfig {
@@ -38,7 +40,27 @@ function clamp(value: number | undefined, fallback: number, min: number, max: nu
   return Math.max(min, Math.min(max, value ?? fallback))
 }
 
-export function mermaidConfiguration(config: MermaidDiagramConfig): MermaidConfig {
+function mixColor(accent: string, surface: string, amount: number): string {
+  return '#' + [1, 3, 5].map((offset) => (
+    Math.round(Number.parseInt(accent.slice(offset, offset + 2), 16) * amount
+      + Number.parseInt(surface.slice(offset, offset + 2), 16) * (1 - amount))
+      .toString(16).padStart(2, '0')
+  )).join('')
+}
+
+export function mermaidConfiguration(
+  config: MermaidDiagramConfig,
+  appearance: ClientThemeAppearance = { mode: 'light', accent: DEFAULT_THEME.accent },
+): MermaidConfig {
+  const dark = appearance.mode === 'dark'
+  const accent = normalizeAccent(appearance.accent)
+  const surface = dark ? '#262931' : '#f7f7fa'
+  const text = dark ? '#c8ccd8' : '#42475d'
+  // Mermaid derives other colors from these values, so supply concrete hex
+  // colors rather than CSS variables. Neutral ink keeps extreme accents legible.
+  const primary = mixColor(accent, surface, dark ? 0.18 : 0.08)
+  const primaryBorder = mixColor(accent, text, 0.35)
+  const border = dark ? '#565c6d' : '#c7cad5'
   return {
     startOnLoad: false,
     securityLevel: 'strict',
@@ -48,44 +70,45 @@ export function mermaidConfiguration(config: MermaidDiagramConfig): MermaidConfi
     theme: 'base',
     look: 'classic',
     themeVariables: {
-      background: '#f7f7fa',
+      darkMode: dark,
+      background: surface,
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif',
       fontSize: '14px',
-      primaryColor: '#f0edff',
-      primaryBorderColor: '#a993f1',
-      primaryTextColor: '#42475d',
-      secondaryColor: '#edf2ff',
-      secondaryBorderColor: '#aebce5',
-      secondaryTextColor: '#42475d',
-      tertiaryColor: '#f2f3f7',
-      tertiaryBorderColor: '#c7cad5',
-      tertiaryTextColor: '#42475d',
-      lineColor: '#858ba0',
-      textColor: '#42475d',
-      mainBkg: '#f0edff',
-      nodeBorder: '#a993f1',
-      clusterBkg: '#f5f4fa',
-      clusterBorder: '#d8d5e2',
-      edgeLabelBackground: '#f7f7fa',
-      noteBkgColor: '#fff8d9',
-      noteBorderColor: '#d8c980',
-      noteTextColor: '#4d4b43',
-      actorBkg: '#f0edff',
-      actorBorder: '#a993f1',
-      actorTextColor: '#42475d',
-      signalColor: '#73798f',
-      signalTextColor: '#42475d',
-      labelBoxBkgColor: '#f7f7fa',
-      labelBoxBorderColor: '#c7cad5',
-      labelTextColor: '#42475d',
+      primaryColor: primary,
+      primaryBorderColor: primaryBorder,
+      primaryTextColor: text,
+      secondaryColor: dark ? '#2c3447' : '#edf2ff',
+      secondaryBorderColor: dark ? '#5c6a8b' : '#aebce5',
+      secondaryTextColor: text,
+      tertiaryColor: dark ? '#2b2e37' : '#f2f3f7',
+      tertiaryBorderColor: border,
+      tertiaryTextColor: text,
+      lineColor: dark ? '#989fb2' : '#858ba0',
+      textColor: text,
+      mainBkg: primary,
+      nodeBorder: primaryBorder,
+      clusterBkg: dark ? '#23262e' : '#f5f4fa',
+      clusterBorder: dark ? border : '#d8d5e2',
+      edgeLabelBackground: surface,
+      noteBkgColor: dark ? '#403a24' : '#fff8d9',
+      noteBorderColor: dark ? '#9e8948' : '#d8c980',
+      noteTextColor: dark ? '#e9ddb6' : '#4d4b43',
+      actorBkg: primary,
+      actorBorder: primaryBorder,
+      actorTextColor: text,
+      signalColor: dark ? '#989fb2' : '#73798f',
+      signalTextColor: text,
+      labelBoxBkgColor: surface,
+      labelBoxBorderColor: border,
+      labelTextColor: text,
     },
   }
 }
 
-async function mermaidRuntime(config: MermaidDiagramConfig): Promise<Mermaid> {
+async function mermaidRuntime(config: MermaidDiagramConfig, appearance: ClientThemeAppearance): Promise<Mermaid> {
   runtimePromise ??= import('mermaid').then((module) => module.default)
   const runtime = await runtimePromise
-  const siteConfig = mermaidConfiguration(config)
+  const siteConfig = mermaidConfiguration(config, appearance)
   const signature = JSON.stringify(siteConfig)
   if (signature !== activeConfiguration) {
     runtime.initialize(siteConfig)
@@ -228,6 +251,7 @@ export function MermaidDiagram({
   config,
   overlays,
 }: MarkdownCodeBlockProps & { config: MermaidDiagramConfig; overlays?: ClientOverlays }): ReactNode {
+  const { mode, accent } = useThemeAppearance()
   const renderId = `alto-mermaid-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
   const stageRef = useRef<HTMLDivElement>(null)
   const [expandedHeight, setExpandedHeight] = useState<number>()
@@ -255,7 +279,7 @@ export function MermaidDiagram({
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
-          const runtime = await mermaidRuntime(config)
+          const runtime = await mermaidRuntime(config, { mode, accent })
           const valid = await runtime.parse(source, { suppressErrors: true })
           if (!valid) throw new Error('Invalid Mermaid diagram')
           // Mermaid uses this id while building the SVG. A fresh id avoids
@@ -278,7 +302,7 @@ export function MermaidDiagram({
       active = false
       window.clearTimeout(timer)
     }
-  }, [code, config, maxSourceCharacters, renderId])
+  }, [code, config, maxSourceCharacters, renderId, mode, accent])
 
   useEffect(() => { if (!render.svg) closeExpanded() }, [render.svg, closeExpanded])
 

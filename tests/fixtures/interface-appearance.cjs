@@ -11,16 +11,22 @@ async function check() {
     stdin: { resolveDir: process.cwd(), sourcefile: 'interface-appearance-check.tsx', loader: 'tsx', contents: `
       import React,{useState,useSyncExternalStore} from 'react';
       import {createRoot} from 'react-dom/client';
-      import {flushSync} from 'react-dom';
+      import {createPortal,flushSync} from 'react-dom';
+      import {themeStyle} from './src/client/shell';
       import appearancePlugin from './program/plugins/interface-appearance.client';
       import workspaceAppearancePlugin from './program/plugins/workspace-tabs-appearance.client';
       import surfacesPlugin from './program/plugins/ui-surfaces.client';
-      import themePlugin from './program/plugins/theme.client';
+      import themePlugin,{ThemeController} from './program/plugins/theme.client';
+      import {DEFAULT_THEME,THEME_STORAGE_KEY} from './program/plugins/theme-api';
+      import {useThemeAppearance} from './program/plugins/theme-runtime';
       import searchPlugin from './program/plugins/search.client';
       import {WorkspaceTabActionMenu} from './program/plugins/workspace-tab-menu.client';
       import {NewWorkspaceDialog} from './program/plugins/ui/project-settings';
       import {Composer} from './program/plugins/ui/composer';
       import {uiStyles} from './program/plugins/ui/appearance';
+
+      // Production shells have an inline default accent; Settings must beat it.
+      for(const [name,value] of Object.entries(themeStyle({accent:DEFAULT_THEME.accent})))document.getElementById('root').style.setProperty(name,value);
 
       const owner=()=>{let cleanups=[];return {
         effect(fn){const cleanup=fn();if(typeof cleanup==='function')cleanups.push(cleanup);return cleanup},
@@ -72,9 +78,12 @@ async function check() {
         disabled={false} readOnly={false} sending={false} activeTurn={false} onImagesChange={()=>{}} onAttachmentsChange={()=>{}} onAttachFile={async()=>{}}
         onModelChange={()=>{}} onEffortChange={()=>{}} onPermissionModeChange={()=>{}} onWorkspaceChange={()=>{}} onSubmit={()=>{}} onInterrupt={()=>{}}/>}
       function Creator(){const active=useSyncExternalStore(overlays.subscribe,overlays.snapshot);return active==='creator'?<NewWorkspaceDialog disabled={false} onClose={()=>overlays.close('creator')} onCreate={async()=>{}}/>:null}
+      function AccentProbe(){const theme=useThemeAppearance();return createPortal(<div id="accent-body-portal" hidden data-theme={theme.mode+'|'+theme.accent}>
+        <span className="activity-markdown"><a href="#accent">A themed link</a></span><button className={uiStyles.button+' primary'}>A themed action</button><input type="checkbox" defaultChecked aria-label="Native accent sample"/>
+      </div>,document.body)}
       function App(){useSyncExternalStore(ui.subscribe,ui.snapshot);const Settings=surfaces.get('default-settings'),Search=roots.get('default-search');return <><div data-shell-node="workspace" className="fixture-workspace"><main className="workspace-layout-root">
         <div className="fixture-content"><button id="menu-trigger" className={uiStyles.button} onClick={()=>overlays.open('menu')}>Tab options</button></div><Draft/>
-        </main></div><Settings surface={{id:'settings',kind:'settings'}}/><Search/><Menu/><Creator/></>}
+        </main></div><Settings surface={{id:'settings',kind:'settings'}}/><Search/><Menu/><Creator/><AccentProbe/></>}
       const root=createRoot(document.getElementById('root'));
       flushSync(()=>root.render(<App/>));
       window.frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
@@ -92,6 +101,23 @@ async function check() {
       window.searchState=()=>({query:document.querySelector('.search-palette input')?.value,selected:[...document.querySelectorAll('.search-result')].findIndex(element=>element.getAttribute('aria-selected')==='true'),overlay,selectedThreads});
       window.remember=(selector,name)=>{const element=document.querySelector(selector);element.focus();element.setSelectionRange?.(3,8);window[name]={element,value:element.value,text:element.textContent,start:element.selectionStart,end:element.selectionEnd};return true};
       window.preserved=(selector,name)=>{const saved=window[name],element=document.querySelector(selector);return saved.element===element&&element.isConnected&&element.value===saved.value&&element.textContent===saved.text&&element.selectionStart===saved.start&&element.selectionEnd===saved.end};
+      window.rememberAccentCaret=()=>flushSync(()=>{const editor=document.querySelector('[data-cordis-composer-editor]');editor.focus();const text=document.createTreeWalker(editor,NodeFilter.SHOW_TEXT).nextNode(),range=document.createRange();range.setStart(text,3);range.setEnd(text,8);getSelection().removeAllRanges();getSelection().addRange(range);window.accentCaret={text,start:3,end:8}});
+      window.accentValues=()=>{
+        const canvas=document.createElement('canvas'),context=canvas.getContext('2d');canvas.width=canvas.height=1;
+        const rgba=color=>{context.clearRect(0,0,1,1);context.fillStyle=color;context.fillRect(0,0,1,1);const value=[...context.getImageData(0,0,1,1).data];value[3]/=255;return value};
+        const composer=document.querySelector('.composer'),probe=document.createElement('span');probe.hidden=true;composer.append(probe);
+        const token=(element,name)=>{element.append(probe);probe.style.color='var('+name+')';return rgba(getComputedStyle(probe).color)};
+        const result={inline:document.getElementById('root').style.getPropertyValue('--accent'),published:document.documentElement.style.getPropertyValue('--alto-theme-accent'),
+          shell:token(document.getElementById('root'),'--accent'),body:token(document.getElementById('accent-body-portal'),'--accent'),
+          material:token(document.querySelector('.workspace-layout-root'),'--workspace-material-tint'),chrome:token(document.querySelector('.workspace-layout-root'),'--workspace-chrome'),
+          focus:token(composer,'--composer-focus-outline'),runtime:document.getElementById('accent-body-portal').dataset.theme,
+          native:[...document.querySelectorAll('#accent-body-portal input,select[aria-label="Chrome palette"],input[aria-label="Custom accent color"]')].map(element=>getComputedStyle(element).accentColor==='auto'?'auto':rgba(getComputedStyle(element).accentColor)),
+          selection:rgba(getComputedStyle(document.querySelector('#accent-body-portal a'),'::selection').backgroundColor),
+          stored:JSON.parse(localStorage.getItem(THEME_STORAGE_KEY)),restored:new ThemeController().snapshot(),
+          caret:getSelection().anchorNode===accentCaret.text&&getSelection().focusNode===accentCaret.text&&getSelection().anchorOffset===accentCaret.start&&getSelection().focusOffset===accentCaret.end,
+          focusApplied:getComputedStyle(composer).boxShadow.includes(getComputedStyle(probe).color)};
+        probe.remove();return result;
+      };
       window.samples=selectors=>{
         const canvas=document.createElement('canvas'),context=canvas.getContext('2d');canvas.width=canvas.height=1;
         const rgba=color=>{context.clearRect(0,0,1,1);context.fillStyle=color;context.fillRect(0,0,1,1);const value=[...context.getImageData(0,0,1,1).data];value[3]/=255;return value};
@@ -222,6 +248,54 @@ async function check() {
     await win.webContents.debugger.sendCommand('CSS.enable')
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true })
     await run(`remember('[data-cordis-composer-editor]','originalEditor')`)
+
+    // Exercise the actual Settings event/controller/storage path before the
+    // broader style-role tests override tokens or write theme attributes.
+    await run(`openSettings();nav('Appearance');input('.program-modal-search input','appearance');remember('.program-modal-search input','accentSettings');rememberAccentCaret()`)
+    await settleGeometry()
+    const accentSelectors = ['.composer', '[data-cordis-composer-editor]', '.send-button']
+    const accentGeometry = measured => Object.fromEntries(accentSelectors.map(selector => [selector, Object.fromEntries(['width', 'radius', 'font', 'size'].map(property => [property, measured[selector][property]]))]))
+    const originalAccentGeometry = accentGeometry(await sample(accentSelectors))
+    for (const mode of ['light', 'dark']) {
+      await run(`click('.theme-mode-picker button:nth-child(${mode === 'light' ? 2 : 3})')`)
+      for (const [label, accent, channel, chrome] of [['Green', '#16a34a', 1, 'alto'], ['Orange', '#ea580c', 0, 'ink']]) {
+        await run(`click('button[aria-label="${label} accent"]');(()=>{const select=document.querySelector('select[aria-label="Chrome palette"]');select.value=${JSON.stringify(chrome)};select.dispatchEvent(new Event('change',{bubbles:true}))})()`)
+        await settleGeometry()
+        const values = await run('accentValues()')
+        const expected = accent.slice(1).match(/../g).map(value => parseInt(value, 16)).concat(1)
+        const context = mode + ' actual ' + label + ' Settings click: '
+        assert.equal(values.inline, '#7c3aed', 'The real shell retains its inline default during user overrides')
+        assert.equal(values.published, accent, context + 'publishes the requested accent')
+        assert.equal(values.runtime, mode + '|' + accent, context + 'updates subscribed renderer appearance')
+        assert.deepEqual(values.shell, expected, context + 'beats the inline shell default')
+        assert.deepEqual(values.body, expected, context + 'reaches the body-mounted portal')
+        assert.equal(await run(`document.querySelector('#accent-body-portal').parentElement===document.body`), true)
+        const measured = await sample([...accentSelectors, '#accent-body-portal a', '#accent-body-portal button'])
+        assert.deepEqual(measured['#accent-body-portal a'].color, expected, context + 'recolors Markdown links')
+        for (const [name, color] of Object.entries({ material: values.material, chrome: values.chrome, focus: values.focus, selection: values.selection, send: measured['.send-button'].color })) {
+          assert.ok(color[channel] > Math.max(...color.slice(0, 3).filter((_value, index) => index !== channel)), context + name + ' follows the selected hue: ' + JSON.stringify(color))
+        }
+        assert.ok(values.focusApplied, context + 'the real focused Composer paints its themed outline')
+        assert.ok(measured['.send-button'].fill[3] > 0 && measured['.send-button'].fill[3] < .5, context + 'Send retains its soft translucent treatment')
+        assert.ok(measured['.send-button'].contrast >= 3, context + 'Send glyph remains legible: ' + JSON.stringify(measured['.send-button']))
+        for (const color of values.native) assert.deepEqual(color, measured['#accent-body-portal button'].fill, context + 'native controls inherit the action accent')
+        assert.ok(values.native.length >= 3, 'Native checkbox and actual Settings palette controls are sampled')
+        assert.ok(values.selection[3] > 0 && values.selection[3] < 1, context + 'text selection keeps a translucent accent')
+        for (const saved of [values.stored, values.restored]) assert.deepEqual([saved.mode, saved.accent, saved.chrome], [mode, accent, chrome], context + 'persists and restores the preference')
+        assert.ok(values.caret && await run(`preserved('.program-modal-search input','accentSettings')&&preserved('[data-cordis-composer-editor]','originalEditor')`), context + 'preserves Settings query/caret and Composer draft/editor/caret')
+        assert.deepEqual(accentGeometry(measured), originalAccentGeometry, context + 'changes no editor or Send shape/type/width')
+      }
+      await artifact('settings-accent-' + mode)
+      await run(`key('.program-modal-search input','Escape');openSettings();nav('Appearance')`)
+      await settle()
+      assert.equal(await run(`document.querySelector('button[aria-label="Orange accent"]').getAttribute('aria-checked')`), 'true', mode + ' reopening Settings retains the selected accent')
+      assert.equal(await run(`document.querySelector('input[aria-label="Custom accent color"]').value`), '#ea580c')
+      await run(`input('.program-modal-search input','appearance');remember('.program-modal-search input','accentSettings');rememberAccentCaret()`)
+      await settleGeometry()
+    }
+    await run(`click('.theme-settings-card .settings-row:last-child');key('.program-modal-search input','Escape')`)
+    console.log('Real Settings accent propagation, persistence, and Composer retention checks passed')
+
     await setSentinels(true)
     for (const [property, token] of [['color', '--ui-text'], ['fill', '--ui-control-fill'], ['radius', '--ui-control-radius'], ['font', '--ui-font'], ['size', '--ui-size'], ['weight', '--ui-weight']]) await assertRole('#menu-trigger', property, token)
     for (const [states, token] of [[['hover'], '--ui-hover'], [['hover', 'active'], '--ui-pressed']]) {

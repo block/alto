@@ -194,6 +194,25 @@ async function check() {
     assert.deepEqual(changed.close, original.close, label + ': a status update does not move the close action')
     await run('geometryStatus.remove()')
   }
+  const assertGroupRailGeometry = async (label, state) => {
+    const measured=await run(`(()=>{
+      const heading=document.querySelector('[data-workspace-group] > span:first-child').getBoundingClientRect(),other=document.querySelector('[data-workspace-tab=c]'),close=other.querySelector('.workspace-tab-close').getBoundingClientRect();
+      return {heading:heading.left,right:other.getBoundingClientRect().right,close:close.right,rows:[...document.querySelectorAll('.workspace-tab-group-member')].map(row=>{
+        const r=row.getBoundingClientRect(),style=getComputedStyle(row),line=getComputedStyle(row,'::before'),left=r.left+parseFloat(style.borderLeftWidth)+parseFloat(line.left),action=row.querySelector('.workspace-tab-close')?.getBoundingClientRect();
+        return {id:row.dataset.workspaceTab,left:r.left,right:r.right,close:action?.right,selected:row.classList.contains('is-active'),hover:row.matches(':hover'),focus:row.matches(':focus-visible'),fill:style.backgroundColor,
+          line:{left,right:left+parseFloat(line.width),top:r.top+parseFloat(style.borderTopWidth)+parseFloat(line.top),bottom:r.bottom-parseFloat(style.borderBottomWidth)-parseFloat(line.bottom)}};
+      })};
+    })()`)
+    for(const [index,row] of measured.rows.entries()){
+      assert.ok(row.left-row.line.right>=4,label+': rounded member surfaces stay clear of the rail '+JSON.stringify(row))
+      assert.equal(row.line.left,measured.heading,label+': rail stays aligned with the group heading')
+      assert.equal(row.right,measured.right,label+': member highlights retain the trailing column')
+      if(row.close!==undefined)assert.equal(row.close,measured.close,label+': member close actions retain the trailing column')
+      if(index)assert.ok(measured.rows[index-1].line.bottom>=row.line.top,label+': the rail remains continuous between members')
+    }
+    assert.equal(measured.rows.find(row=>row.id==='a').selected,true,label+': the selected member is painted')
+    if(state)assert.equal(measured.rows.find(row=>row.id==='b')[state],true,label+': the member has its '+state+' state')
+  }
   const tabListStart = () => run(`(() => {
     const strip=document.querySelector('.workspace-tabs'),rail=document.querySelector('.vertical-tab-rail'),style=getComputedStyle(strip),bounds=strip.getBoundingClientRect();
     const first=strip.querySelector('.workspace-tab:not(.is-group-collapsed)').getBoundingClientRect();
@@ -613,9 +632,34 @@ async function check() {
     const groupColumn = await run(`(()=>{const label=document.querySelector('[data-workspace-group] > span:first-child').getBoundingClientRect(),tab=document.querySelector('[data-workspace-tab=a]'),r=tab.getBoundingClientRect(),line=getComputedStyle(tab,'::before'),
       left=r.left+parseFloat(getComputedStyle(tab).borderLeftWidth)+parseFloat(line.left);return {labelText:label.left,line:left,lineEnd:left+parseFloat(line.width),content:tab.firstElementChild.getBoundingClientRect().left}})()`)
     assert.equal(groupColumn.line, groupColumn.labelText, 'Group line aligns with the label text: ' + JSON.stringify(groupColumn))
-    assert.equal(groupColumn.content - groupColumn.lineEnd, 8, 'Member content starts a step past the line: ' + JSON.stringify(groupColumn))
+    assert.equal(groupColumn.content - groupColumn.lineEnd, 18, 'Member content clears the line and its inset highlight: ' + JSON.stringify(groupColumn))
     await assertTabGeometry('Expanded group geometry')
     await capture('vertical-group-light')
+    window.webContents.debugger.attach('1.3')
+    const previousGroupTheme=await run("document.documentElement.getAttribute('data-alto-theme')")
+    await run("click('[data-workspace-tab=a]')")
+    for(const theme of ['light','dark'])for(const width of [232,168]){
+      await run(`document.documentElement.dataset.altoTheme='${theme}';resize(${width}-document.querySelector('.vertical-tab-rail').getBoundingClientRect().width)`)
+      await finishMotion()
+      const target=await run("(()=>{const r=document.querySelector('[data-workspace-tab=b]').getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()")
+      await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',...target})
+      await settle()
+      await assertGroupRailGeometry(theme+' '+width+'px selected and hovered','hover')
+      await capture(`vertical-group-member-${theme}-${width}-hover-selected`)
+      await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9})
+      await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9})
+      await run("document.querySelector('[data-workspace-tab=b]').focus({preventScroll:true})")
+      await assertGroupRailGeometry(theme+' '+width+'px keyboard focus','focus')
+      await capture(`vertical-group-member-${theme}-${width}-focus`)
+      await run('document.activeElement.blur()')
+    }
+    await run("document.querySelector('[data-workspace-tab=a]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))")
+    await finishMotion()
+    await assertGroupRailGeometry('Renaming an expanded member')
+    await run("key('Escape');click('[data-workspace-tab=c]');resize(232-document.querySelector('.vertical-tab-rail').getBoundingClientRect().width)")
+    await run(previousGroupTheme===null?"delete document.documentElement.dataset.altoTheme":`document.documentElement.dataset.altoTheme=${JSON.stringify(previousGroupTheme)}`)
+    await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:1100,y:700})
+    await finishMotion()
     await run("click('[data-workspace-group]')")
     await finishMotion()
     state = await run('inspect()')
@@ -720,7 +764,6 @@ async function check() {
     await run("click('.vertical-tab-rail-toggle')")
     await finishMotion()
 
-    window.webContents.debugger.attach('1.3')
     const transparencyPreference = value => window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-reduced-transparency', value }],
     })
