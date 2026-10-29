@@ -233,6 +233,15 @@ html:not([data-desktop-platform='darwin']) .vertical-tab-rail:not(.is-collapsed)
   transition: margin-inline-start var(--workspace-tab-group-duration) var(--workspace-tab-group-easing);
 }
 
+/* The resize guide follows the sheet's straight edge below its rounded corner.
+   Keep the full-height handle available for pointer and keyboard resizing. */
+.workspace-body[data-tab-orientation='vertical']:has(> .workspace-views > .workspace-view[role='tabpanel']:not([hidden])) .vertical-tab-rail-resize {
+  --vertical-tab-resize-guide-start: calc(var(--workspace-pane-header-height) - var(--workspace-sheet-edge) + var(--workspace-sheet-radius));
+  background-position: 0 var(--vertical-tab-resize-guide-start);
+  background-size: 100% calc(100% - var(--vertical-tab-resize-guide-start));
+  background-repeat: no-repeat;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab-group-label { transition: none; }
 }
