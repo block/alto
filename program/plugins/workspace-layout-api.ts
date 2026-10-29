@@ -63,7 +63,11 @@ export interface WorkspaceTabPresentation {
   onKeyDown?(event: KeyboardEvent<HTMLElement>): void
 }
 
+export type WorkspaceTabOrientation = 'horizontal' | 'vertical'
+
 export interface WorkspaceTabStripProps {
+  /** Vertical while a registered tab rail hosts the strip; omitted means horizontal. */
+  orientation?: WorkspaceTabOrientation
   layout: WorkspaceLayoutState
   change: Dispatch<SetStateAction<WorkspaceLayoutState>>
   rootRef: RefObject<HTMLDivElement | null>
@@ -80,6 +84,32 @@ export interface WorkspaceTabStrip {
   renderer: ComponentType<WorkspaceTabStripProps>
   /** Tabs targeted by numbered shortcuts, in the order shown by this strip. */
   shortcutTargets?(layout: WorkspaceLayoutState): readonly WorkspaceView[]
+}
+
+export interface WorkspaceTabRailProps {
+  /** The active tab strip, rendered vertically with its new-tab control. */
+  strip: ReactNode
+  /** Back and forward controls followed by header-left contributions. */
+  navigation: ReactNode
+  /** Header-right contributions and header-end surfaces from the top bar. */
+  tools: ReactNode
+  layout: WorkspaceLayoutState
+}
+
+/**
+ * Set on the document element while a rail hosts the top bar's tools, with
+ * `--workspace-tools-rail-end` giving the rail's trailing edge. Tool flyouts
+ * use it to open beside the rail instead of beneath the top bar.
+ */
+export const WORKSPACE_TOOLS_RAIL_ATTRIBUTE = 'data-workspace-tools'
+
+export interface WorkspaceTabRail {
+  id: string
+  /**
+   * Frames the strip in a column beside the workspace views. The top bar is
+   * omitted while a rail is registered, so the rail must render navigation and tools.
+   */
+  renderer: ComponentType<WorkspaceTabRailProps>
 }
 
 export interface WorkspacePaneTarget {
@@ -213,6 +243,9 @@ export interface ClientWorkspaceLayoutService {
   registerTabAction(owner: import('cordis').Context, action: WorkspaceTabAction): WorkspaceTabAddonRegistration
   /** Replaces only the tab bar contents; pane trees keep their existing owners and keys. */
   registerTabStrip(owner: import('cordis').Context, strip: WorkspaceTabStrip): WorkspaceTabAddonRegistration
+  tabRail(): WorkspaceTabRail | undefined
+  /** Moves the tab strip into a side rail; pane trees stay mounted when it is added or removed. */
+  registerTabRail(owner: import('cordis').Context, rail: WorkspaceTabRail): WorkspaceTabAddonRegistration
   registerPaneAddon(
     owner: import('cordis').Context,
     addon: WorkspacePaneAddon,

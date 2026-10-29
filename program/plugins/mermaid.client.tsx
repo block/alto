@@ -11,6 +11,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { clientStyles, type ClientOverlays } from '../../src/client/plugin-api.js'
+import { uiStyles } from './ui/appearance.js'
 import type { Mermaid, MermaidConfig, RenderResult } from 'mermaid'
 import type { Plugin } from 'cordis'
 import type { MarkdownCodeBlockProps } from './markdown-api.js'
@@ -183,7 +184,7 @@ function ExpandedDiagram({ render, id, overlays, close }: {
     <div className={`${clientStyles.overlayLayer} cordis-mermaid-overlay`} onPointerDown={(event) => {
       if (event.target === event.currentTarget) close()
     }}>
-      <section ref={dialog} className={`${clientStyles.floatingPanel} cordis-mermaid-expanded`}
+      <section ref={dialog} className={`${clientStyles.floatingPanel} ${uiStyles.dialog} cordis-mermaid-expanded`}
         role="dialog" aria-modal="true" aria-label="Expanded Mermaid diagram" data-native-overlay={id}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
@@ -305,12 +306,13 @@ export function MermaidDiagram({
       <figcaption>
         {config.showLabel !== false ? <span>Diagram</span> : <span />}
         <div className="cordis-mermaid-actions">
-          <button type="button" title="Expand diagram" aria-label="Expand diagram" disabled={!render.svg}
+          <button className={uiStyles.iconButton} type="button" title="Expand diagram" aria-label="Expand diagram" disabled={!render.svg}
             onClick={() => setExpandedHeight(stageRef.current?.getBoundingClientRect().height ?? 0)}>
             <Maximize2 size={14} />
           </button>
           {config.showCopyButton !== false && (
             <button
+              className={uiStyles.iconButton}
               type="button"
               title={copied ? 'Copied' : 'Copy diagram source'}
               aria-label={copied ? 'Copied' : 'Copy diagram source'}

@@ -16,10 +16,15 @@ async function check() {
       import sourcePlugin from './program/plugins/source-viewer.client';
       import diffPlugin from './program/plugins/diff-viewer.client';
       import pdfPlugin from './program/plugins/pdf-viewer.client';
+      import appearancePlugin from './program/plugins/interface-appearance.client';
       import {sourceViewerResource} from './program/plugins/source-viewer-api';
       const kinds=new Map(),cleanup=[],root=createRoot(document.getElementById('root'));
       const resources={markdown:'/repo/notes.md',source:sourceViewerResource({path:'/repo/main.ts'}),diff:'review:one',pdf:'/repo/report.pdf'};
       const mounted=new Set(Object.keys(resources));
+      localStorage.setItem('alto.diff-review-comments.v1:review:one',JSON.stringify([{
+        id:'fixture-comment',itemId:'review:one:0:0',path:'main.ts',side:'additions',start:1,end:1,
+        body:'Preserved review comment.',createdAt:'2026-10-28T00:00:00Z',
+      }]));
       let active='home',version=1;
       window.requests=[];window.held=new Set();window.pending=[];window.native=[];
       const response=(method,payload)=>{
@@ -47,7 +52,7 @@ async function check() {
           const record={visible:false,destroyed:false,reloads:0};window.native.push(record);
           return {setVisible:value=>{record.visible=value},setBounds:()=>{},focus:()=>{},destroy:async()=>{record.destroyed=true},perform:async action=>{if(action==='reload')record.reloads++}};
         }}};
-      for(const plugin of [markdownPlugin,sourcePlugin,diffPlugin,pdfPlugin]){const dispose=plugin(ctx);if(dispose)cleanup.push(dispose)}
+      for(const plugin of [appearancePlugin,markdownPlugin,sourcePlugin,diffPlugin,pdfPlugin]){const dispose=plugin(ctx);if(dispose)cleanup.push(dispose)}
       const render=()=>flushSync(()=>root.render(<>
         <nav aria-label="Test workspaces">{['home',...Object.keys(resources)].map(id=><button key={id} onClick={()=>window.switchTo(id)}>{id}</button>)}</nav>
         {active==='home'&&<p>Other workspace</p>}
@@ -138,6 +143,59 @@ async function check() {
       }
     }
     assert.equal(await count('diff-viewer.commits'),2,'Refresh diff should also update the commit choices')
+
+    await run("switchTo('diff')")
+    await until("!!document.querySelector('.diff-review-comment')")
+    // Pierre slots React annotations from the document DOM, so these must use
+    // the app appearance owner rather than the code viewer's shadow CSS.
+    const reviewRoles = {
+      '--ui-surface': '#eef2f6', '--ui-border': '#203f59', '--ui-text': '#203040',
+      '--ui-font': 'monospace', '--ui-size': '14px', '--ui-row-radius': '17px',
+      '--ui-danger': '#96283c', '--ui-focus': '#2b4167',
+    }
+    await run(`for(const [token,value] of Object.entries(${JSON.stringify(reviewRoles)}))document.documentElement.style.setProperty(token,value)`)
+    const annotationAppearance = () => run(`(()=>{
+      const card=document.querySelector('.diff-review-comment'),button=card.querySelector('button');
+      const style=getComputedStyle(card),action=getComputedStyle(button);
+      return {document:card.getRootNode()===document,slot:card.parentElement.slot,body:card.querySelector('p').textContent,
+        surface:style.backgroundColor,border:style.borderColor,text:style.color,font:style.fontFamily,size:style.fontSize,radius:style.borderRadius,
+        danger:button.classList.contains('alto-icon-button')&&button.classList.contains('danger'),
+        actionText:action.color,actionFill:action.backgroundColor,outline:action.outlineColor,outlineWidth:action.outlineWidth};
+    })()`)
+    const annotation = await annotationAppearance()
+    assert.deepEqual({ document: annotation.document, slot: annotation.slot, body: annotation.body }, {
+      document: true, slot: 'annotation-additions-1', body: 'Preserved review comment.',
+    })
+    assert.deepEqual([annotation.surface,annotation.border,annotation.text,annotation.font,annotation.size,annotation.radius],
+      ['rgb(238, 242, 246)','rgb(32, 63, 89)','rgb(32, 48, 64)','monospace','14px','17px'],
+      'Slotted review annotation consumes shared surface, border, text, font, size, and radius roles')
+    assert.equal(annotation.danger,true,'Remove action uses the shared destructive icon primitive')
+    assert.equal(annotation.actionText,'rgb(150, 40, 60)')
+    window.webContents.debugger.attach('1.3')
+    await window.webContents.debugger.sendCommand('DOM.enable')
+    await window.webContents.debugger.sendCommand('CSS.enable')
+    const documentNode = (await window.webContents.debugger.sendCommand('DOM.getDocument')).root.nodeId
+    const { nodeId } = await window.webContents.debugger.sendCommand('DOM.querySelector', { nodeId: documentNode, selector: '.diff-review-comment button' })
+    const forceAction = states => window.webContents.debugger.sendCommand('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: states })
+    await forceAction(['hover'])
+    const hovered = await annotationAppearance()
+    assert.equal(hovered.actionText,annotation.actionText,'Danger ink persists on hover')
+    assert.notEqual(hovered.actionFill,annotation.actionFill,'Shared icon hover is visible')
+    await forceAction(['hover','active'])
+    const pressed = await annotationAppearance()
+    assert.equal(pressed.actionText,annotation.actionText,'Danger ink persists when pressed')
+    assert.notEqual(pressed.actionFill,hovered.actionFill,'Shared icon press is distinct from hover')
+    await forceAction(['focus-visible'])
+    const focused = await annotationAppearance()
+    assert.equal(focused.outline,'rgb(43, 65, 103)','Review action consumes the shared focus role')
+    assert.equal(focused.outlineWidth,'2px')
+    await run("document.querySelector('.diff-review-comment button').disabled=true")
+    await forceAction(['hover','active'])
+    assert.equal((await annotationAppearance()).actionFill,annotation.actionFill,'Disabled review action ignores hover and press')
+    await forceAction([])
+    window.webContents.debugger.detach()
+    await run("document.querySelector('.diff-review-comment button').disabled=false")
+    await run(`for(const token of Object.keys(${JSON.stringify(reviewRoles)}))document.documentElement.style.removeProperty(token)`)
 
     await run("switchTo('markdown');held.add('markdown-viewer.read');changeResource('markdown','/repo/pending.md');switchTo('home')")
     await until("pending.length===1")

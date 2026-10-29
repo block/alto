@@ -67,9 +67,9 @@
   left: 16px;
   max-width: 660px;
   margin: 0 auto;
-  border: 1px solid var(--border);
-  background: var(--panel-solid);
-  box-shadow: var(--shadow-panel);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-panel-shadow);
 }
 
 .source-viewer-command {
@@ -78,9 +78,11 @@
   align-items: center;
   gap: 7px;
   padding: 7px 10px;
-  border-radius: 10px;
-  color: var(--text-muted);
+  border-radius: var(--ui-field-radius);
+  color: var(--ui-text-secondary);
 }
+
+.source-viewer-command:focus-within { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
 
 .source-vim-status {
   display: flex;
@@ -108,18 +110,18 @@
   overflow: auto;
   margin: 0 auto;
   padding: var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-row);
-  color: var(--text);
-  background: var(--panel-solid);
-  box-shadow: var(--shadow-panel);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-dialog-radius);
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-dialog-shadow);
   font-size: var(--type-label);
   line-height: 1.6;
   outline: none;
 }
 .source-vim-help header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
-.source-vim-help strong { color: var(--text-strong); font-size: var(--type-body); font-weight: var(--weight-semibold); }
-.source-vim-help p { margin: calc(var(--space-1) / 2) 0 0; color: var(--text-muted); }
+.source-vim-help strong { color: var(--ui-text-strong); font-size: var(--type-body); font-weight: var(--weight-semibold); }
+.source-vim-help p { margin: calc(var(--space-1) / 2) 0 0; color: var(--ui-text-secondary); }
 .source-vim-help button {
   display: grid;
   flex: none;
@@ -128,26 +130,26 @@
   height: var(--control-icon);
   padding: 0;
   border: 0;
-  border-radius: var(--radius-dense);
-  color: var(--text-muted);
+  border-radius: var(--ui-control-radius);
+  color: var(--ui-text-secondary);
   background: transparent;
 }
-.source-vim-help button:hover { background: var(--panel-soft); color: var(--text); }
-.source-vim-help button:focus-visible { outline: 2px solid var(--accent); }
+.source-vim-help button:hover { background: var(--ui-hover); color: var(--ui-text); }
+.source-vim-help button:focus-visible { outline: 2px solid var(--ui-focus); }
 .source-vim-help dl { display: grid; grid-template-columns: minmax(7em, auto) 1fr; column-gap: var(--space-4); row-gap: var(--space-2); margin: var(--space-4) 0; }
-.source-vim-help dt { color: var(--text-muted); }
+.source-vim-help dt { color: var(--ui-text-secondary); }
 .source-vim-help dd { margin: 0; min-width: 0; }
-.source-vim-help kbd { color: var(--text-strong); font-family: var(--mono); font-size: var(--type-supporting); }
+.source-vim-help kbd { color: var(--ui-text-strong); font-family: var(--mono); font-size: var(--type-supporting); }
 .source-vim-help .source-vim-help-note { border-top: 1px solid var(--border-soft); padding-top: var(--space-3); font-size: var(--type-supporting); }
 .source-viewer-command input {
   flex: 1 1 auto;
   min-width: 0;
   border: 0;
   outline: 0;
-  color: var(--text);
+  color: var(--ui-text);
   background: transparent;
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--ui-size);
 }
 
 .composer.source-review-draft {

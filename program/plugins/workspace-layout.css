@@ -3,8 +3,13 @@
    internals that paint var(--canvas) need no changes. */
 .workspace-layout-root {
   --workspace-pane-header-height: 35px;
-  --workspace-chrome: var(--canvas);
+  /* Height of the window's title band when a tab rail replaces the top bar. */
+  --workspace-title-band-height: calc(var(--control-default) + var(--space-2));
+  --workspace-sheet-radius: var(--radius-md, 18px);
+  /* The tab bar or rail, the title band, and gutters: a step darker than the sheet. */
+  --workspace-chrome: color-mix(in srgb, var(--canvas) 97%, black);
   --workspace-sheet-border: var(--border);
+  --workspace-sheet-edge: 1px;
   position: relative;
   z-index: 2;
   min-width: 0;
@@ -289,6 +294,83 @@ html[data-desktop-platform="darwin"] .workspace-tabbar {
 
 .workspace-tabbar-tools { flex: 0 0 auto; }
 .workspace-tabbar-tools .shell-control { box-shadow: none; }
+
+html[data-alto-theme='dark'] .workspace-layout-root {
+  --workspace-chrome: color-mix(in srgb, var(--canvas) 55%, var(--bg));
+}
+
+/* A registered tab rail sits before the views in this row. */
+.workspace-body {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+/* A tab rail replaces the top bar, so the top row of pane title bars becomes
+   the window's title band: every pane kind's bar takes the band height and the
+   chrome color, and the content sheet begins beneath it, curving down beside
+   the rail. Pane kinds join by using .alto-pane-header for their top bar. */
+.workspace-body[data-tab-orientation='vertical'] {
+  --workspace-pane-header-height: var(--workspace-title-band-height);
+}
+.workspace-body[data-tab-orientation='vertical'] :is(
+  .workspace-chat-pane:not(.workspace-typed-pane) > .workspace-pane-header,
+  .alto-pane-header,
+  .workspace-typed-pane:not(:has(.alto-pane-header)) > .workspace-pane-header
+):not(.workspace-split-vertical > .workspace-split-second *) {
+  border-bottom-color: transparent;
+  background: var(--workspace-chrome);
+}
+/* A pane kind without its own top bar gets a band from its pane controls. */
+.workspace-body[data-tab-orientation='vertical'] .workspace-typed-pane:not(:has(.alto-pane-header)) > .workspace-pane-header {
+  position: relative;
+  top: auto;
+  right: auto;
+  width: auto;
+  flex: 0 0 var(--workspace-pane-header-height);
+  padding-inline-start: var(--pane-chrome-gutter);
+  pointer-events: auto;
+}
+.workspace-body[data-tab-orientation='vertical'] .workspace-typed-pane:not(:has(.alto-pane-header)) > .workspace-pane-header .workspace-typed-pane-title { display: flex; }
+.workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view {
+  position: relative;
+  border-top: 0;
+}
+/* The sheet edge occupies the band's last row rather than the content's first.
+   Native surfaces such as terminals cover the content box, so a line drawn
+   there would be hidden beneath them. */
+.workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view::before,
+.workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view::after {
+  position: absolute;
+  top: calc(var(--workspace-pane-header-height) - var(--workspace-sheet-edge));
+  left: 0;
+  content: '';
+  pointer-events: none;
+}
+.workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view::before {
+  z-index: 20;
+  right: 0;
+  bottom: 0;
+  border-top: var(--workspace-sheet-edge) solid var(--workspace-sheet-border);
+  border-left: var(--workspace-sheet-edge) solid var(--workspace-sheet-border);
+  border-top-left-radius: var(--workspace-sheet-radius);
+}
+/* Fills the outside of the sheet's rounded corner with the chrome color. */
+.workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view::after {
+  z-index: 19;
+  width: var(--workspace-sheet-radius);
+  height: var(--workspace-sheet-radius);
+  background: radial-gradient(circle at 100% 100%, transparent calc(var(--workspace-sheet-radius) - 0.5px), var(--workspace-chrome) var(--workspace-sheet-radius));
+}
+/* Pages draw their own layout from the top edge, so they keep a straight divider. */
+.workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view[role='region']::before {
+  top: 0;
+  border-top: 0;
+  border-top-left-radius: 0;
+}
+.workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view[role='region']::after { display: none; }
 
 .workspace-views,
 .workspace-view,

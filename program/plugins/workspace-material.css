@@ -1,0 +1,84 @@
+/* macOS supplies the material underneath the web view. Paint a light tint
+   once, then let every chrome surface expose that layer without multiplying
+   its opacity. The content sheet remains solid below the shared title band. */
+@media (prefers-reduced-transparency: no-preference) {
+  html[data-desktop-platform='darwin']:has(.workspace-layout-root > .workspace-body) {
+    background: transparent;
+  }
+
+  html[data-desktop-platform='darwin']:has(.workspace-layout-root > .workspace-body) :is(
+    body,
+    #root,
+    .shell-kernel,
+    [data-shell-node='workspace'],
+    [data-shell-node='workspace-layout-main']
+  ) {
+    background: transparent;
+  }
+
+  html[data-desktop-platform='darwin'] .workspace-layout-root {
+    /* The rounded fill defines the edge; an overlaid hairline would be
+       antialiased again by the corner cutout. */
+    --workspace-sheet-edge: 0px;
+    --workspace-sheet-shadow: 0 1px 8px rgb(0 0 0 / 8%), 0 0 2px rgb(0 0 0 / 4%);
+    background: var(--workspace-material-tint, color-mix(in srgb, var(--panel-solid) 16%, transparent));
+  }
+
+  html[data-desktop-platform='darwin'] :is(.workspace-tabbar, .vertical-tab-rail) {
+    background: transparent;
+  }
+
+  html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] :is(
+    .workspace-chat-pane:not(.workspace-typed-pane) > .workspace-pane-header,
+    .alto-pane-header,
+    .workspace-typed-pane:not(:has(.alto-pane-header)) > .workspace-pane-header
+  ):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) {
+    border-bottom-color: transparent;
+    background: transparent;
+  }
+
+  /* Cast the sheet's shadow from outside its mask, so only the rounded
+     content edge casts onto the glass, leaving title text and controls crisp. */
+  html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] > .workspace-views:has(> .workspace-view[role='tabpanel']:not([hidden])) {
+    position: relative;
+    z-index: 0;
+    overflow: visible;
+  }
+
+  html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] > .workspace-views:has(> .workspace-view[role='tabpanel']:not([hidden]))::before {
+    position: absolute;
+    z-index: -1;
+    inset: calc(var(--workspace-pane-header-height) - var(--workspace-sheet-edge)) 0 0;
+    content: '';
+    border-top-left-radius: var(--workspace-sheet-radius);
+    box-shadow: var(--workspace-sheet-shadow);
+    pointer-events: none;
+  }
+
+  html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view[role='tabpanel'] {
+    background: linear-gradient(to bottom, transparent var(--workspace-pane-header-height), var(--workspace-surface-sheet, var(--canvas)) var(--workspace-pane-header-height));
+    /* Cut out the actual sheet corner; translucent paint cannot cover an
+       opaque content pixel and reveal the native material underneath it. */
+    mask-image: linear-gradient(#000, #000), radial-gradient(circle at 100% 100%, transparent calc(var(--workspace-sheet-radius) - 0.5px), #000 var(--workspace-sheet-radius));
+    mask-size: 100% 100%, var(--workspace-sheet-radius) var(--workspace-sheet-radius);
+    mask-position: 0 0, 0 calc(var(--workspace-pane-header-height) - var(--workspace-sheet-edge));
+    mask-repeat: no-repeat;
+    mask-composite: exclude;
+  }
+
+  html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] :is(
+    .workspace-chat-pane,
+    .workspace-typed-pane-content > .alto-pane
+  ) {
+    background: linear-gradient(to bottom, transparent var(--workspace-pane-header-height), var(--workspace-pane-background, var(--workspace-surface-sheet, var(--canvas))) var(--workspace-pane-header-height));
+  }
+
+  html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view[role='tabpanel']::after {
+    content: none;
+  }
+
+  /* Preserve the body fills that the dark palette gives these pane kinds. */
+  html[data-desktop-platform='darwin'][data-alto-theme='dark'] :is(.canvas-pane, .markdown-viewer-pane, .diff-viewer-pane, .ghostty-workspace-pane) {
+    --workspace-pane-background: var(--bg);
+  }
+}

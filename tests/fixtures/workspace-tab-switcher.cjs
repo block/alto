@@ -35,7 +35,7 @@ async function check() {
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     loader: { '.css': 'text' }, define: { 'process.env.NODE_ENV': '"production"' },
   })
-  const css = (await Promise.all(['src/client/styles.css', 'program/plugins/theme.css', 'program/plugins/thread-status.css'].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
+  const css = (await Promise.all(['src/client/styles.css', 'program/plugins/ui/appearance-tokens.css', 'program/plugins/ui/controls.css', 'program/plugins/ui/surfaces.css', 'program/plugins/theme.css', 'program/plugins/thread-status.css'].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer((_request, response) => response.end('<!doctype html><style>' + css + '</style><body style="background:var(--canvas)"><input id="draft" aria-label="Draft" value="untouched draft"><p>Conversation remains behind the floating switcher.</p><div id="root"></div></body>'))
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const window = new BrowserWindow({ show: false, width: 1100, height: 800, webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, backgroundThrottling: false } })
@@ -75,7 +75,7 @@ async function check() {
         assert.equal(metrics.dots, 1)
         assert.equal(metrics.current, true)
         assert.equal(await run("getComputedStyle(document.querySelector('[aria-current=page]')).boxShadow"), 'none')
-        assert.notEqual(metrics.backdrop, 'none')
+        assert.equal(metrics.backdrop, 'none')
         if (process.env.ALTO_SWITCHER_ARTIFACT_DIR) {
           await fs.mkdir(process.env.ALTO_SWITCHER_ARTIFACT_DIR, { recursive: true })
           const screenshot = await window.webContents.capturePage()

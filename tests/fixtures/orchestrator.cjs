@@ -56,7 +56,7 @@ async function check() {
     loader: { '.css': 'text' }, define: { 'process.env.NODE_ENV': '"production"' },
   })
   const css = (await Promise.all([
-    'src/client/pane-toolbar.css', 'src/client/styles.css', 'program/plugins/theme.css', 'program/plugins/ui/default.css', 'program/plugins/orchestrator.css',
+    'src/client/pane-toolbar.css', 'src/client/styles.css', 'program/plugins/ui/appearance-tokens.css', 'program/plugins/ui/controls.css', 'program/plugins/ui/surfaces.css', 'program/plugins/theme.css', 'program/plugins/ui/default.css', 'program/plugins/orchestrator.css',
   ].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer((_request, response) => response.end(`<!doctype html><style>${css}
     body{margin:0}.shell-kernel{display:flex;flex-direction:column;height:100vh}

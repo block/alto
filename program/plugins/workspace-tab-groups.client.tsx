@@ -44,17 +44,17 @@ interface DropPreview extends WorkspaceTabDestination {
   edge: 'before' | 'after' | 'inside'
 }
 
-function dropPreview(layout: WorkspaceLayoutState, source: WorkspaceTabDrag, strip: HTMLElement, target: EventTarget, x: number): DropPreview {
+function dropPreview(layout: WorkspaceLayoutState, source: WorkspaceTabDrag, strip: HTMLElement, target: EventTarget, point: number, vertical: boolean): DropPreview {
   const elements = [...strip.querySelectorAll<HTMLElement>('[data-workspace-tab]:not([inert]), [data-workspace-group]')]
   const hit = (target as Element).closest<HTMLElement>('[data-workspace-tab]:not([inert]), [data-workspace-group]')
-    ?? elements.find((element) => element.getBoundingClientRect().left > x)
+    ?? elements.find((element) => (vertical ? element.getBoundingClientRect().top : element.getBoundingClientRect().left) > point)
   if (!hit) return { targetKind: 'end', edge: 'after' }
   const groupId = hit.dataset.workspaceGroup
   const tab = layout.views.find((view) => view.id === hit.dataset.workspaceTab)
   const members = groupId ? layout.views.filter((view) => view.groupId === groupId) : tab ? [tab] : []
   if (!members.length) return { targetKind: 'end', edge: 'after' }
   const bounds = hit.getBoundingClientRect()
-  const fraction = (x - bounds.left) / bounds.width
+  const fraction = vertical ? (point - bounds.top) / bounds.height : (point - bounds.left) / bounds.width
   if (source.kind === 'tab' && groupId && fraction >= 0.2) {
     const next = layout.views[layout.views.indexOf(members.at(-1)!) + 1]
     return { targetKind: 'group', targetId: groupId, edge: 'inside', groupId, ...(next ? { beforeId: next.id } : {}) }
@@ -77,7 +77,7 @@ function dropPreview(layout: WorkspaceLayoutState, source: WorkspaceTabDrag, str
   }
 }
 
-export function WorkspaceTabGroups({ layout, change, rootRef, ui, beginDrag, renderTab, children, tabActions = [] }: WorkspaceTabStripProps & { ui: ClientUiService }): ReactNode {
+export function WorkspaceTabGroups({ orientation = 'horizontal', layout, change, rootRef, ui, beginDrag, renderTab, children, tabActions = [] }: WorkspaceTabStripProps & { ui: ClientUiService }): ReactNode {
   const [menu, setMenu] = useState<GroupMenu>()
   const [name, setName] = useState('')
   const panel = useRef<HTMLDivElement>(null)
@@ -113,11 +113,15 @@ export function WorkspaceTabGroups({ layout, change, rootRef, ui, beginDrag, ren
     if (!source) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
-    const next = dropPreview(layout, source, event.currentTarget, event.target, event.clientX)
+    const vertical = orientation === 'vertical'
+    const next = dropPreview(layout, source, event.currentTarget, event.target, vertical ? event.clientY : event.clientX, vertical)
     setPreview((current) => current?.targetKind === next.targetKind && current?.targetId === next.targetId
       && current?.edge === next.edge && current?.beforeId === next.beforeId && current?.groupId === next.groupId ? current : next)
     const bounds = event.currentTarget.getBoundingClientRect()
-    if (event.clientX < bounds.left + 24) event.currentTarget.scrollLeft -= 20
+    if (vertical) {
+      if (event.clientY < bounds.top + 24) event.currentTarget.scrollTop -= 20
+      else if (event.clientY > bounds.bottom - 24) event.currentTarget.scrollTop += 20
+    } else if (event.clientX < bounds.left + 24) event.currentTarget.scrollLeft -= 20
     else if (event.clientX > bounds.right - 24) event.currentTarget.scrollLeft += 20
   }
   const menuTab = menu?.kind === 'tab' ? layout.views.find((view) => view.id === menu.id) : undefined
@@ -202,7 +206,7 @@ export function WorkspaceTabGroups({ layout, change, rootRef, ui, beginDrag, ren
 
   const shortcuts = tabGroupShortcutTargets(layout)
   const seen = new Set<string>()
-  return <div className="workspace-tabs workspace-tabs-with-groups" role="tablist" aria-label="Workspaces"
+  return <div className="workspace-tabs workspace-tabs-with-groups" role="tablist" aria-label="Workspaces" aria-orientation={orientation}
     onDragStartCapture={(event) => {
       const source = (event.target as Element).closest<HTMLElement>('[data-workspace-tab]:not([inert]), [data-workspace-group]')
       if (!source) return
@@ -226,7 +230,8 @@ export function WorkspaceTabGroups({ layout, change, rootRef, ui, beginDrag, ren
       const source = drag.current
       if (!source) return
       event.preventDefault()
-      const destination = dropPreview(layout, source, event.currentTarget, event.target, event.clientX)
+      const vertical = orientation === 'vertical'
+      const destination = dropPreview(layout, source, event.currentTarget, event.target, vertical ? event.clientY : event.clientX, vertical)
       change((current) => dropWorkspaceTabs(current, source, destination))
       clearDrag()
     }}>

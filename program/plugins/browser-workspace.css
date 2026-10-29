@@ -19,26 +19,27 @@
   height: var(--control-default);
   flex: 1 1 auto;
   padding: 0 12px;
-  color: var(--text);
-  border: 1px solid color-mix(in srgb, var(--border) 64%, transparent);
-  border-radius: var(--radius-pill);
+  color: var(--ui-text);
+  border: 1px solid var(--ui-field-border);
+  border-radius: var(--ui-field-radius);
   outline: none;
-  background: color-mix(in srgb, var(--panel-solid) 72%, var(--canvas));
+  background: var(--ui-field-fill);
   box-shadow: none;
   font: inherit;
   font-size: calc((var(--type-body) + var(--type-label)) / 2);
 }
 
 .browser-workspace-toolbar > input:hover {
-  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  border-color: var(--ui-field-border);
 }
 
 .browser-workspace-toolbar > input:focus {
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 7%, transparent);
+  border-color: var(--ui-focus);
+  outline: 2px solid var(--ui-focus);
+  outline-offset: -2px;
 }
 
-.browser-workspace-toolbar > input[aria-invalid='true'] { border-color: color-mix(in srgb, #d74a5d 52%, var(--border)); }
+.browser-workspace-toolbar > input[aria-invalid='true'] { border-color: var(--ui-danger); }
 
 .browser-workspace-toolbar .is-loading { animation: browser-loading 900ms linear infinite; }
 
@@ -73,14 +74,14 @@
   place-content: center;
   justify-items: center;
   gap: 10px;
-  color: var(--muted);
+  color: var(--ui-text-secondary);
   border: 0;
-  background: #f7f8fa;
+  background: var(--canvas);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--ui-size);
 }
 
-.browser-workspace-empty svg { color: color-mix(in srgb, var(--accent) 58%, var(--muted)); stroke-width: 1.4; }
+.browser-workspace-empty svg { color: color-mix(in srgb, var(--accent) 58%, var(--ui-text-secondary)); stroke-width: 1.4; }
 
 .browser-workspace-unavailable {
   width: 100%;
@@ -90,13 +91,13 @@
   justify-items: center;
   gap: 7px;
   padding: 24px;
-  color: var(--muted);
-  background: #f7f8fa;
-  font-size: 11.5px;
+  color: var(--ui-text-secondary);
+  background: var(--canvas);
+  font-size: var(--ui-size);
   text-align: center;
 }
 
-.browser-workspace-unavailable strong { color: var(--text-strong); font-size: 13px; }
+.browser-workspace-unavailable strong { color: var(--ui-text-strong); font-size: var(--ui-size); }
 .browser-workspace-unavailable a { margin-top: 4px; color: var(--accent); }
 
 @keyframes browser-loading { to { transform: rotate(360deg); } }

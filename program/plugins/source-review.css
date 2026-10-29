@@ -20,10 +20,29 @@
 .source-review-comment > p { flex: 1 1 auto; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .source-review-comment-state { display: grid; flex: none; place-items: center; width: var(--control-icon); height: var(--control-icon); border-radius: var(--radius-pill); color: var(--accent); background: var(--accent-soft); }
 .source-review-comment-actions { display: flex; flex: none; align-items: center; gap: var(--space-1); }
-.source-review-comment-actions button { display: grid; place-items: center; width: var(--control-icon); height: var(--control-icon); padding: 0; border: 0; border-radius: var(--radius-pill); color: var(--text-muted); background: transparent; font: inherit; cursor: pointer; }
-.source-review-comment-actions button:hover { color: var(--text); background: var(--surface-hover); }
-.source-review-comment-actions button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
-.source-review-comment-actions .source-review-comment-send { color: var(--accent); background: var(--accent-soft); }
+.source-review-comment-actions button {
+  display: grid;
+  place-items: center;
+  width: var(--control-icon);
+  height: var(--control-icon);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-control-radius);
+  color: var(--ui-text-secondary);
+  background: transparent;
+  font-family: var(--ui-font);
+  font-size: var(--ui-size);
+  font-weight: var(--ui-weight);
+  line-height: var(--ui-line);
+  cursor: pointer;
+}
+.source-review-comment-actions button:hover:not(:disabled) { color: var(--ui-text); background: var(--ui-hover); }
+.source-review-comment-actions button:active:not(:disabled) { background: var(--ui-pressed); }
+.source-review-comment-actions button:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.source-review-comment-actions .source-review-comment-send { color: var(--ui-on-action); background: var(--ui-action); }
+.source-review-comment-actions .source-review-comment-send:hover:not(:disabled) { color: var(--ui-on-action); background: var(--ui-action-hover); }
+.source-review-comment-actions .source-review-comment-send:active:not(:disabled) { color: var(--ui-on-action); background: var(--ui-action-pressed); }
+.source-review-comment-actions button:disabled { opacity: .48; cursor: not-allowed; }
 .source-review-comment-remove { opacity: 0; }
 .source-review-comment:hover .source-review-comment-remove,
 .source-review-comment:focus-within .source-review-comment-remove { opacity: 1; }
@@ -47,24 +66,31 @@
   min-width: 0;
   padding: 0 var(--space-2);
   border: 0;
-  border-radius: var(--radius-pill);
-  color: var(--text-muted);
+  border-radius: var(--ui-control-radius);
+  color: var(--ui-text);
   background: transparent;
-  font: inherit;
+  font-family: var(--ui-font);
+  font-size: var(--ui-size);
+  font-weight: var(--ui-weight);
+  line-height: var(--ui-line);
   cursor: pointer;
 }
-.source-review-modes button[aria-pressed="true"] { color: var(--composer-action-ink); background: var(--composer-action-fill); }
 .source-review-modes button:hover:not(:disabled),
-.source-review-destination select:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); }
+.source-review-destination select:hover:not(:disabled) { color: var(--ui-text); background: var(--ui-hover); }
+.source-review-modes button[aria-pressed="true"],
+.source-review-modes button[aria-pressed="true"]:hover:not(:disabled) { color: var(--ui-text-strong); background: var(--ui-selected); }
+.source-review-modes button:active:not(:disabled),
+.source-review-modes button[aria-pressed="true"]:active:not(:disabled),
+.source-review-destination select:active:not(:disabled) { background: var(--ui-pressed); }
 .source-review-modes button:focus-visible,
 .source-review-destination select:focus-visible,
-.source-edit-actions button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+.source-edit-actions button:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .source-review-modes button:disabled,
 .source-review-destination select:disabled { cursor: default; opacity: .6; }
 
 .source-review-destination { position: relative; flex: 0 1 auto; min-width: 0; max-width: 16em; }
-.source-review-destination select { display: block; max-width: 100%; padding-right: var(--space-5); appearance: none; text-overflow: ellipsis; }
-.source-review-destination > svg { position: absolute; top: 50%; right: var(--space-2); transform: translateY(-50%); pointer-events: none; color: var(--text-muted); }
+.source-review-destination select { display: block; max-width: 100%; padding-right: var(--space-5); appearance: none; text-overflow: ellipsis; border: 1px solid var(--ui-field-border); border-radius: var(--ui-field-radius); background: var(--ui-field-fill); }
+.source-review-destination > svg { position: absolute; top: 50%; right: var(--space-2); transform: translateY(-50%); pointer-events: none; color: var(--ui-text-secondary); }
 .source-review-problem { margin: var(--space-2) 0 0; color: var(--danger); font-family: var(--composer-font); font-size: var(--type-label); line-height: var(--line-body); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .source-edit-annotation {
@@ -82,11 +108,13 @@
 .source-edit-request { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-3); }
 .source-edit-request > p { flex: 1 1 14em; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .source-edit-actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; font-size: var(--type-label); }
-.source-edit-actions button { height: var(--control-compact); padding: 0 var(--space-3); border: 0; border-radius: var(--radius-pill); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
-.source-edit-reject { color: var(--text-muted); background: transparent; }
-.source-edit-reject:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); }
-.source-edit-accept { color: var(--composer-action-ink, var(--text-strong)); background: var(--composer-action-fill, var(--accent-soft)); }
-.source-edit-accept:hover:not(:disabled) { background: var(--composer-action-hover-fill, var(--accent-border)); }
+.source-edit-actions button { height: var(--control-compact); padding: 0 var(--space-3); border: 0; border-radius: var(--ui-control-radius); font-family: var(--ui-font); font-size: var(--ui-size); font-weight: var(--ui-weight); line-height: var(--ui-line); cursor: pointer; }
+.source-edit-reject { color: var(--ui-text); background: transparent; }
+.source-edit-reject:hover:not(:disabled) { color: var(--ui-text); background: var(--ui-hover); }
+.source-edit-reject:active:not(:disabled) { background: var(--ui-pressed); }
+.source-edit-accept { color: var(--ui-on-action); background: var(--ui-action); }
+.source-edit-accept:hover:not(:disabled) { background: var(--ui-action-hover); }
+.source-edit-accept:active:not(:disabled) { background: var(--ui-action-pressed); }
 .source-edit-actions button:disabled { opacity: .4; cursor: default; }
 .source-edit-status { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-muted); }
 .source-edit-annotation > .source-review-problem { margin: 0; padding: 0 var(--space-3) var(--space-3); }

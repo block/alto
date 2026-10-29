@@ -32,9 +32,9 @@ describe('hotkeys plugin', () => {
       'utf8',
     )
 
-    expect(css).toMatch(/\.leader-hud\s*\{[^}]*--alto-floating-panel-background:\s*var\(--floating-panel\)/s)
-    expect(css).toMatch(/\.leader-hud\s*\{[^}]*--alto-floating-panel-border:\s*var\(--floating-panel-border\)/s)
-    expect(css).toMatch(/\.leader-hud\s*\{[^}]*--alto-floating-panel-shadow:\s*var\(--floating-panel-shadow\)/s)
+    expect(css).toMatch(/\.leader-hud\s*\{[^}]*--alto-floating-panel-background:\s*var\(--ui-surface\)/s)
+    expect(css).toMatch(/\.leader-hud\s*\{[^}]*--alto-floating-panel-border:\s*var\(--ui-border\)/s)
+    expect(css).toMatch(/\.leader-hud\s*\{[^}]*--alto-floating-panel-shadow:\s*var\(--ui-panel-shadow\)/s)
   })
 
   it('places the leader HUD beside native panes without hiding them', () => {

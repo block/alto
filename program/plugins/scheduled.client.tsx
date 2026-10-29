@@ -26,6 +26,7 @@ import type { JsonValue, LocalProject, ThreadSummary } from '../../src/shared/pr
 import type { WorkContextSnapshot } from './work-contexts-api.js'
 import type { ClientSidebarService } from './sidebar-api.js'
 import type { ClientSessionService, ClientSessionSnapshot } from './session-api.js'
+import { uiStyles } from './ui/appearance.js'
 import {
   LOCAL_SCHEDULED_TARGET,
   SCHEDULED_IMPORT,
@@ -353,7 +354,7 @@ function TaskList({
 }): ReactNode {
   return (
     <aside className="scheduled-list">
-      <button className="scheduled-new" type="button" onClick={onNew}>
+      <button className={`${uiStyles.button} ghost scheduled-new`} type="button" onClick={onNew}>
         <Plus size={15} />
         New task
       </button>
@@ -367,14 +368,15 @@ function TaskList({
         )}
         {tasks.map((task) => (
           <button
-            className={`scheduled-list-item${selectedId === task.id ? ' is-selected' : ''}`}
+            className={`${uiStyles.row} scheduled-list-item${selectedId === task.id ? ' is-selected' : ''}`}
             type="button"
+            aria-pressed={selectedId === task.id}
             key={task.id}
             onClick={() => onSelect(task)}
           >
             <span className="scheduled-list-title">
               <TargetIcon target={targetDescriptor(targets, task.target)} />
-              <strong>{task.name}</strong>
+              <strong className={uiStyles.title}>{task.name}</strong>
               <i data-status={task.enabled ? 'enabled' : 'paused'} />
             </span>
             <span>{scheduleLabel(task)}</span>
@@ -443,6 +445,7 @@ function TaskEditor({
         <label className="scheduled-field">
           <span>Name</span>
           <input
+            className={uiStyles.field}
             autoFocus
             value={draft.name}
             placeholder="Review open pull requests"
@@ -453,6 +456,7 @@ function TaskEditor({
         <label className="scheduled-field">
           <span>Instructions</span>
           <textarea
+            className={uiStyles.field}
             value={draft.prompt}
             placeholder="Tell Codex what to do each time this task runs…"
             onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
@@ -463,6 +467,7 @@ function TaskEditor({
           <label className="scheduled-field scheduled-field-wide">
             <span>Workspace</span>
             <select
+              className={uiStyles.field}
               value={draft.projectId}
               onChange={(event) => setDraft((current) => ({ ...current, projectId: event.target.value }))}
             >
@@ -476,6 +481,7 @@ function TaskEditor({
           <label className="scheduled-field">
             <span>Run on</span>
             <select
+              className={uiStyles.field}
               value={draft.target}
               onChange={(event) => setDraft((current) => {
                 const target = event.target.value
@@ -511,6 +517,7 @@ function TaskEditor({
           <label className="scheduled-field">
             <span>Repeats</span>
             <select
+              className={uiStyles.field}
               value={draft.preset}
               onChange={(event) => setDraft((current) => ({
                 ...current,
@@ -528,6 +535,7 @@ function TaskEditor({
             <label className="scheduled-field">
               <span>Time</span>
               <input
+                className={uiStyles.field}
                 type="time"
                 value={draft.time}
                 onChange={(event) => setDraft((current) => ({ ...current, time: event.target.value }))}
@@ -539,6 +547,7 @@ function TaskEditor({
             <label className="scheduled-field">
               <span>Day</span>
               <select
+                className={uiStyles.field}
                 value={draft.weekday}
                 onChange={(event) => setDraft((current) => ({ ...current, weekday: event.target.value }))}
               >
@@ -551,7 +560,7 @@ function TaskEditor({
             <label className="scheduled-field scheduled-field-wide">
               <span>Cron expression</span>
               <input
-                className="scheduled-mono"
+                className={`${uiStyles.field} scheduled-mono`}
                 value={draft.cron}
                 placeholder="0 9 * * 1-5"
                 onChange={(event) => setDraft((current) => ({ ...current, cron: event.target.value }))}
@@ -562,6 +571,7 @@ function TaskEditor({
           <label className="scheduled-field">
             <span>Timezone</span>
             <select
+              className={uiStyles.field}
               value={draft.timezone}
               onChange={(event) => setDraft((current) => ({
                 ...current,
@@ -578,6 +588,7 @@ function TaskEditor({
             <label className="scheduled-field">
               <span>Access</span>
               <select
+                className={uiStyles.field}
                 value={draft.permissionMode}
                 onChange={(event) => setDraft((current) => ({
                   ...current,
@@ -648,7 +659,7 @@ function TaskEditor({
               </button>
               <button
                 type="button"
-                className={`${clientStyles.button} ghost scheduled-delete`}
+                className={`${clientStyles.button} ghost danger scheduled-delete`}
                 aria-label="Delete task"
                 disabled={busy}
                 onClick={onRemove}
@@ -833,7 +844,7 @@ function ScheduledDialog({
   return (
     <div className={`${clientStyles.overlayLayer} scheduled-backdrop`} onMouseDown={onClose}>
       <section
-        className={`${clientStyles.floatingPanel} scheduled-dialog`}
+        className={`${clientStyles.floatingPanel} ${uiStyles.dialog} scheduled-dialog`}
         role="dialog"
         aria-modal="true"
         aria-label="Scheduled tasks"

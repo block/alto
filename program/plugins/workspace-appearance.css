@@ -1,0 +1,152 @@
+/* One surface family and reading grid connect the window chrome to its
+   content. The active theme supplies the colors; native material can vary. */
+.workspace-layout-root {
+  --workspace-surface-sheet: var(--canvas);
+  --workspace-chrome-neutral: color-mix(in srgb, var(--workspace-surface-sheet) 97%, black);
+  --workspace-surface-chrome: color-mix(in srgb, var(--accent) 22%, var(--workspace-chrome-neutral));
+  --workspace-chrome-ink: color-mix(in srgb, var(--text-strong) 75%, light-dark(black, white));
+  --workspace-surface-raised: var(--panel-solid);
+  --workspace-surface-recessed: var(--panel-soft);
+  --workspace-control-hover: color-mix(in srgb, var(--panel-solid) 16%, transparent);
+  --workspace-control-selected: color-mix(in srgb, var(--panel-solid) 38%, transparent);
+  --workspace-control-pressed: color-mix(in srgb, var(--panel-solid) 55%, transparent);
+  --workspace-chrome: var(--workspace-surface-chrome);
+  /* A visible accent wash gives the chrome its color while native material
+     remains the larger part of the translucent surface. */
+  --workspace-material-tint: color-mix(in srgb,
+    color-mix(in srgb, var(--accent) 60%, var(--workspace-surface-raised)) 20%, transparent);
+  --workspace-column-width: var(--composer-content-width);
+  --workspace-column-gutter: var(--composer-content-gutter);
+  --workspace-column-inset: max(var(--workspace-column-gutter), calc((100% - var(--workspace-column-width)) / 2));
+  --conversation-reading-width: var(--workspace-column-width);
+  --composer-surface: var(--workspace-surface-raised);
+  --workspace-radius: var(--radius-composer);
+  --workspace-sheet-radius: var(--workspace-radius);
+  --sans: var(--composer-font);
+  --display: var(--sans);
+  font-family: var(--sans);
+}
+
+/* Preserve the dark chrome's depth while sharing its accent-colored fallback. */
+html[data-alto-theme='dark'] .workspace-layout-root {
+  --workspace-chrome-neutral: color-mix(in srgb, var(--workspace-surface-sheet) 55%, var(--bg));
+  --workspace-chrome: var(--workspace-surface-chrome);
+}
+
+.workspace-layout-root .activity-user:not(.activity-source-edit) {
+  border-radius: var(--workspace-radius);
+  corner-shape: round;
+  padding-block: var(--space-4);
+  padding-inline: max(var(--ui-dialog-inset), calc(var(--workspace-radius) / 2));
+  background: var(--workspace-surface-recessed);
+}
+
+/* Typed panes retain the toolbar insets that belong to their own content. */
+.workspace-layout-root .workspace-chat-pane:not(.workspace-typed-pane) > .workspace-pane-header {
+  padding-inline-start: var(--workspace-column-inset);
+}
+
+.workspace-layout-root .workspace-chat-pane .conversation-feed,
+.workspace-layout-root .workspace-pane-conversation:has(> .scrollback-minimap) > .conversation-stage > .conversation-feed {
+  padding-inline: var(--workspace-column-inset);
+}
+
+/* Keep scrollback in the shared column's gutter instead of shifting the
+   transcript away from its title and composer in narrow split panes. */
+.workspace-layout-root .workspace-pane-conversation > .scrollback-minimap {
+  max-width: calc(var(--workspace-column-inset) - var(--space-2));
+}
+
+.workspace-layout-root .workspace-pane-conversation :is(.scrollback-track, .scrollback-tick),
+.workspace-layout-root .workspace-pane-conversation .scrollback-tick::after {
+  max-width: 100%;
+}
+
+.workspace-layout-root .workspace-pane-title { color: var(--text); }
+
+/* Pane tools and both tab orientations share the same quiet feedback. */
+.workspace-layout-root :is(.workspace-pane-header, .alto-pane-header) :is(.alto-icon-button, .icon-button, .alto-button, .button):not(.primary, .danger) {
+  --alto-button-background-hover: var(--workspace-control-hover);
+  --ui-hover: var(--workspace-control-hover);
+  --ui-selected: var(--workspace-control-selected);
+  --ui-pressed: var(--workspace-control-pressed);
+}
+
+.workspace-layout-root :is(.workspace-pane-actions button, .pane-tab-close, .pane-tab-new, .canvas-dock-button):not(.primary, .danger):hover:not(:disabled) {
+  color: var(--ui-text);
+  background: var(--workspace-control-hover);
+}
+.workspace-layout-root .workspace-pane-actions button[aria-pressed='true']:not(:disabled) {
+  background: var(--workspace-control-selected);
+}
+.workspace-layout-root :is(.workspace-pane-actions button, .pane-tab-close, .pane-tab-new, .canvas-dock-button):not(.primary, .danger):active:not(:disabled) {
+  background: var(--workspace-control-pressed);
+}
+
+/* Top pane controls sit on the same colored glass as the navigation.
+   Lower split headers retain the ink of their own content surface. */
+.workspace-body[data-tab-orientation='vertical'] :is(
+  .workspace-pane-header,
+  .alto-pane-header
+):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) {
+  --text: var(--workspace-chrome-ink);
+  --text-strong: var(--workspace-chrome-ink);
+  --muted: var(--workspace-chrome-ink);
+  --dim: var(--workspace-chrome-ink);
+  --text-muted: var(--workspace-chrome-ink);
+  --text-secondary: var(--workspace-chrome-ink);
+  --text-supporting: var(--workspace-chrome-ink);
+  --alto-button-color: var(--workspace-chrome-ink);
+  --accent-focus: var(--workspace-chrome-ink);
+  --ui-text: var(--workspace-chrome-ink);
+  --ui-text-strong: var(--workspace-chrome-ink);
+  --ui-text-secondary: var(--workspace-chrome-ink);
+  --ui-focus: var(--workspace-chrome-ink);
+  --icon-opacity: 1;
+  color: var(--workspace-chrome-ink);
+}
+
+.workspace-body[data-tab-orientation='vertical'] :is(
+  .workspace-pane-header,
+  .alto-pane-header
+):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) :is(button, a):is(:hover, :focus-visible, [aria-pressed='true']) {
+  color: var(--workspace-chrome-ink);
+}
+
+.workspace-body[data-tab-orientation='vertical'] :is(
+  .workspace-pane-header,
+  .alto-pane-header
+):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) :is(button, a):focus-visible {
+  outline-color: var(--workspace-chrome-ink);
+}
+
+/* The composer's existing round geometry guides surfaces and controls.
+   Short tabs and buttons naturally clamp this radius into pill shapes. */
+.workspace-layout-root :is(.workspace-tabbar, .vertical-tab-rail) :is(
+  .workspace-tab,
+  .workspace-tab-close,
+  .workspace-tab-add,
+  .vertical-tab-rail-toggle,
+  .workspace-tabbar-tools button,
+  .workspace-history-controls > button
+) {
+  border-radius: var(--workspace-radius);
+  corner-shape: round;
+}
+
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs-with-groups {
+  --workspace-tab-group-radius: calc(var(--workspace-radius) + var(--workspace-tab-group-inset));
+}
+
+/* Tasks joins the neighboring toolbar icons and keeps its accessible name.
+   Other labels, including the Agents count, keep their own presentation. */
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabbar-tools .todo-header-button {
+  --alto-button-height: var(--control-default);
+  width: var(--control-default);
+  height: var(--control-default);
+  display: grid;
+  padding: 0;
+  place-items: center;
+}
+
+:is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabbar-tools .todo-header-button > span { display: none; }

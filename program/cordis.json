@@ -410,6 +410,14 @@
           ]
         },
         {
+          "id": "interface-appearance",
+          "name": "Interface Appearance",
+          "description": "Shares typography, control states, fields, and floating surfaces across the application.",
+          "client": "plugins/interface-appearance.client.ts",
+          "enabled": true,
+          "config": {}
+        },
+        {
           "id": "search",
           "name": "Quick Search",
           "description": "Opens commands, chats, and settings through Cmd+K.",
@@ -648,6 +656,41 @@
               "client": "plugins/workspace-tab-groups.client.tsx",
               "enabled": true,
               "config": {}
+            },
+            {
+              "id": "workspace-tabs-appearance",
+              "name": "Workspace Appearance",
+              "description": "Shares surface colors, typography, and alignment across workspace chrome and content.",
+              "client": "plugins/workspace-tabs-appearance.client.ts",
+              "enabled": true,
+              "config": {}
+            },
+            {
+              "id": "workspace-material",
+              "name": "macOS Window Material",
+              "description": "Applies native translucency consistently to workspace chrome while keeping content opaque.",
+              "module": "plugins/workspace-material.ts",
+              "client": "plugins/workspace-material.client.ts",
+              "enabled": true,
+              "config": {}
+            },
+            {
+              "id": "vertical-tabs",
+              "name": "Vertical Tabs",
+              "description": "Adds a resizable side tab column that can collapse to icons, and switches between it and the top tabs.",
+              "client": "plugins/vertical-tabs.client.tsx",
+              "enabled": false,
+              "config": {},
+              "children": [
+                {
+                  "id": "hotkeys-vertical-tabs",
+                  "name": "Vertical Tabs Shortcuts",
+                  "description": "Switches tab orientation with Command-Shift-B and collapses the side tab column with Command-B.",
+                  "client": "plugins/hotkeys-vertical-tabs.client.ts",
+                  "enabled": true,
+                  "config": {}
+                }
+              ]
             },
             {
               "id": "seal",

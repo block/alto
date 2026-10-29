@@ -7,6 +7,7 @@ import type { ClientEditorService } from './editor-pane-api.js'
 import type { ClientWorkContextsService } from './work-contexts-client-api.js'
 import { IDE_OPTIONS, OPEN_IN_IDE, isIdeId, type IdeId } from './open-in-ide-api.js'
 import { SettingsRow } from './ui/settings.js'
+import { uiStyles } from './ui/appearance.js'
 import styles from './open-in-ide.css'
 
 const STORAGE_KEY = 'alto.open-in-ide'
@@ -116,7 +117,7 @@ export function OpenInIdeButton({ session, host, contexts, preference, destinati
       <SquareCode size={14} strokeWidth={1.7} />
       <span>Editor</span>
     </button>
-    {error && <div className={`${clientStyles.floatingPanel} open-in-ide-error`} role="alert">
+    {error && <div className={`${clientStyles.floatingPanel} ${uiStyles.panel} open-in-ide-error`} role="alert">
       <span>{error}</span>
       <button type="button" className={clientStyles.iconButton} aria-label="Dismiss IDE error" onClick={() => setError(undefined)}><X size={14} /></button>
     </div>}

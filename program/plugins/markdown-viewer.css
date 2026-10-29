@@ -176,15 +176,14 @@
 }
 
 .markdown-selection-menu {
-  --alto-floating-panel-radius: var(--radius-pill);
   --alto-button-height: var(--control-compact);
   --alto-button-padding: var(--space-1) var(--space-3);
-  --alto-button-radius: var(--radius-pill);
-  --alto-button-font-size: var(--type-label);
+  --alto-button-radius: var(--ui-control-radius);
+  --alto-button-font-size: var(--ui-size);
   --alto-button-border: transparent;
   --alto-button-border-hover: transparent;
   --alto-button-background: transparent;
-  --alto-button-background-hover: var(--floating-row-hover);
+  --alto-button-background-hover: var(--ui-hover);
   --alto-button-shadow: none;
   --alto-button-shadow-hover: none;
   position: absolute;
@@ -200,11 +199,6 @@
 
 .markdown-selection-menu .alto-button {
   corner-shape: var(--corner-shape-pill, round);
-  line-height: var(--line-control);
+  line-height: var(--ui-line);
   white-space: nowrap;
-}
-
-.markdown-selection-menu .alto-button:focus-visible {
-  outline: thin solid var(--accent-focus);
-  outline-offset: 0;
 }

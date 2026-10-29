@@ -1,3 +1,4 @@
+import { uiStyles } from './ui/appearance.js'
 import {
   ChevronRight,
   CircleCheck,
@@ -248,7 +249,7 @@ function GitPanePopover({
   }, [anchor, close])
 
   return createPortal(
-    <div className="git-pane-popover" style={{ left, top, width, maxHeight: Math.max(100, window.innerHeight - top - 8) }} ref={root}
+    <div className={`${uiStyles.panel} git-pane-popover`} style={{ left, top, width, maxHeight: Math.max(100, window.innerHeight - top - 8) }} ref={root}
       id={id} role="dialog" aria-label={requests ? 'Pull request details' : 'Git status'}
       onPointerEnter={hold} onPointerLeave={leave} onFocusCapture={hold}
       onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) leave?.() }}>

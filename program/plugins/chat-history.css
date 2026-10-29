@@ -27,14 +27,15 @@
   min-height: var(--control-button);
   gap: var(--space-2);
   padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-row);
-  background: var(--surface-panel);
-  color: var(--text-secondary);
+  border: 1px solid var(--ui-field-border);
+  border-radius: var(--ui-field-radius);
+  background: var(--ui-field-fill);
+  color: var(--ui-text-secondary);
 }
 .chat-history-search:focus-within {
-  border-color: var(--accent-focus);
-  outline: 2px solid var(--accent-ring);
+  border-color: var(--ui-focus);
+  outline: 2px solid var(--ui-focus);
+  outline-offset: -2px;
 }
 .chat-history-search > svg { flex-shrink: 0; }
 .chat-history-search input {
@@ -45,11 +46,11 @@
   border: 0;
   outline: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--ui-text);
   font-size: var(--type-body);
   line-height: var(--line-body);
 }
-.chat-history-search input::placeholder { color: var(--text-secondary); }
+.chat-history-search input::placeholder { color: var(--ui-text-secondary); }
 .chat-history-search input::-webkit-search-cancel-button { display: none; }
 .chat-history-search .alto-icon-button {
   --alto-icon-button-size: var(--control-icon);
@@ -63,7 +64,7 @@
   scrollbar-gutter: stable;
 }
 .chat-history-scroll:focus-visible {
-  outline: 1px solid var(--accent-focus);
+  outline: 1px solid var(--ui-focus);
   outline-offset: -1px;
 }
 .chat-history-content {
@@ -78,7 +79,7 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   padding: 0 var(--space-3) var(--space-4);
-  color: var(--text-secondary);
+  color: var(--ui-text-secondary);
   font-size: var(--type-label);
 }
 .chat-history-day { margin-bottom: var(--space-5); }
@@ -88,7 +89,7 @@
   font-size: var(--type-label);
   font-weight: var(--weight-medium);
   line-height: var(--line-body);
-  color: var(--text);
+  color: var(--ui-text);
 }
 .chat-history-day ul { margin: 0; padding: 0; list-style: none; }
 .chat-history-row {
@@ -101,18 +102,19 @@
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border: 0;
-  border-radius: var(--radius-row);
+  border-radius: var(--ui-row-radius);
   background: transparent;
   box-shadow: none;
-  color: var(--text);
+  color: var(--ui-text);
   text-align: left;
-  font-family: var(--sans);
+  font-family: var(--ui-font);
   font-size: var(--type-body);
   font-weight: var(--weight-regular);
   line-height: var(--line-body);
 }
-.chat-history-row:is(:hover, :active) { background: var(--surface-hover); }
-.chat-history-row:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
+.chat-history-row:hover { background: var(--ui-hover); }
+.chat-history-row:active { background: var(--ui-pressed); }
+.chat-history-row:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
 .chat-history-row-content { min-width: 0; flex: 1; }
 .chat-history-row-title { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .chat-history-row-tab {
@@ -120,7 +122,7 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--text-secondary);
+  color: var(--ui-text-secondary);
   font-size: var(--type-label);
 }
 .chat-history-row-snippet {
@@ -129,7 +131,7 @@
   -webkit-line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
-  color: var(--text-secondary);
+  color: var(--ui-text-secondary);
   font-size: var(--type-label);
   margin: var(--space-1) 0;
 }
@@ -149,7 +151,7 @@
   align-items: baseline;
   gap: var(--space-2);
   font-size: var(--type-label);
-  color: var(--text-secondary);
+  color: var(--ui-text-secondary);
 }
 .chat-history-row-detail > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .chat-history-row-end {
@@ -157,7 +159,7 @@
   align-items: center;
   gap: var(--space-2);
   flex-shrink: 0;
-  color: var(--text-secondary);
+  color: var(--ui-text-secondary);
   font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
 }
@@ -167,7 +169,7 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-4) var(--space-3);
-  color: var(--text-secondary);
+  color: var(--ui-text-secondary);
   font-size: var(--type-label);
   text-align: center;
 }

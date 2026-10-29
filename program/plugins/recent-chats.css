@@ -1,26 +1,27 @@
 .recent-chat-switcher-layer {
   z-index: 84;
+  padding: var(--ui-dialog-inset);
 }
 
 .recent-chat-switcher {
-  --alto-floating-panel-border: rgba(255, 255, 255, 0.72);
-  --alto-floating-panel-radius: var(--radius-md, 18px);
-  --alto-floating-panel-background: rgba(246, 247, 250, 0.95);
-  --alto-floating-panel-shadow: 0 22px 54px rgba(30, 33, 47, 0.2), 0 3px 10px rgba(30, 33, 47, 0.07);
+  --alto-floating-panel-border: var(--ui-border);
+  --alto-floating-panel-radius: var(--ui-panel-radius);
+  --alto-floating-panel-background: var(--ui-surface);
+  --alto-floating-panel-shadow: var(--ui-panel-shadow);
   box-sizing: border-box;
   width: min(520px, 100%);
-  max-height: min(456px, calc(100dvh - 40px));
+  max-height: min(456px, calc(100dvh - 2 * var(--ui-dialog-inset)));
   display: flex;
   flex-direction: column;
-  padding: 13px 6px 8px;
+  padding: var(--ui-panel-inset);
   overflow: hidden;
 }
 
 .recent-chat-switcher header {
-  padding: 0 9px 7px;
-  color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 470;
+  padding: var(--ui-row-block-padding) var(--ui-row-inline-padding);
+  color: var(--ui-text-secondary);
+  font-size: var(--type-supporting);
+  font-weight: var(--ui-weight);
   letter-spacing: 0.005em;
 }
 
@@ -36,36 +37,37 @@
 
 .recent-chat-switcher-list button {
   min-width: 0;
-  height: 31px;
+  min-height: var(--ui-row-min-height);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 112px);
+  grid-template-columns: var(--ui-icon-slot) minmax(0, 1fr) minmax(0, 112px);
   align-items: center;
-  padding: 0 10px;
-  color: var(--text);
+  gap: var(--ui-row-gap);
+  padding: var(--ui-row-block-padding) var(--ui-row-inline-padding);
+  color: var(--ui-text);
   border: 0;
-  border-radius: var(--radius-sm, 12px);
+  border-radius: var(--ui-row-radius);
   outline: 0;
   background: transparent;
-  font: 12px/1.2 var(--sans);
+  font: var(--weight-regular) var(--ui-size)/var(--ui-line) var(--ui-font);
   text-align: left;
   cursor: default;
 }
 
-.recent-chat-switcher-list button.has-status {
-  grid-template-columns: 18px minmax(0, 1fr) minmax(0, 112px);
-}
-
 .recent-chat-switcher-list button.selected {
-  color: var(--text-strong);
-  background: rgba(86, 91, 113, 0.09);
+  color: var(--ui-text-strong);
+  background: var(--ui-selected);
 }
 
 .recent-chat-leading {
-  width: 18px;
-  height: 18px;
+  width: var(--ui-icon-slot);
+  height: 100%;
+  min-height: 0;
+  grid-column: 1;
+  grid-row: 1;
   display: grid;
   place-items: center;
 }
+.recent-chat-title { min-width: 0; grid-column: 2; grid-row: 1; }
 
 .recent-chat-switcher-list button .recent-chat-title,
 .recent-chat-switcher-list button small {
@@ -75,24 +77,23 @@
 }
 
 .recent-chat-switcher-list button small {
-  color: var(--dim);
-  font-size: 10.5px;
+  grid-column: 3;
+  grid-row: 1;
+  color: var(--ui-text-secondary);
+  font-size: var(--type-supporting);
   text-align: right;
 }
 
 @media (max-width: 560px) {
+  .recent-chat-switcher-layer { padding: var(--ui-panel-inset); }
   .recent-chat-switcher {
     width: 100%;
-    max-height: calc(100dvh - 40px);
-    border-radius: var(--radius-md, 18px);
+    max-height: calc(100dvh - 2 * var(--ui-panel-inset));
+    border-radius: var(--ui-panel-radius);
   }
 
   .recent-chat-switcher-list button {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .recent-chat-switcher-list button.has-status {
-    grid-template-columns: 18px minmax(0, 1fr);
+    grid-template-columns: var(--ui-icon-slot) minmax(0, 1fr);
   }
 
   .recent-chat-switcher-list button small { display: none; }

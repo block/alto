@@ -136,6 +136,55 @@ export default client
 
 Both registrations are effects owned by the browser fiber. Cordis removes the renderer, listeners returned from the plugin, and its `<style>` element before a replacement activates. Keep raw browser APIs such as observers and global listeners inside an owned effect or a React effect with cleanup. Browser modules may import React and Cordis; Node built-ins and filesystem/process work belong in the server half.
 
+## Shared interface appearance
+
+Built-in controls import `uiStyles` from `program/plugins/ui/appearance.ts`.
+Use its `button`, `iconButton`, `row`, `field`, `input`, `segment`, `dialog`,
+`panel`, `tooltip`, `title`, `description`, and `key` classes for their visual
+roles. The `interface-appearance` fiber registers the corresponding tokens and
+styles directly under the interface, independently of the workspace. This scope
+also covers portals mounted on `document.body`. The class catalog imports no CSS,
+so editing shared appearance does not replace feature components or their drafts.
+
+Features own positioning, bounds, row grids, wrapping, and specialized content.
+Shared roles own neutral colors, typography, rounding, shadows, focus, interaction
+states, and default control geometry. Add layout classes alongside the role instead of
+repainting it. A decorated search container uses `field`; its borderless inner
+control uses `input`. Use `panel` for a flyout and `dialog` for a modal, even when
+both have an accessible `role="dialog"`. Native menu/listbox states also share the
+row treatment. Keep `aria-selected`, `aria-checked`, `aria-pressed`, and disabled
+states accurate so keyboard and pointer interactions agree.
+
+When a specialized control needs custom CSS, consume the `--ui-*` roles from
+`ui/appearance-tokens.css`: surface/inset, text/strong/secondary, border/divider,
+field fill/border/radius, control fill/radius, hover/pressed/selected, action/on-action,
+danger, and focus. Existing primitive `--alto-button-*` hooks remain supported
+for geometry and deliberate visual exceptions. Literal accent swatches, status
+indicators, source syntax, terminal colors, diagrams, and embedded browser content
+retain their own palettes. Window glass and Composer geometry have independent
+owners and should not change as a side effect of control styling.
+
+`ui/geometry.css` supplies common target sizes, row padding, and menu insets.
+Consume its geometry tokens for feature layouts: `--ui-panel-inset` (12px),
+`--ui-dialog-inset` (24px), compact `--ui-row-min-height` (32px), and
+`--ui-choice-row-min-height` (52px) for two-line choices. A feature row sets
+`--ui-row-min-height: var(--ui-choice-row-min-height)` when it needs that density;
+this preserves its target size independently of stylesheet registration order.
+Use the shared row padding/gap and field/control padding roles rather than
+nearby literal values. A 12px inset accommodates a 12px inner corner within the
+24px outer surface. Keep tab and Composer pills as their established shape
+families, and allow wrapping or scrolling when the available pane width shrinks.
+
+Pierre renders React review annotations into document slots. Their shared
+appearance belongs in `ui/review-annotations.css`; the viewer's `unsafeCSS`
+stylesheet reaches its code shadow root and cannot paint those slotted controls.
+
+`tests/interface-appearance-browser.test.ts` exercises real Settings, Cmd+K,
+menus, and Composer under both themes, alternate accents, reversed stylesheet
+registration, and style replacement. It varies shared role values to catch
+feature overrides and verifies query, selection, and draft retention. Run it
+alongside the affected feature checks when adding a surface or changing a role.
+
 Fenced Markdown renderers use the same lifetime. Register a catch-all code renderer without `languages`, or a specialized renderer with normalized language names. Specialized renderers fall through to the next matching renderer when they unload or do not recognize the current fence:
 
 ```tsx

@@ -19,7 +19,7 @@ async function check(){
     window.close=()=>document.querySelector('[aria-label="Close expanded diagram"]').click();
     window.teardown=()=>flushSync(()=>root.unmount());render(${JSON.stringify(source)});
   `},bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',loader:{'.css':'text'},define:{'process.env.NODE_ENV':'"production"'}})
-  const css=(await Promise.all(['src/client/styles.css','program/plugins/theme.css','program/plugins/ui/default.css'].map(f=>fs.readFile(f,'utf8')))).join('\n').replace(/@import[^;]+;/g,'')
+  const css=(await Promise.all(['src/client/styles.css', 'program/plugins/ui/appearance-tokens.css', 'program/plugins/ui/controls.css', 'program/plugins/ui/surfaces.css','program/plugins/theme.css','program/plugins/ui/default.css'].map(f=>fs.readFile(f,'utf8')))).join('\n').replace(/@import[^;]+;/g,'')
   const win=new BrowserWindow({show:false,width:1100,height:760,webPreferences:{offscreen:true,sandbox:true,contextIsolation:true,backgroundThrottling:false}})
   const run=code=>win.webContents.executeJavaScript(code)
   const frames=()=>run('frame()')

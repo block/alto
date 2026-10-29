@@ -1,6 +1,7 @@
 import { ChevronRight, ChevronUp, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { clientStyles, type ClientHostService, type ClientUiService } from '../../src/client/plugin-api.js'
+import { uiStyles } from './ui/appearance.js'
 import type { ClientSessionService } from './session-api.js'
 import type { TurnProgressAccessoryProps } from './turn-progress-api.js'
 import { taskActive, taskStatusLabel, type AgentTask } from './orchestrator-api.js'
@@ -138,13 +139,13 @@ function ChatSubagentProgress({ host, ui, controller, render, threadId }: Omit<S
       <SubagentDots tasks={active} />
       <ChevronUp className="turn-subagents-chevron" size={12} aria-hidden="true" />
     </button>,
-    details: open ? <div ref={popover} id={id} className={clientStyles.floatingPanel + ' turn-subagents-popover'} role="dialog" aria-modal={false} aria-label="Subagents in this chat">
+    details: open ? <div ref={popover} id={id} className={`${clientStyles.floatingPanel} ${uiStyles.panel} turn-subagents-popover`} role="dialog" aria-modal={false} aria-label="Subagents in this chat">
       <header><span>Subagents{active.length > 0 && <span className="turn-subagents-count">{active.length}</span>}</span>
         <button className={clientStyles.iconButton} aria-label="Close subagents" type="button" onClick={dismiss}><X size={14} /></button>
       </header>
       {!connected && <p className="turn-subagents-notice" role="status">Reconnecting…</p>}
       <div className="turn-subagents-list">
-        {displayed.map((task) => <button key={task.id} type="button" className={clientStyles.button + ' turn-subagent-row'} title={'View ' + task.title + ' history'} aria-label={task.title + ', ' + taskStatusLabel[task.status] + '. View history'} disabled={!connected} onClick={() => inspect(task)}>
+        {displayed.map((task) => <button key={task.id} type="button" className={`${uiStyles.row} turn-subagent-row`} title={'View ' + task.title + ' history'} aria-label={task.title + ', ' + taskStatusLabel[task.status] + '. View history'} disabled={!connected} onClick={() => inspect(task)}>
           <span className={'turn-subagent-dot is-' + task.status} aria-hidden="true" />
           <span className="turn-subagent-name">{task.title}</span>
           <span className="turn-subagent-status">{taskStatusLabel[task.status]}</span>

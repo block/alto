@@ -4,6 +4,7 @@ import { clientStyles, type BrowserPlugin } from '../../src/client/plugin-api.js
 import type {} from './hotkeys-api.js'
 import { OptionalThreadStatusService, aggregateThreadWorkStatus, type ClientThreadStatusService } from './thread-status-api.js'
 import { ThreadStatusIndicator } from './ui/thread-status.js'
+import { uiStyles } from './ui/appearance.js'
 import { TAB_SWITCHER_ID, WorkspaceTabSwitcher, releasesTabSwitcher, type TabSwitcherSnapshot } from './workspace-tab-switcher.js'
 import styles from './workspace-tab-switcher.css'
 
@@ -30,11 +31,11 @@ export function TabSwitcherPopup({ controller, state, threadStatus }: {
   }, [state.selectedId])
 
   return <div className={clientStyles.overlayLayer + ' workspace-tab-switcher-layer'} onPointerDown={() => controller.cancel()}>
-    <section className={clientStyles.floatingPanel + ' workspace-tab-switcher'} role="dialog" aria-modal="true" aria-label="Recent tabs" data-native-overlay={TAB_SWITCHER_ID} onPointerDown={(event) => event.stopPropagation()}>
+    <section className={`${clientStyles.floatingPanel} ${uiStyles.dialog} workspace-tab-switcher`} role="dialog" aria-modal="true" aria-label="Recent tabs" data-native-overlay={TAB_SWITCHER_ID} onPointerDown={(event) => event.stopPropagation()}>
       <div ref={list} className="workspace-tab-switcher-list" role="listbox" tabIndex={0} aria-label="Workspace tabs, most recent first" aria-activedescendant={'recent-tab-' + state.selectedId}>
-        {state.tabs.map((tab) => <button key={tab.id} id={'recent-tab-' + tab.id} type="button" role="option" tabIndex={-1} className={tab.active ? 'is-current' : undefined} aria-current={tab.active ? 'page' : undefined} aria-selected={tab.id === state.selectedId} title={tab.title} onClick={() => controller.commit(tab.id)}>
+        {state.tabs.map((tab) => <button key={tab.id} id={'recent-tab-' + tab.id} type="button" role="option" tabIndex={-1} className={`${uiStyles.row}${tab.active ? ' is-current' : ''}`} aria-current={tab.active ? 'page' : undefined} aria-selected={tab.id === state.selectedId} title={tab.title} onClick={() => controller.commit(tab.id)}>
           <span className="workspace-tab-switcher-status"><ThreadStatusIndicator status={aggregateThreadWorkStatus(status, tab.threadIds)} /></span>
-          <span className="workspace-tab-switcher-title">{tab.title}</span>
+          <span className={`${uiStyles.title} workspace-tab-switcher-title`}>{tab.title}</span>
         </button>)}
       </div>
     </section>

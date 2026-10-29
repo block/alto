@@ -1,4 +1,5 @@
 import { paneToolbarStyles } from './pane-toolbar.js'
+import { uiStyles } from './ui/appearance.js'
 import {
   ChevronDown,
   FileDiff,
@@ -404,6 +405,7 @@ function DiffViewerPane({
           title={commitsLoading ? 'Loading recent commits…' : 'Choose working tree or commit'}
         >
           <select
+            className={uiStyles.field}
             value={commitRef ?? ''}
             aria-label="Choose diff revision"
             onChange={(event) => setCommitRef(event.target.value || undefined)}
@@ -520,7 +522,7 @@ function DiffViewerPane({
             <span>{comments.length} comment{comments.length === 1 ? '' : 's'}</span>
             {sendProblem && <span className="diff-viewer-send-error">{sendProblem}</span>}
           </div>
-          <button type="button" disabled={sending} onClick={() => void send()}>
+          <button className={`${uiStyles.button} primary`} type="button" disabled={sending} onClick={() => void send()}>
             <Send size={13} strokeWidth={1.8} />
             <span>{sending ? 'Sending…' : 'Send to chat'}</span>
           </button>
@@ -659,7 +661,7 @@ function DiffReviewOverlayDialog({
     >
       <section
         ref={panel}
-        className={`${clientStyles.floatingPanel} diff-review-overlay-panel`}
+        className={`${clientStyles.floatingPanel} ${uiStyles.dialog} diff-review-overlay-panel`}
         role="dialog"
         aria-label="Review changes"
         tabIndex={-1}

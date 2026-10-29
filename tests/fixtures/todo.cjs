@@ -82,7 +82,7 @@ async function check() {
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     loader: { '.css': 'text' }, define: { 'process.env.NODE_ENV': '"production"' },
   })
-  const css = (await Promise.all(['src/client/styles.css','program/plugins/ui/default.css','program/plugins/theme.css'].map(file=>fs.readFile(file,'utf8')))).join('\n').replace(/@import[^;]+;/g,'')
+  const css = (await Promise.all(['src/client/styles.css', 'program/plugins/ui/appearance-tokens.css', 'program/plugins/ui/controls.css', 'program/plugins/ui/surfaces.css','program/plugins/ui/default.css','program/plugins/theme.css'].map(file=>fs.readFile(file,'utf8')))).join('\n').replace(/@import[^;]+;/g,'')
   const server=http.createServer((request,response)=>response.end('<!doctype html><style>'+css+'\n#root{height:100vh}</style><div id="root"></div>'))
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
   const win=new BrowserWindow({show:false,width:1200,height:760,webPreferences:{offscreen:true,sandbox:true,contextIsolation:true,backgroundThrottling:false}})

@@ -40,6 +40,7 @@ import {
   threadWorkStatus,
 } from './thread-status-api.js'
 import { ConversationPaneOverlay } from './ui/conversation-overlay.js'
+import { uiStyles } from './ui/appearance.js'
 import { useStoreSelector } from './ui/store-selector.js'
 import { ThreadStatusIndicator } from './ui/thread-status.js'
 import styles from './harpoon.css'
@@ -464,12 +465,12 @@ function HarpoonSlotCard({
         onClick={() => service.openSlot(slot.index)}
         title={slot.thread?.title}
       >
-        <kbd>{slot.index + 1}</kbd>
+        <kbd className={uiStyles.key}>{slot.index + 1}</kbd>
         <span className="harpoon-slot-title">{slot.thread?.title ?? (slot.threadId ? 'Unavailable' : 'Empty')}</span>
         <ThreadStatusIndicator status={status} />
       </button>
       {slot.threadId && (
-        <button className="harpoon-remove" type="button" aria-label={`Remove slot ${slot.index + 1}`} onClick={() => service.removeSlot(slot.index)}>
+        <button className={`${uiStyles.iconButton} harpoon-remove`} type="button" aria-label={`Remove slot ${slot.index + 1}`} onClick={() => service.removeSlot(slot.index)}>
           <PinOff size={14} />
         </button>
       )}
@@ -513,7 +514,7 @@ function HarpoonCandidateList({
           return (
             <button
               id={`harpoon-candidate-${thread.id}`}
-              className={selected ? 'selected' : ''}
+              className={`${uiStyles.row}${selected ? ' selected' : ''}`}
               type="button"
               role="option"
               aria-selected={selected}
@@ -526,8 +527,8 @@ function HarpoonCandidateList({
                 {slot ?? <Circle size={8} />}
               </span>
               <span className="harpoon-candidate-copy">
-                <strong>{thread.title}</strong>
-                <small>{workspaceName(thread, projects)}</small>
+                <strong className={uiStyles.title}>{thread.title}</strong>
+                <small className={uiStyles.description}>{workspaceName(thread, projects)}</small>
               </span>
               <span className="harpoon-candidate-status">
                 <ThreadStatusIndicator status={threadWorkStatus(statusState, thread.id)} />
@@ -575,12 +576,12 @@ function HarpoonPreview({
         {thread.preview || 'This chat does not have a text preview yet.'}
       </div>
       <div className="harpoon-preview-actions">
-        <button type="button" onClick={() => service.toggleSelected()}>
+        <button className={uiStyles.button} type="button" aria-pressed={Boolean(pinned)} onClick={() => service.toggleSelected()}>
           {pinned ? <PinOff size={14} /> : <Pin size={14} />}
           {pinned ? 'Unpin' : 'Pin'}
-          <kbd>P</kbd>
+          <kbd className={uiStyles.key}>P</kbd>
         </button>
-        <button className="primary" type="button" onClick={() => service.openSelected()}>
+        <button className={`${uiStyles.button} primary`} type="button" onClick={() => service.openSelected()}>
           Open
           <ArrowUpRight size={14} />
         </button>
@@ -664,7 +665,7 @@ function HarpoonDialog({
 
   return (
     <ConversationPaneOverlay className={`${clientStyles.overlayLayer} harpoon-backdrop`} onMouseDown={close}>
-      <section ref={dialogRef} className={`${clientStyles.floatingPanel} harpoon-dialog`} role="dialog" aria-modal="true" aria-label="Harpoon" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
+      <section ref={dialogRef} className={`${clientStyles.floatingPanel} ${uiStyles.dialog} harpoon-dialog`} role="dialog" aria-modal="true" aria-label="Harpoon" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
         <header className="harpoon-dialog-header">
           <span className="harpoon-dialog-title">
             <Anchor size={16} />
@@ -674,11 +675,11 @@ function HarpoonDialog({
         </header>
         <HarpoonPanel state={state} projects={projects} service={service} statusState={statusState} />
         <footer className="harpoon-footer">
-          <span><kbd>↑</kbd><kbd>↓</kbd><kbd>J</kbd><kbd>K</kbd> Move</span>
-          <span><kbd>P</kbd> Pin</span>
-          <span><kbd>1–9</kbd> Assign</span>
-          <span><kbd>↵</kbd> Open</span>
-          <span><kbd>Esc</kbd> Close</span>
+          <span><kbd className={uiStyles.key}>↑</kbd><kbd className={uiStyles.key}>↓</kbd><kbd className={uiStyles.key}>J</kbd><kbd className={uiStyles.key}>K</kbd> Move</span>
+          <span><kbd className={uiStyles.key}>P</kbd> Pin</span>
+          <span><kbd className={uiStyles.key}>1–9</kbd> Assign</span>
+          <span><kbd className={uiStyles.key}>↵</kbd> Open</span>
+          <span><kbd className={uiStyles.key}>Esc</kbd> Close</span>
         </footer>
       </section>
     </ConversationPaneOverlay>

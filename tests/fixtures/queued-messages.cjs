@@ -78,7 +78,7 @@ async function check() {
     loader: { '.css': 'text' }, define: { 'process.env.NODE_ENV': '"production"' },
   })
   const css = (await Promise.all([
-    'src/client/styles.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/steer.css',
+    'src/client/styles.css', 'program/plugins/ui/appearance-tokens.css', 'program/plugins/ui/controls.css', 'program/plugins/ui/surfaces.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/steer.css',
   ].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer((_request, response) => {
     response.end('<!doctype html><html data-alto-theme="light"><style>' + css + '</style><body style="margin:0"><main id="root" style="padding:16px;min-width:0"></main></body></html>')

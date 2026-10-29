@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { clientStyles } from '../../src/client/plugin-api.js'
+import { uiStyles } from './ui/appearance.js'
 import { selectedMarkdown, type MarkdownSelection } from './markdown-selection.js'
 
 export function MarkdownSelectionMenu({ rootRef, paneRef, scrollRef, enabled, onAdd, onEdit }: {
@@ -102,7 +103,7 @@ export function MarkdownSelectionMenu({ rootRef, paneRef, scrollRef, enabled, on
     action(current)
   }
   if (!enabled || !selection) return null
-  return <div ref={menuRef} role="toolbar" aria-label="Selected text" className={`${clientStyles.floatingPanel} markdown-selection-menu`}
+  return <div ref={menuRef} role="toolbar" aria-label="Selected text" className={`${clientStyles.floatingPanel} ${uiStyles.panel} markdown-selection-menu`}
     onPointerDown={event => event.preventDefault()} onMouseDown={event => event.preventDefault()}>
     <button type="button" className={clientStyles.button} onClick={() => act(onAdd)}>Add to chat</button>
     <button type="button" className={clientStyles.button} onClick={() => act(onEdit)}>Edit</button>

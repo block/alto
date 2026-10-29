@@ -1,0 +1,86 @@
+/* Fields strengthen their existing edge once. Buttons and navigation retain a
+   separate keyboard outline; selection and semantic accents stay independent. */
+:root :is(
+  .alto-field,
+  .program-modal-search,
+  .plugins-search,
+  .chat-history-search,
+  .file-tree-search,
+  .todo-add-item,
+  .workspace-tab-name-input,
+  .workspace-pane-title-input,
+  .history-entry-name-input,
+  .todo-inline-input,
+  .todo-search,
+  .steer-editor,
+  .settings-row select,
+  .hotkey-leader-setting select,
+  .alto-toolbar-picker > select,
+  .browser-workspace-toolbar > input,
+  .work-target-create-branch input,
+  .input-question-custom input,
+  .project-settings-form :is(input, textarea),
+  .workspace-creator-form :is(input, textarea),
+  .generic-response textarea,
+  .ui-input input,
+  .approval-body :is(input:not([type='checkbox'], [type='radio']), select, textarea),
+  .question :is(input:not([type='checkbox'], [type='radio']), select)
+):not(.search-palette-input):is(:focus, :focus-within):not(:disabled) {
+  border-color: var(--ui-focus);
+  outline: none;
+  box-shadow: none;
+
+  @media (forced-colors: active) {
+    border-color: Highlight;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+/* These fields use an outline as their edge, or live on an elevated panel. */
+:root .pr-dashboard-search:focus-within {
+  outline: 1px solid var(--ui-focus);
+  outline-offset: -1px;
+  box-shadow: none;
+}
+:root .source-viewer-command:focus-within {
+  border-color: var(--ui-focus);
+  outline: none;
+}
+
+/* Keep validation visible while replacing the old accent rename glows. */
+:root :is(.workspace-tab-name-input, .workspace-pane-title-input) {
+  border-color: var(--ui-field-border);
+}
+:root :is(.workspace-tab-name-input, .workspace-pane-title-input, .browser-workspace-toolbar > input)[aria-invalid='true'] {
+  --ui-focus: var(--ui-danger);
+  border-color: var(--ui-danger);
+}
+
+/* Older plain controls also use the shared keyboard focus role. */
+:root :is(.pane-tab-select, .pane-tab-close, .pane-tab-new):focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+:root :is(.cordis-code-block figcaption button, .conversation-jump-latest):focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* The Composer keeps its distinctive accent glow; other fields use neutral edges. */
+:root .composer {
+  --composer-focus-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 11%, transparent), 0 0 20px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+@media (forced-colors: active) {
+  :root { --ui-focus: Highlight; }
+  :root :is(.pane-tab-select, .pane-tab-close, .pane-tab-new, .cordis-code-block figcaption button, .conversation-jump-latest):focus-visible {
+    outline-color: Highlight;
+  }
+  :root .composer:focus-within {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
