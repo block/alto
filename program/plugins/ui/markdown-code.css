@@ -1,0 +1,126 @@
+/* A style-only layer for fenced code. Keep renderer configuration and syntax
+   colors intact, independent of the code-block plugin's registration order. */
+:root figure.cordis-code-block,
+:root :is(.activity-markdown, .markdown-viewer-document) pre:where(:not([data-markdown-math], .cordis-code-block pre, .cordis-mermaid pre)) {
+  --markdown-code-caption-ink: color-mix(in srgb,
+    var(--code-block-text, var(--ui-text)) 65%, var(--code-block-muted, var(--ui-text-secondary)));
+  color: var(--code-block-text, var(--ui-text));
+  border: 1px solid var(--code-block-border, var(--ui-border));
+  border-radius: max(var(--code-block-radius, var(--radius-row)), var(--radius-dialog));
+  background: color-mix(in srgb,
+    var(--code-block-background, var(--ui-surface-inset)) 70%, var(--ui-surface));
+  box-shadow: none;
+}
+
+/* The renderer falls back to ordinary pre/code when no code-block provider is
+   installed. Keep math and Mermaid's own source/error panels separate. */
+:root :is(.activity-markdown, .markdown-viewer-document) pre:where(:not([data-markdown-math], .cordis-code-block pre, .cordis-mermaid pre)) {
+  max-width: 100%;
+  overflow: auto;
+  padding: var(--space-4);
+  word-break: normal;
+}
+
+:root figure.cordis-code-block > figcaption {
+  min-height: var(--control-default);
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-4) 0;
+  color: var(--markdown-code-caption-ink);
+  font: var(--weight-regular) var(--type-supporting) / var(--line-control) var(--sans);
+}
+
+:root figure.cordis-code-block .cordis-code-block-actions {
+  gap: var(--space-1);
+  margin: 0;
+  margin-inline-start: var(--space-2);
+}
+
+:root figure.cordis-code-block > figcaption button {
+  width: var(--ui-icon-slot);
+  height: var(--ui-icon-slot);
+  padding: 0;
+  color: var(--markdown-code-caption-ink);
+  border: 0;
+  border-radius: var(--ui-control-radius);
+  background: transparent;
+  box-shadow: none;
+  transition: none;
+}
+
+:root figure.cordis-code-block > figcaption button:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--code-block-text, var(--ui-text));
+  background: var(--code-block-hover, var(--ui-hover));
+}
+
+:root figure.cordis-code-block > figcaption button:active:not(:disabled) {
+  background: var(--ui-pressed);
+}
+
+:root figure.cordis-code-block > figcaption button:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Reserve its space so hover never shifts the header. Other actions stay visible. */
+@media (hover: hover) {
+  :root figure.cordis-code-block .cordis-code-block-actions > button:is([aria-label='Copy code'], [aria-label='Copied']) {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  :root figure.cordis-code-block:is(:hover, :focus-within) .cordis-code-block-actions > button:is([aria-label='Copy code'], [aria-label='Copied']) {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* Reset the inline-code treatment at the fenced boundary, including in source
+   previews that share the Markdown typography layer. */
+:root figure.cordis-code-block > pre {
+  max-width: 100%;
+  margin: 0;
+  overflow: auto;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+  color: var(--code-block-text, var(--ui-text));
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root figure.cordis-code-block > pre > code,
+:root :is(.activity-markdown, .markdown-viewer-document) pre:where(:not([data-markdown-math], .cordis-code-block pre, .cordis-mermaid pre)) > code {
+  display: block;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--mono);
+  font-feature-settings: var(--mono-features);
+  font-size: var(--code-block-font-size, var(--type-label));
+  font-weight: var(--mono-weight);
+  line-height: 1.62;
+  letter-spacing: normal;
+  tab-size: 2;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+:root figure.cordis-code-block[data-wrap='true'] > pre {
+  overflow: visible;
+}
+
+:root figure.cordis-code-block[data-wrap='true'] > pre > code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (forced-colors: active) {
+  :root figure.cordis-code-block > figcaption button:focus-visible {
+    outline-color: Highlight;
+  }
+}

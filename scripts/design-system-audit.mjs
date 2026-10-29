@@ -32,10 +32,12 @@ function collect() {
   const files = {}
   for (const absolute of walk(featureRoot)) {
     const source = fs.readFileSync(absolute, 'utf8')
+    // Font-face weights declare a font's supported range, not a UI text style.
+    const weightSource = source.replace(/@font-face\s*\{[^{}]*\}/gi, '')
     const counts = {}
     for (const [name, pattern] of Object.entries(rules)) {
       pattern.lastIndex = 0
-      const count = [...source.matchAll(pattern)].length
+      const count = [...(name === 'rawFontWeight' ? weightSource : source).matchAll(pattern)].length
       if (count > 0) counts[name] = count
     }
     if (absolute.endsWith('.tsx')) {

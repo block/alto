@@ -1,0 +1,85 @@
+/* Shared reading styles for chat, document panes, and Markdown previews. */
+:root .activity-markdown {
+  --markdown-link-ink: color-mix(in srgb, var(--ui-action) 68%, var(--text));
+  --markdown-link-icon-size: 0.88em;
+  --markdown-inline-code-size: 0.94em;
+  --markdown-inline-code-fill: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+:root .activity-markdown a:not(.git-action) {
+  color: var(--markdown-link-ink);
+  font-weight: inherit;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.18em;
+  text-decoration-skip-ink: auto;
+}
+
+:root .activity-markdown :is(a.smart-link, a.file-citation) {
+  gap: 0.3em;
+  align-items: baseline;
+  line-height: inherit;
+  vertical-align: baseline;
+}
+
+:root .activity-markdown :is(.smart-link-icon, .file-citation > svg) {
+  align-self: baseline;
+  flex: 0 0 var(--markdown-link-icon-size);
+  inline-size: var(--markdown-link-icon-size);
+  block-size: var(--markdown-link-icon-size);
+  transform: translateY(0.08em);
+  opacity: 0.88;
+}
+
+:root .activity-markdown a:not(.git-action):is(:hover, :focus-visible) {
+  color: var(--ui-action);
+  text-decoration-color: color-mix(in srgb, currentColor 70%, transparent);
+}
+
+:root .activity-markdown :is(.smart-link, .file-citation):not(.smart-link-code):is(:hover, :focus-visible) > span:last-child {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 70%, transparent);
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.18em;
+}
+
+:root .activity-markdown a:not(.git-action):focus-visible {
+  border-radius: var(--radius-dense);
+  outline: thin solid var(--ui-focus);
+  outline-offset: 0.15em;
+}
+
+/* Fenced code and editable math keep their own layout and palette. */
+:root .activity-markdown :not(pre) > code:not([data-markdown-math]) {
+  padding: calc(var(--space-1) / 3) calc(var(--space-1) * 1.5);
+  color: var(--text-strong);
+  border: 0;
+  border-radius: var(--radius-dense);
+  background: var(--markdown-inline-code-fill);
+  font-family: var(--mono);
+  font-feature-settings: var(--mono-features);
+  font-size: var(--markdown-inline-code-size);
+  font-weight: var(--mono-weight);
+  line-height: inherit;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+:root .activity-markdown a.smart-link-code > span > code {
+  color: inherit;
+  background: color-mix(in srgb, var(--markdown-link-ink) 6%, transparent);
+  font-size: var(--markdown-inline-code-size);
+  font-weight: var(--mono-weight);
+  line-height: inherit;
+}
+
+:root .activity-markdown a.smart-link-code:is(:hover, :focus-visible) > span > code {
+  background: color-mix(in srgb, var(--markdown-link-ink) 10%, transparent);
+}
+
+@media (forced-colors: active) {
+  :root .activity-markdown a:not(.git-action),
+  :root .activity-markdown a:not(.git-action):is(:hover, :focus-visible) { color: LinkText; }
+  :root .activity-markdown a:not(.git-action):focus-visible { outline-color: Highlight; }
+}

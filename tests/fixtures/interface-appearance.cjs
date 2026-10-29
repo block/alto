@@ -271,8 +271,8 @@ async function check() {
         assert.deepEqual(values.body, expected, context + 'reaches the body-mounted portal')
         assert.equal(await run(`document.querySelector('#accent-body-portal').parentElement===document.body`), true)
         const measured = await sample([...accentSelectors, '#accent-body-portal a', '#accent-body-portal button'])
-        assert.deepEqual(measured['#accent-body-portal a'].color, expected, context + 'recolors Markdown links')
-        for (const [name, color] of Object.entries({ material: values.material, chrome: values.chrome, focus: values.focus, selection: values.selection, send: measured['.send-button'].color })) {
+        assert.ok(measured['#accent-body-portal a'].contrast >= 4.5, context + 'Markdown links retain readable contrast: ' + JSON.stringify(measured['#accent-body-portal a']))
+        for (const [name, color] of Object.entries({ link: measured['#accent-body-portal a'].color, material: values.material, chrome: values.chrome, focus: values.focus, selection: values.selection, send: measured['.send-button'].color })) {
           assert.ok(color[channel] > Math.max(...color.slice(0, 3).filter((_value, index) => index !== channel)), context + name + ' follows the selected hue: ' + JSON.stringify(color))
         }
         assert.ok(values.focusApplied, context + 'the real focused Composer paints its themed outline')
