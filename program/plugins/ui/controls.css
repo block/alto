@@ -48,16 +48,14 @@
 
 :is(.alto-button, .button).ghost:active:not(:disabled) { background: var(--ui-pressed); }
 
-:is(.alto-button, .button).primary,
-.composer .send-button:not(.stop):not(:disabled) {
+:is(.alto-button, .button).primary {
   color: var(--ui-on-action);
   border-color: transparent;
   background: var(--ui-action);
   box-shadow: none;
 }
 
-:is(.alto-button, .button).primary:hover:not(:disabled),
-.composer .send-button:not(.stop):not(:disabled):hover {
+:is(.alto-button, .button).primary:hover:not(:disabled) {
   color: var(--ui-on-action);
   border-color: transparent;
   background: var(--ui-action-hover);
@@ -65,8 +63,7 @@
   filter: none;
 }
 
-:is(.alto-button, .button).primary:active:not(:disabled),
-.composer .send-button:not(.stop):not(:disabled):active { background: var(--ui-action-pressed); }
+:is(.alto-button, .button).primary:active:not(:disabled) { background: var(--ui-action-pressed); }
 
 :is(.alto-button, .button).danger { color: var(--ui-danger); }
 :is(.alto-button, .button).danger:hover:not(:disabled) { background: color-mix(in srgb, var(--ui-danger) 9%, transparent); }
@@ -109,6 +106,22 @@
   --composer-action-ink: var(--ui-text);
   --composer-action-fill: var(--ui-control-fill);
   --composer-action-hover-fill: var(--ui-hover);
+}
+
+/* A quiet accent wash keeps Send distinct without overpowering the editor. */
+.composer .send-button:not(.stop):not(:disabled) {
+  color: var(--ui-action);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ui-action) 12%, transparent);
+  box-shadow: none;
+  transition: none;
+}
+.composer .send-button:not(.stop):not(:disabled):hover {
+  background: color-mix(in srgb, var(--ui-action) 18%, transparent);
+  filter: none;
+}
+.composer .send-button:not(.stop):not(:disabled):active {
+  background: color-mix(in srgb, var(--ui-action) 24%, transparent);
 }
 
 .composer :is(.composer-attach, button.composer-workspace-trigger, .composer-permission-trigger, .composer-model-trigger) {

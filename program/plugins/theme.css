@@ -93,7 +93,7 @@ html[data-alto-theme='dark'] .ghostty-terminal-surface {
 
 html[data-alto-theme='dark'] .shell-kernel main:not(.program-modal-content) {
   background:
-    radial-gradient(circle at 51% -18%, rgba(76, 66, 112, 0.16), transparent 40%),
+    radial-gradient(circle at 51% -18%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 40%),
     linear-gradient(135deg, #1f2229 0%, #1c1f26 54%, #191c22 100%);
 }
 

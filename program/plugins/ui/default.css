@@ -285,7 +285,7 @@ html[data-desktop-platform="darwin"] [role="tab"] {
 }
 
 .history-entry:hover:not(:disabled) { color: var(--text-strong); background: rgba(79, 85, 105, 0.06); }
-.history-entry.active { color: var(--text-strong); background: rgba(111, 102, 154, 0.1); }
+.history-entry.active { color: var(--text-strong); background: var(--ui-selected); }
 .history-entry:disabled { opacity: 1; cursor: default; }
 .history-entry > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-entry-meta { display: inline-flex; align-items: center; gap: 5px; }
@@ -2035,10 +2035,12 @@ details pre {
 
 .composer {
   --composer-outline: light-dark(#e2e4ec, #363a46);
-  --composer-focus-outline: light-dark(#d9caf8, #63527d);
-  --composer-action-ink: light-dark(var(--accent), #b59af9);
-  --composer-action-fill: light-dark(#ede5ff, #3a3053);
-  --composer-action-hover-fill: light-dark(#e6dafb, #473665);
+  --composer-focus-outline: light-dark(
+    color-mix(in srgb, var(--ui-action, var(--accent)) 24%, var(--composer-surface)),
+    color-mix(in srgb, var(--ui-action, var(--accent)) 40%, var(--composer-surface)));
+  --composer-action-ink: var(--ui-action, var(--accent));
+  --composer-action-fill: color-mix(in srgb, var(--ui-action, var(--accent)) 12%, var(--composer-surface));
+  --composer-action-hover-fill: color-mix(in srgb, var(--ui-action, var(--accent)) 18%, var(--composer-surface));
   --composer-shadow-tint: light-dark(#33354916, #00000042);
   --composer-elevation: 0 3px 6px var(--composer-shadow-tint), 0 10px 24px var(--composer-shadow-tint);
   --composer-resting-shadow: 0 0 0 1px var(--composer-outline), var(--composer-elevation);
@@ -2718,8 +2720,6 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 }
 
 .send-button:hover:not(:disabled) { background: var(--composer-action-hover-fill); }
-.composer .send-button:not(.stop):not(:disabled) { color: var(--accent-text); background: var(--accent); }
-.composer .send-button:not(.stop):not(:disabled):hover { background: color-mix(in srgb, var(--accent) 86%, var(--text-strong)); }
 .send-button:disabled { opacity: 0.32; cursor: not-allowed; }
 .send-button > :is(svg, .stop-glyph) { transform: translate(-3px, -3px); }
 .stop-glyph {
