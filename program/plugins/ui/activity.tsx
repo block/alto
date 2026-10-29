@@ -180,6 +180,7 @@ export interface StreamingMarkdownParts {
 interface MarkdownFence {
   marker: '`' | '~'
   length: number
+  indentation: number
 }
 
 function markdownFence(line: string): MarkdownFence | undefined {
@@ -189,6 +190,7 @@ function markdownFence(line: string): MarkdownFence | undefined {
   return {
     marker: fence[0] as '`' | '~',
     length: fence.length,
+    indentation: line.indexOf(fence),
   }
 }
 
@@ -388,10 +390,16 @@ export function stableStreamingMarkdownPrefix(source: string): string {
   return source
 }
 
+function opensMarkdownContainer(line: string): boolean {
+  return /^ {0,3}(?:>|(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$))/u.test(line)
+}
+
 /**
  * Splits a growing Markdown response into completed blocks and one mutable
  * tail. Completed blocks never need to be parsed again, so streaming cost is
  * proportional to the current block instead of the full response prefix.
+ * Lists and blockquotes stay together until a following unindented block
+ * confirms their end; their blank lines and fences are not safe boundaries.
  */
 export class StreamingMarkdownBuffer {
   private source = ''
@@ -399,6 +407,8 @@ export class StreamingMarkdownBuffer {
   private blockStart = 0
   private scanStart = 0
   private fence?: MarkdownFence
+  private container = false
+  private containerBlankEnd?: number
 
   update(source: string, stabilize = false): StreamingMarkdownParts {
     if (!source.startsWith(this.source)) this.reset()
@@ -412,15 +422,33 @@ export class StreamingMarkdownBuffer {
       const newline = source.indexOf('\n', lineStart)
       if (newline < 0 || newline >= visibleEnd) break
       const line = source.slice(lineStart, newline)
+      const blank = !line.trim()
+      const containerStart = opensMarkdownContainer(line)
+      if (this.containerBlankEnd !== undefined && !blank) {
+        if (!/^[ \t]/u.test(line) && !containerStart) {
+          this.commit(this.containerBlankEnd)
+          this.container = false
+        }
+        delete this.containerBlankEnd
+      }
       if (this.fence) {
-        if (closesMarkdownFence(line, this.fence)) {
+        // An outdented fence can end the container and open a new root fence.
+        // Keep that ambiguous boundary in the tail rather than splitting it.
+        if (
+          closesMarkdownFence(line, this.fence)
+          && (!this.container || line.indexOf(this.fence.marker) >= this.fence.indentation)
+        ) {
           delete this.fence
-          this.commit(newline + 1)
+          if (!this.container) this.commit(newline + 1)
         }
       } else {
+        if (containerStart) this.container = true
         const opening = markdownFence(line)
         if (opening) this.fence = opening
-        else if (!line.trim()) this.commit(newline + 1)
+        else if (blank) {
+          if (this.container) this.containerBlankEnd = newline + 1
+          else this.commit(newline + 1)
+        }
       }
       lineStart = newline + 1
       this.scanStart = lineStart
@@ -445,6 +473,8 @@ export class StreamingMarkdownBuffer {
     this.blockStart = 0
     this.scanStart = 0
     delete this.fence
+    this.container = false
+    delete this.containerBlankEnd
   }
 }
 

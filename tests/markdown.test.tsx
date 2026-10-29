@@ -28,6 +28,180 @@ import {
 } from '../program/plugins/ui/markdown.js'
 import { activitiesFromThread } from '../program/plugins/ui/history.js'
 
+describe('streaming Markdown list continuity', () => {
+  const instructions = [
+    'Prepare a workspace.',
+    '',
+    '1. Open the workspace.',
+    '2. Set the options:',
+    '   - **Name:** `sample`',
+    '   - **Target:** `local`',
+    '   - **Permissions:** `read` and `write`',
+    '3. Review the options.',
+    '4. Check the configuration:',
+    '   ```sh',
+    '   inspect-config',
+    '   ```',
+    '   The `options` list should include `read` and `write`.',
+    '5. Save the configuration:',
+    '   ```sh',
+    '   save-config',
+    '   ```',
+    '6. Run the checks:',
+    '   ```sh',
+    '   run-checks',
+    '   ```',
+    '7. Confirm the result:',
+    '   ```sh',
+    '   show-result',
+    '   ```',
+    '',
+    'If a check fails, review its output.',
+    '',
+  ].join('\n')
+  const nested = [
+    '1. Prepare the outer step.',
+    '',
+    '   Keep this continuation in the outer item.',
+    '',
+    '   - Prepare the inner step.',
+    '',
+    '     Keep this continuation in the inner item.',
+    '',
+    '     ```sh',
+    '     nested-check',
+    '     ```',
+    '',
+    '     Review the inner result.',
+    '',
+    '   - Finish the inner list.',
+    '',
+    '   Review the outer result.',
+    '',
+    '2. Finish the outer step.',
+    '',
+    '   ```sh',
+    '   outer-check',
+    '   ```',
+    '',
+  ].join('\n')
+  const outdentedFence = '- item\n\n  ```text\n  body\n```\n\noutside\n'
+  const lessIndentedClose = '- item\n\n   ```text\n   body\n  ```\n\noutside\n'
+  const CodeBlock = ({ code }: { code: string }) => <pre data-test-code-block><code>{code}</code></pre>
+
+  // Inspect rendered list ownership without depending on presentation classes.
+  function listItems(html: string): Array<{ depth: number; html: string }> {
+    const starts: number[] = []
+    const items: Array<{ start: number; depth: number; html: string }> = []
+    for (const tag of html.matchAll(/<\/?li>/g)) {
+      if (tag[0] === '<li>') starts.push(tag.index + tag[0].length)
+      else {
+        const start = starts.pop()
+        if (start !== undefined) items.push({ start, depth: starts.length, html: html.slice(start, tag.index) })
+      }
+    }
+    return items.sort((a, b) => a.start - b.start)
+  }
+  const text = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  const outline = (html: string) => ({
+    lists: [...html.matchAll(/<(?:ol|ul)(?: start="\d+")?>/g)].map(match => match[0]),
+    items: listItems(html).map(item => ({ depth: item.depth, text: text(item.html) })),
+    codeBlocks: [...html.matchAll(/<pre data-test-code-block[^>]*><code>([\s\S]*?)<\/code><\/pre>/g)]
+      .map(match => text(match[1]!)),
+  })
+  const renderParts = (parts: ReturnType<StreamingMarkdownBuffer['update']>) => renderToStaticMarkup(
+    <>{[...parts.blocks, parts.tail].filter(Boolean).map((source, index) => (
+      <MessageMarkdown key={index} source={source} codeBlock={CodeBlock} />
+    ))}</>,
+  )
+
+  it.each(['completed', 'streaming'])('keeps all seven instructions and their code blocks in a %s reply', (status) => {
+    const html = renderToStaticMarkup(<ActivityCard item={{
+      id: 'numbered-instructions', kind: 'agent', title: 'Assistant',
+      content: instructions, status, timestamp: '',
+    }} codeBlock={CodeBlock} />)
+    const items = listItems(html)
+
+    expect(items.filter(item => item.depth === 0)).toHaveLength(7)
+    expect(items.filter(item => item.depth === 1)).toHaveLength(3)
+    expect(html.match(/<ol(?: start="\d+")?>/g)).toHaveLength(1)
+    expect(html.match(/data-test-code-block/g)).toHaveLength(4)
+    for (const [label, command] of [
+      ['Check the configuration:', 'inspect-config'],
+      ['Save the configuration:', 'save-config'],
+      ['Run the checks:', 'run-checks'],
+      ['Confirm the result:', 'show-result'],
+    ] as const) {
+      const owner = items.find(item => item.html.includes(command))
+      expect(owner?.depth).toBe(0)
+      expect(text(owner?.html ?? '')).toContain(label)
+      expect(owner?.html).toContain('data-test-code-block')
+    }
+    expect(html).not.toContain('5. Save the configuration:')
+  })
+
+  it('preserves list structure as source arrives across lines, blank lines, and fences', () => {
+    for (const source of [instructions, nested, outdentedFence, lessIndentedClose]) {
+      const buffer = new StreamingMarkdownBuffer()
+      for (let end = 29; end < source.length + 29; end += 29) {
+        const prefix = source.slice(0, end)
+        const parts = buffer.update(prefix, true)
+        const visible = parts.blocks.join('') + parts.tail
+        const expected = renderToStaticMarkup(<MessageMarkdown source={visible} codeBlock={CodeBlock} />)
+        expect(outline(renderParts(parts)), `list structure at character ${end}`).toEqual(outline(expected))
+      }
+      const completed = buffer.update(source, false)
+      expect(completed.blocks.join('') + completed.tail).toBe(source)
+      expect(outline(renderParts(completed))).toEqual(outline(
+        renderToStaticMarkup(<MessageMarkdown source={source} codeBlock={CodeBlock} />),
+      ))
+    }
+  })
+
+  it('keeps loose nested-list fences inside their nearest list item', () => {
+    const html = renderToStaticMarkup(<ActivityCard item={{
+      id: 'nested-instructions', kind: 'agent', title: 'Assistant',
+      content: nested, status: 'completed', timestamp: '',
+    }} codeBlock={CodeBlock} />)
+    const items = listItems(html)
+    const inner = items.find(item => item.depth === 1 && item.html.includes('nested-check'))
+    const outer = items.find(item => item.depth === 0 && item.html.includes('outer-check'))
+
+    expect(items.filter(item => item.depth === 0)).toHaveLength(2)
+    expect(items.filter(item => item.depth === 1)).toHaveLength(2)
+    expect(text(inner?.html ?? '')).toContain('Review the inner result.')
+    expect(text(outer?.html ?? '')).toContain('Finish the outer step.')
+  })
+
+  it('settles a list before following prose and reuses that completed prefix', () => {
+    const buffer = new StreamingMarkdownBuffer()
+    const settled = buffer.update(instructions, true)
+    const extended = buffer.update(`${instructions}Keep the output for review.`, true)
+    const html = renderParts(extended)
+
+    expect(settled.blocks.some(block => block.includes('show-result'))).toBe(true)
+    expect(extended.blocks).toBe(settled.blocks)
+    expect(listItems(html).filter(item => item.depth === 0)).toHaveLength(7)
+    expect(listItems(html).some(item => item.html.includes('If a check fails'))).toBe(false)
+    expect(text(html)).toContain('If a check fails, review its output. Keep the output for review.')
+  })
+
+  it('keeps a completed root fence stable while following prose grows', () => {
+    const buffer = new StreamingMarkdownBuffer()
+    const source = 'Before.\n\n```sh\nroot-check\n```\nAfter'
+    const closed = buffer.update(source, true)
+    const extended = buffer.update(`${source} continues.`, true)
+
+    expect(closed.blocks.some(block => block.includes('root-check'))).toBe(true)
+    expect(extended.blocks).toBe(closed.blocks)
+    const html = renderParts(extended)
+    expect(html.match(/data-test-code-block/g)).toHaveLength(1)
+    expect(html).toContain('<code>root-check</code>')
+    expect(html).toContain('After continues.')
+    expect(listItems(html)).toHaveLength(0)
+  })
+})
+
 describe('message markdown', () => {
   it('renders inline formatting and fenced code', () => {
     const html = renderToStaticMarkup(
