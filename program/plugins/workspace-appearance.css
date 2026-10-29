@@ -46,8 +46,20 @@ html[data-alto-theme='dark'] .workspace-layout-root {
   padding-inline-start: var(--workspace-column-inset);
 }
 
-.workspace-layout-root .workspace-chat-pane .conversation-feed {
+.workspace-layout-root .workspace-chat-pane .conversation-feed,
+.workspace-layout-root .workspace-pane-conversation:has(> .scrollback-minimap) > .conversation-stage > .conversation-feed {
   padding-inline: var(--workspace-column-inset);
+}
+
+/* Keep scrollback in the shared column's gutter instead of shifting the
+   transcript away from its title and composer in narrow split panes. */
+.workspace-layout-root .workspace-pane-conversation > .scrollback-minimap {
+  max-width: calc(var(--workspace-column-inset) - var(--space-2));
+}
+
+.workspace-layout-root .workspace-pane-conversation :is(.scrollback-track, .scrollback-tick),
+.workspace-layout-root .workspace-pane-conversation .scrollback-tick::after {
+  max-width: 100%;
 }
 
 .workspace-layout-root .workspace-pane-title { color: var(--text); }

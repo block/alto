@@ -116,34 +116,42 @@ async function check() {
       window.commandB=(shift=false)=>flushSync(()=>document.body.dispatchEvent(new KeyboardEvent('keydown',{key:shift?'B':'b',code:'KeyB',metaKey:true,shiftKey:shift,bubbles:true,cancelable:true})));
       // Reuse the mounted workspace and its real Composer, with representative
       // transcript markup. The original typed renderer and draft remain mounted.
-      let preview;
-      window.mountPreview=()=>{
-        const pane=document.querySelector('.workspace-view:not([hidden]) .workspace-chat-pane'),content=pane.querySelector('.workspace-typed-pane-content'),title=pane.querySelector('.workspace-pane-title');
+      let previews;
+      window.mountPreview=(all=false)=>{
+        const panes=[...document.querySelectorAll('.workspace-view:not([hidden]) .workspace-chat-pane')].filter(pane=>pane.dataset.workspacePaneKind!=='terminal');
+        previews=(all?panes:panes.slice(0,1)).map(pane=>{const content=pane.querySelector('.workspace-typed-pane-content'),title=pane.querySelector('.workspace-pane-title');
         const mount=document.createElement('div'),heading=document.createElement('div');mount.style.display='contents';heading.className='workspace-pane-title-control';
         heading.innerHTML='<button type="button" class="workspace-pane-title"><span class="workspace-pane-title-text">A quieter workspace</span></button>';
-        preview={pane,content,title,heading,mount,classes:pane.className,root:createRoot(mount)};
-        content.style.display='none';title.replaceWith(heading);pane.classList.remove('workspace-typed-pane');pane.classList.add('is-focused');pane.append(mount);
+        const preview={pane,content,title,heading,mount,classes:pane.className,root:createRoot(mount)};
+        content.style.display='none';title.replaceWith(heading);pane.classList.remove('workspace-typed-pane');if(!all)pane.classList.add('is-focused');pane.append(mount);
         flushSync(()=>preview.root.render(<>
           <div className="workspace-pane-conversation"><div className="conversation-stage"><div className="conversation-feed"><div className="conversation-feed-content">
             <article className="activity-card activity-user"><div className="activity-content activity-markdown"><p>Bring the tabs, conversation, and composer into the same visual family.</p></div></article>
             <article className="activity-card activity-agent"><div className="activity-content activity-markdown"><p>The navigation now shares its type and surface palette with the conversation. The title follows the reading column, while the tools keep a compact, consistent shape.</p><p>Both tab orientations preserve the same selection, hover, and keyboard focus states.</p></div></article>
-          </div></div></div></div>
+          </div></div></div><aside className="scrollback-minimap is-visible" aria-label="Conversation scrollback" style={{top:20,height:160}}><nav className="scrollback-track"><button type="button" className="scrollback-tick" aria-label="Jump to prompt 1" style={{'--scrollback-tick-width':'20px'}}/></nav></aside></div>
           <div className="workspace-pane-composer"><Composer value="Keep the conversation easy to read." images={[]} attachments={[]} skills={[]} models={[]}
             permissionMode="full" workspaceLabel="/repo" workspaceOptions={[]} capabilities={[]} placeholder="Let's build" focusHeight={156} maxHeight={180} autoFocus={false}
             disabled={false} readOnly={false} sending={false} activeTurn={false}
             onChange={value=>window.previewDraft=value} onImagesChange={()=>{}} onAttachmentsChange={()=>{}} onAttachFile={async()=>{}}
             onModelChange={()=>{}} onEffortChange={()=>{}} onPermissionModeChange={()=>{}}
             onWorkspaceChange={()=>{}} onSubmit={()=>{}} onInterrupt={()=>{}}/></div>
-        </>));
+        </>));return preview;});
       };
-      window.unmountPreview=()=>{flushSync(()=>preview.root.unmount());preview.mount.remove();preview.heading.replaceWith(preview.title);preview.content.style.removeProperty('display');preview.pane.className=preview.classes;preview=undefined};
+      window.unmountPreview=()=>{for(const preview of previews){flushSync(()=>preview.root.unmount());preview.mount.remove();preview.heading.replaceWith(preview.title);preview.content.style.removeProperty('display');preview.pane.className=preview.classes;}previews=undefined};
+      window.paneAlignments=()=>[...document.querySelectorAll('.workspace-view:not([hidden]) .workspace-chat-pane:not(.workspace-typed-pane)')].map(pane=>{
+        const box=selector=>{const element=selector?pane.querySelector(selector):pane,r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}};
+        const style=getComputedStyle(pane),tick=pane.querySelector('.scrollback-tick'),tickStyle=getComputedStyle(tick),fill=getComputedStyle(tick,'::after'),fillLeft=tick.getBoundingClientRect().left+parseFloat(tickStyle.borderLeftWidth)+parseFloat(tickStyle.paddingLeft);
+        return {id:pane.dataset.workspacePaneId,pane:box(),title:box('.workspace-pane-title-text'),feed:box('.conversation-feed-content'),composer:box('.composer'),
+          column:parseFloat(style.getPropertyValue('--workspace-column-width')),gutter:parseFloat(style.getPropertyValue('--workspace-column-gutter')),
+          minimap:{display:getComputedStyle(pane.querySelector('.scrollback-minimap')).display,box:box('.scrollback-minimap'),track:box('.scrollback-track'),tick:box('.scrollback-tick'),fill:{left:fillLeft,right:fillLeft+parseFloat(fill.width)}}};
+      });
       window.teardown=()=>{hotkeys.dispose();flushSync(()=>root.unmount());controls.disable()};
       window.boot();
     ` },
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     loader: { '.css': 'text' }, define: { 'process.env.NODE_ENV': '"production"' },
   })
-  const css = (await Promise.all(['src/client/styles.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/todo.css', 'program/plugins/orchestrator.css', 'program/plugins/pane-tabs.css'].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
+  const css = (await Promise.all(['src/client/styles.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/todo.css', 'program/plugins/orchestrator.css', 'program/plugins/pane-tabs.css', 'program/plugins/scrollback.css'].map(file => fs.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer((request, response) => {
     response.end('<!doctype html><style>' + css + '\n#root{height:100vh}#workspace-mount{display:flex;min-width:0;min-height:0;flex:1 1 0}.test-pane{padding:24px;width:100%}.test-pane textarea{width:100%;min-height:100px}.test-terminal{flex:1 1 0}</style><div id="root"><div class="shell-kernel"><div data-shell-node="workspace" class="shell-box shell-direction-row shell-grow shell-surface-canvas"><main data-shell-node="workspace-layout-main" class="shell-box shell-direction-column shell-grow shell-surface-canvas"><div id="workspace-mount"></div></main></div></div></div>')
   })
@@ -497,6 +505,26 @@ async function check() {
     if (!measured.collapsed) assert.equal(measured.agentsVisible, true, label + ': the Agents count stays visible')
     assert.ok(measured.scroll <= measured.viewport, label + ': content stays inside the viewport')
     return measured
+  }
+  const assertPaneAlignments = async (label, count) => {
+    const panes = await run('paneAlignments()')
+    assert.equal(panes.length, count, label + ': every chat pane is measured')
+    for (const measured of panes) {
+      const near = (actual, expected, description) => assert.ok(Math.abs(actual - expected) <= 1,
+        label + ': ' + measured.id + ' ' + description + ' ' + JSON.stringify(measured))
+      const column = Math.min(measured.column, measured.pane.width - 2 * measured.gutter)
+      near(measured.title.left, measured.composer.left, 'title aligns with its own Composer')
+      near(measured.feed.left, measured.composer.left, 'transcript aligns with its own Composer, including scrollback')
+      near(measured.feed.width, column, 'transcript uses the pane reading width')
+      near(measured.composer.width, column, 'Composer uses the pane reading width')
+      assert.ok(measured.title.width > 0 && measured.feed.width > 0, label + ': each pane has visible title and transcript geometry')
+      assert.equal(measured.minimap.display === 'none', measured.pane.width <= 440, label + ': scrollback visibility follows each pane, not the window')
+      if (measured.minimap.display !== 'none') for (const part of ['box', 'track', 'tick', 'fill']) {
+        assert.ok(measured.minimap[part].right <= measured.feed.left + 1, label + ': scrollback ' + part + ' stays before the transcript ' + JSON.stringify(measured))
+      }
+    }
+    if (process.env.ALTO_TAB_GEOMETRY_REPORT) console.log(label + ': ' + JSON.stringify(panes))
+    return panes
   }
   try {
     await window.loadURL(`http://127.0.0.1:${server.address().port}`)
@@ -910,6 +938,37 @@ async function check() {
     assertOpaqueChrome(await material(), 'Disabling material restores opaque chrome while vertical tabs stay active')
     assert.equal(await run("!!document.querySelector('[data-plugin-style=workspace-material]')"), false)
     assert.equal((await run('inspect()')).mounts, mounted, 'Changing material does not remount panes')
+
+    // Scrollback adds its own high-specificity feed insets. Exercise every chat
+    // in the real split tree, including centered columns and hidden minimaps.
+    await run("enableMaterial();document.documentElement.dataset.altoTheme='light';click('[data-workspace-tab=d]')")
+    for (const shape of ['side-by-side', 'stacked', 'unequal', 'nested']) {
+      await run(`split('${shape === 'stacked' ? 'vertical' : 'horizontal'}','test')`)
+      if (shape === 'unequal') await run("document.querySelector('.workspace-view:not([hidden]) .workspace-split-divider').focus();for(let i=0;i<4;i++)key('ArrowLeft')")
+      if (shape === 'nested') await run("split('vertical','test')")
+      await run('mountPreview(true)')
+      const paneMounts = (await run('inspect()')).mounts
+      for (const width of [2000, 1200, 600]) {
+        window.setContentSize(width, 760)
+        await settle()
+        await finishMotion()
+        for (const orientation of ['vertical', 'horizontal']) {
+          assert.equal(await run("document.querySelector('.workspace-tabs').getAttribute('aria-orientation')"), orientation)
+          const label = `alignment-${shape}-${orientation}-${width}`
+          const panes = await assertPaneAlignments(label, shape === 'nested' ? 3 : 2)
+          if (shape === 'unequal') assert.ok(Math.abs(panes[0].pane.width - panes[1].pane.width) > 20, label + ': the resized panes have different available widths')
+          if (shape === 'nested') assert.ok(panes[1].pane.top < panes[2].pane.top && panes[0].pane.left < panes[1].pane.left, label + ': both rows of the nested branch are present')
+          if ((shape === 'side-by-side' && width === 2000) || (shape === 'nested' && width === 600 && orientation === 'vertical')) await capture(label)
+          await run('commandB(true)')
+          await finishMotion()
+        }
+      }
+      await run('unmountPreview()')
+      assert.equal((await run('inspect()')).mounts, paneMounts, shape + ': alignment checks retain every original pane renderer')
+      await run('closePane()')
+      if (shape === 'nested') await run('closePane()')
+    }
+    assert.equal(await run("originalDraft===document.getElementById('draft-pane-a') && originalDraft.value==='Keep this draft'"), true, 'Split alignment checks retain the original draft')
     await run('teardown()')
     console.log('Vertical tab browser checks passed')
   } finally {
