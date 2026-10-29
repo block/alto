@@ -41,7 +41,7 @@ function fixture() {
     listeners.add(listener); return () => listeners.delete(listener)
   } } as unknown as ClientHostService
   const session = new AgentSessionService(native, host)
-  return { session, native, call, extensions, update: () => listeners.forEach((listener) => listener()) }
+  return { session, native, host, call, extensions, update: () => listeners.forEach((listener) => listener()) }
 }
 
 describe('local ACP draft selections', () => {
@@ -712,4 +712,90 @@ it('keeps model choices stable during streaming and updates them when configurat
     expect(f.session.snapshot().session.model).toBe('two')
     expect(f.session.snapshot().models).not.toBe(models)
   } finally { f.session.dispose() }
+})
+
+it('retains unaffected ACP projections while another chat streams and refreshes changed history inputs', async () => {
+  const f = fixture()
+  const state: AgentChat = { ...structuredClone(chat), turn: 'running', activities: [
+    { id: 'answer', kind: 'agent', title: 'Assistant', content: 'First', status: 'streaming', timestamp: '' },
+  ] }
+  f.extensions[agentChatStateKey(id)] = state as unknown as JsonValue
+  try {
+    await f.session.openThread(chat.summary)
+    const original = f.session.snapshot()
+    const other = { ...structuredClone(state), summary: { ...state.summary, id: 'acp-22222222-2222-2222-2222-222222222222' } }
+    for (let index = 0; index < 20; index++) {
+      f.extensions[agentChatStateKey(other.summary.id)] = { ...other, activities: [{ ...other.activities[0]!, content: 'chunk '.repeat(index + 1) }] } as unknown as JsonValue
+      f.update()
+      expect(f.session.snapshot().activities).toBe(original.activities)
+      expect(f.session.snapshot().threads).toBe(original.threads)
+      expect(f.session.snapshot().history).toBe(original.history)
+      expect(f.session.snapshot().history.entries).toBe(original.history.entries)
+      expect(f.session.snapshot().models).toBe(original.models)
+    }
+
+    const requests = [{ id: 'approval', method: 'agent/requestApproval', receivedAt: '', params: { threadId: id } }]
+    f.extensions[agentChatStateKey(id)] = { ...state, requests } as unknown as JsonValue
+    f.update()
+    expect(f.session.snapshot().activities).toBe(original.activities)
+    expect(f.session.snapshot().agentStatus.state).toBe('waiting')
+    expect(f.session.snapshot().harness?.pendingRequests).toEqual(requests)
+    const completed = [{ ...state.activities[0]!, content: 'First, final', status: 'completed', phase: 'final_answer' as const }]
+    f.extensions[agentChatStateKey(id)] = { ...state, turn: 'idle', activities: completed } as unknown as JsonValue
+    f.update()
+    expect(f.session.snapshot().activities).toBe(completed)
+    expect(f.session.snapshot().turn.tag).toBe('idle')
+    expect(f.session.snapshot().harness?.pendingRequests).toEqual([])
+
+    // An unrelated extension is still observable through the session harness.
+    const native = f.native.snapshot()
+    native.harness = { ...native.harness!, extensions: { ...f.extensions, monitor: { revision: 2 } } }
+    f.update()
+    expect(f.session.snapshot().harness?.extensions.monitor).toEqual({ revision: 2 })
+    expect(f.session.snapshot().activities).toBe(completed)
+    expect(f.session.snapshot().threads).toBe(original.threads)
+
+    native.projects = [{ id: 'project', name: 'Project', primaryRoot: '/tmp/project', roots: ['/tmp/project'] }]
+    f.update()
+    const projected = f.session.snapshot().threads
+    expect(projected).not.toBe(original.threads)
+    expect(projected.find(thread => thread.id === id)?.projectId).toBe('project')
+    const catalog = f.extensions['agent-chats'] as unknown as { providers: JsonValue[]; threads: AgentChat['summary'][] }
+    f.extensions['agent-chats'] = { ...catalog, threads: [{ ...chat.summary, title: 'Renamed', updatedAt: 3 }] } as unknown as JsonValue
+    f.update()
+    expect(f.session.snapshot().threads[0]).toMatchObject({ id, title: 'Renamed', projectId: 'project' })
+    native.threads = [{ ...chat.summary, id: 'native-newest', updatedAt: 4 }]
+    f.update()
+    expect(f.session.snapshot().threads.map(thread => thread.id)).toEqual(['native-newest', id])
+  } finally { f.session.dispose() }
+})
+
+it('publishes a host change once when native and host subscriptions deliver the same inputs', () => {
+  const f = fixture()
+  const nativeListeners = new Set<() => void>(), hostListeners = new Set<() => void>()
+  let nativeState = f.native.snapshot(), hostState = { ...f.host.snapshot(), revision: 0 }
+  const native = { ...f.native, snapshot: () => nativeState, subscribe: (listener: () => void) => {
+    nativeListeners.add(listener); return () => nativeListeners.delete(listener)
+  } }
+  const host = { ...f.host, snapshot: () => hostState, subscribe: (listener: () => void) => {
+    hostListeners.add(listener); return () => hostListeners.delete(listener)
+  } }
+  const session = new AgentSessionService(native, host)
+  const changed = vi.fn()
+  session.subscribe(changed)
+  try {
+    nativeState = { ...nativeState, revision: nativeState.revision + 1 }
+    hostState = { ...hostState, revision: hostState.revision + 1 }
+    nativeListeners.forEach(listener => listener())
+    const published = session.snapshot()
+    hostListeners.forEach(listener => listener())
+    expect(changed).toHaveBeenCalledOnce()
+    expect(session.snapshot()).toBe(published)
+    // Local selections must still update even when external inputs are stable.
+    session.setProvider('pi')
+    expect(session.snapshot().providerId).toBe('pi')
+    expect(changed).toHaveBeenCalledTimes(2)
+  } finally { session.dispose(); f.session.dispose() }
+  expect(nativeListeners.size).toBe(0)
+  expect(hostListeners.size).toBe(0)
 })

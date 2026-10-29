@@ -1,5 +1,5 @@
 import type { AgentConfigOption, AgentProviderSnapshot } from '../../src/server/services/agent-registry.js'
-import type { ClientDraft, ClientHostService } from '../../src/client/plugin-api.js'
+import type { ClientDraft, ClientHostService, ClientHostSnapshot } from '../../src/client/plugin-api.js'
 import { isRecord, type LocalProject, type LocalProjectInput, type PermissionMode, type ThreadSummary } from '../../src/shared/protocol.js'
 import type { ClientSessionService, ClientSessionSnapshot } from './session-api.js'
 import { AGENT_CHATS_STATE, agentChatStateKey, isAgentChatId, type AgentChat, type AgentChatCatalog, agentPromptInput } from './agent-chats-api.js'
@@ -14,6 +14,25 @@ function openedChat(value: unknown): AgentChat | undefined {
   return isRecord(value) && Array.isArray(value.activities) ? value as unknown as AgentChat : undefined
 }
 
+const emptyCatalog: AgentChatCatalog = { providers: [], threads: [] }
+const projectedSummaries = new WeakMap<LocalProject[], WeakMap<ThreadSummary[], ThreadSummary[]>>()
+
+function agentSummaries(projects: LocalProject[], threads: ThreadSummary[]): ThreadSummary[] {
+  let histories = projectedSummaries.get(projects)
+  if (!histories) projectedSummaries.set(projects, histories = new WeakMap())
+  let summaries = histories.get(threads)
+  if (!summaries) {
+    // All mounted panes share these immutable inputs. A catalog timestamp
+    // change should project its history once, rather than once per pane.
+    summaries = threads.map((thread) => {
+      const project = projectForWorkspace(projects, thread.cwd)
+      return project ? { ...thread, projectId: project.id } : thread
+    })
+    histories.set(threads, summaries)
+  }
+  return summaries
+}
+
 export class AgentSessionService implements ClientSessionService {
   private configurationKey = ''
   private draftConfig = new Map<string, string>()
@@ -22,7 +41,15 @@ export class AgentSessionService implements ClientSessionService {
   private workspaceNameKey = ''
   private workspaceName: string | undefined
   private providersKey = ''
+  private providerSnapshots: AgentChatCatalog['providers'] | undefined
   private providers: NonNullable<ClientSessionSnapshot['providers']> = []
+  private historyInputs: { projects: LocalProject[]; native: ThreadSummary[]; agents: ThreadSummary[] } | undefined
+  private nativeHistory: ClientSessionSnapshot['history'] | undefined
+  private history!: ClientSessionSnapshot['history']
+  private summaries: ThreadSummary[] = []
+  private threads: ThreadSummary[] = []
+  private nativeSnapshot: ClientSessionSnapshot | undefined
+  private hostSnapshot: ClientHostSnapshot | undefined
   private state!: ClientSessionSnapshot
   private readonly listeners = new Set<() => void>()
   private readonly cleanup: Array<() => void>
@@ -51,7 +78,7 @@ export class AgentSessionService implements ClientSessionService {
   ) {
     this.providerSelectionChanged = options.useDefaults === false
     this.pendingRestore = options.restoreThreadId
-    this.cleanup = [native.subscribe(() => this.sync()), host.subscribe(() => this.sync())]
+    this.cleanup = [native.subscribe(() => this.syncExternal()), host.subscribe(() => this.syncExternal())]
     this.sync()
   }
 
@@ -64,12 +91,37 @@ export class AgentSessionService implements ClientSessionService {
   private catalog(): AgentChatCatalog {
     const value = this.host.snapshot().snapshot?.extensions[AGENT_CHATS_STATE]
     return isRecord(value) && Array.isArray(value.providers) && Array.isArray(value.threads)
-      ? value as unknown as AgentChatCatalog : { providers: [], threads: [] }
+      ? value as unknown as AgentChatCatalog : emptyCatalog
+  }
+
+  private syncExternal(): void {
+    // A host update first reaches the native session, then this wrapper. Both
+    // subscriptions see the same immutable inputs; publish that state once.
+    if (this.native.snapshot() === this.nativeSnapshot && this.host.snapshot() === this.hostSnapshot) return
+    this.sync()
+  }
+
+  private syncHistory(native: ClientSessionSnapshot, catalog: AgentChatCatalog): void {
+    // Structural extension patches preserve untouched arrays. Transcript,
+    // status, and unrelated extension updates do not change these inputs.
+    const previous = this.historyInputs
+    if (previous?.projects !== native.projects || previous.native !== native.threads || previous.agents !== catalog.threads) {
+      this.historyInputs = { projects: native.projects, native: native.threads, agents: catalog.threads }
+      this.summaries = agentSummaries(native.projects, catalog.threads)
+      this.threads = [...new Map([...native.threads, ...this.summaries].map((thread) => [thread.id, thread])).values()]
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+    }
+    if (this.nativeHistory !== native.history || this.history?.entries !== this.threads) {
+      this.nativeHistory = native.history
+      this.history = { ...native.history, entries: this.threads }
+    }
   }
 
   private sync(): void {
     if (this.disposed) return
     const native = this.native.snapshot()
+    this.nativeSnapshot = native
+    this.hostSnapshot = this.host.snapshot()
     const catalog = this.catalog()
     if (!this.providerSelectionChanged && !this.pendingRestore && !this.threadId && !native.threadId
       && !this.creating && !this.sending && native.turn.tag === 'idle' && !native.activities.length) {
@@ -84,26 +136,25 @@ export class AgentSessionService implements ClientSessionService {
     }
     if (!this.host.snapshot().connected) this.requestedState = undefined
     const provider = catalog.providers.find((candidate) => candidate.id === this.providerId)
-    const choices = catalog.providers.map(({ id, label, agentId, location }) => ({
-      id, label, ...(agentId ? { agentId } : {}), ...(location ? { location } : {}),
-    }))
-    const providersKey = JSON.stringify(choices)
-    if (!this.providers.length || providersKey !== this.providersKey) {
-      this.providersKey = providersKey
-      this.providers = [{ id: 'codex', label: 'Codex' }, ...choices]
+    if (catalog.providers !== this.providerSnapshots) {
+      this.providerSnapshots = catalog.providers
+      const choices = catalog.providers.map(({ id, label, agentId, location }) => ({
+        id, label, ...(agentId ? { agentId } : {}), ...(location ? { location } : {}),
+      }))
+      const providersKey = JSON.stringify(choices)
+      if (!this.providers.length || providersKey !== this.providersKey) {
+        this.providersKey = providersKey
+        this.providers = [{ id: 'codex', label: 'Codex' }, ...choices]
+      }
     }
     const providers = this.providers
-    const summaries = catalog.threads.map((thread) => {
-      const project = projectForWorkspace(native.projects, thread.cwd)
-      return project ? { ...thread, projectId: project.id } : thread
-    })
-    const threads = [...new Map([...native.threads, ...summaries].map((thread) => [thread.id, thread])).values()]
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+    this.syncHistory(native, catalog)
+    const { summaries, threads } = this
     // Only connection, projects, and history are shared. Codex's active turn,
     // model, and project selection must not leak into an ACP conversation.
     const common = { revision: ++this.revision, providers, providerId: this.providerId,
       connected: native.connected, connectionError: native.connectionError, projects: native.projects,
-      threads, history: { ...native.history, entries: threads } }
+      threads, history: this.history }
     if (this.providerId === 'codex') this.state = { ...native, ...common }
     else {
       this.syncChat(catalog, native.connected)
@@ -144,8 +195,8 @@ export class AgentSessionService implements ClientSessionService {
         turn: { tag: turn },
         agentStatus: { state: chat?.remote && chat.remote.state !== 'connected' ? 'waiting' : requests.length ? 'waiting' : turn === 'idle' ? 'idle' : 'running',
           label: chat?.remote && chat.remote.state !== 'connected' ? chat.remote.state === 'ended' ? 'Remote agent stopped' : 'Reconnecting to remote agent' : requests.length ? requests.some((request) => request.method === 'agent/requestUserInput') ? 'Waiting for your reply' : 'Waiting for approval' : turn === 'idle' ? provider?.label ?? 'Agent' : 'Working' },
-        activities: [...activities, ...(problem ? [{ id: `agent-error:${this.threadId ?? 'new'}:${problem}`,
-          kind: 'status' as const, title: 'Agent error', content: problem, status: 'failed', timestamp: '' }] : [])],
+        activities: problem ? [...activities, { id: `agent-error:${this.threadId ?? 'new'}:${problem}`,
+          kind: 'status' as const, title: 'Agent error', content: problem, status: 'failed', timestamp: '' }] : activities,
         hasEarlierActivities: false, loadingEarlierActivities: false,
         skills: !provider?.remoteLocation && workspace === native.session.workspace ? native.skills : [],
         ...(native.harness ? { harness: { ...native.harness, pendingRequests: requests } } : {}),
@@ -205,20 +256,24 @@ export class AgentSessionService implements ClientSessionService {
   }
 
   private syncConfiguration(chat: AgentChat | undefined, provider: AgentProviderSnapshot | undefined, native: ClientSessionSnapshot): void {
+    // Live chat configuration has its own revision. Check it before filtering
+    // native models or cloning defaults on every streamed transcript update.
+    const liveKey = chat ? `${this.threadId}:${chat.configurationRevision ?? 0}` : undefined
+    if (liveKey !== undefined && liveKey === this.configurationKey) return
     const remoteCodex = provider?.agentId === 'codex'
     // Local model routes carry local provider configuration and authentication.
     // Remote Codex must use only its own supported providers.
-    const nativeModels = (native.harness?.codex.models?.length ? native.harness.codex.models : native.models ?? [])
+    const nativeModels = (!chat && remoteCodex ? native.harness?.codex.models?.length ? native.harness.codex.models : native.models ?? [] : [])
       .filter((model) => !model.modelProvider)
-    const inherited = remoteCodex ? structuredClone(configuredDefaults(native.harness)) : undefined
+    const inherited = !chat && remoteCodex ? structuredClone(configuredDefaults(native.harness)) : undefined
     if (inherited?.model && !nativeModels.some((model) => model.id === inherited.model)) {
       delete inherited.model
       delete inherited.effort
     }
     const saved = modelDefaults(this.host.snapshot().snapshot?.extensions[MODEL_DEFAULTS_STATE])?.choices[this.providerId]
     const defaults = { ...inherited, ...saved }
-    const configurationKey = chat ? `${this.threadId}:${chat.configurationRevision ?? 0}`
-      : JSON.stringify([this.providerId, this.threadId, provider?.configOptions, remoteCodex ? nativeModels : [], defaults, [...this.draftConfig]])
+    const configurationKey = liveKey
+      ?? JSON.stringify([this.providerId, this.threadId, provider?.configOptions, remoteCodex ? nativeModels : [], defaults, [...this.draftConfig]])
     if (configurationKey === this.configurationKey) return
     this.configurationKey = configurationKey
     let config = chat?.configOptions ?? []

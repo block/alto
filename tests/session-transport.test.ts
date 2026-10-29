@@ -6,11 +6,14 @@ import type {
 import type {
   HarnessEvent,
   HarnessSnapshot,
+  JsonValue,
   ThreadSummary,
   ThreadView,
 } from '../src/shared/protocol.js'
 import { SessionResources, SessionService } from '../program/plugins/session.client.js'
 import { AgentSessionService } from '../program/plugins/agent-session.client.js'
+import { agentChatStateKey } from '../program/plugins/agent-chats-api.js'
+import { applyJsonPatch, type JsonPatch } from '../src/shared/json-patch.js'
 
 function harness(activeThreadIds: string[] = [], status: HarnessSnapshot['codex']['status'] = 'starting'): HarnessSnapshot {
   return {
@@ -84,9 +87,70 @@ class ControllableHost implements ClientHostService {
     for (const listener of this.listeners) listener()
     this.emit({ type: 'snapshot', payload: snapshot })
   }
+
+  patchExtension(name: string, patch: JsonPatch): void {
+    const snapshot = this.state.snapshot!
+    this.state = { ...this.state, revision: this.state.revision + 1, snapshot: {
+      ...snapshot, extensions: { ...snapshot.extensions, [name]: applyJsonPatch(snapshot.extensions[name], patch) },
+    } }
+    for (const listener of this.listeners) listener()
+    this.emit({ type: 'extensions.updated', payload: {}, patches: { [name]: patch }, partial: true })
+  }
 }
 
 describe('session transport projection', () => {
+  it('reuses ACP projections through real native-session delivery and immutable extension patches', async () => {
+    const id = 'acp-11111111-1111-1111-1111-111111111111'
+    const thread = { ...summary(id), providerId: 'pi', providerSessionId: 'pi-session' }
+    const snapshot = harness([], 'ready')
+    snapshot.projects.projects = [{ id: 'project', name: 'Project', primaryRoot: '/tmp/project', roots: ['/tmp/project'] }]
+    const catalog = { providers: [{ id: 'pi', label: 'Pi', capabilities: {} }], threads: [thread] }
+    snapshot.extensions['agent-chats'] = catalog as unknown as JsonValue
+    snapshot.extensions[agentChatStateKey(id)] = { summary: thread, permissionMode: 'ask', turn: 'running', requests: [],
+      activities: [{ id: 'answer', kind: 'agent', title: 'Assistant', content: 'First', status: 'streaming', timestamp: '' }] } as unknown as JsonValue
+    const host = new ControllableHost(snapshot)
+    host.call.mockResolvedValue({ summary: thread, permissionMode: 'ask' })
+    const native = new SessionService(host, { restoreActiveThread: false })
+    const session = new AgentSessionService(native, host)
+    const secondNative = new SessionService(host, { restoreActiveThread: false })
+    const second = new AgentSessionService(secondNative, host)
+    try {
+      await session.openThread(thread)
+      await second.openThread(thread)
+      const original = session.snapshot()
+      expect(original.threads[0]).toMatchObject({ projectId: 'project' })
+      expect(second.snapshot().threads[0]).toBe(original.threads[0])
+      const changed = vi.fn()
+      session.subscribe(changed)
+      host.patchExtension('agent-chats', { o: { historyErrors: { r: ['History service unavailable'] } } })
+      const nextCatalog = host.snapshot().snapshot!.extensions['agent-chats'] as unknown as typeof catalog
+      expect(nextCatalog).not.toBe(catalog)
+      expect(nextCatalog.providers).toBe(catalog.providers)
+      expect(nextCatalog.threads).toBe(catalog.threads)
+      expect(session.snapshot().history).toBe(original.history)
+      expect(session.snapshot().threads).toBe(original.threads)
+      expect(session.snapshot().activities).toBe(original.activities)
+      expect(changed).toHaveBeenCalledOnce()
+
+      host.patchExtension(agentChatStateKey(id), { o: { activities: { a: 1, i: [[0, { o: { content: { s: ', final' } } }]] } } })
+      expect(session.snapshot().activities.at(-1)?.content).toBe('First, final')
+      expect(original.activities.at(-1)?.content).toBe('First')
+      expect(session.snapshot().history).toBe(original.history)
+      expect(changed).toHaveBeenCalledTimes(2)
+      host.patchExtension('agent-chats', { o: { threads: { a: 1, i: [[0, { o: { title: { r: 'Renamed' }, updatedAt: { r: 4 } } }]] } } })
+      expect(session.snapshot().threads).not.toBe(original.threads)
+      expect(session.snapshot().threads[0]).toMatchObject({ id, title: 'Renamed', updatedAt: 4 })
+      expect(second.snapshot().threads[0]).toBe(session.snapshot().threads[0])
+      expect(changed).toHaveBeenCalledTimes(3)
+      const current = host.snapshot().snapshot!
+      host.reconnect({ ...current, projects: { revision: 1, projects: [{ id: 'moved', name: 'Moved', primaryRoot: '/tmp/project', roots: ['/tmp/project'] }] } })
+      expect(session.snapshot().threads[0]?.projectId).toBe('moved')
+      expect(second.snapshot().threads[0]).toBe(session.snapshot().threads[0])
+      expect(original.threads[0]?.projectId).toBe('project')
+      expect(host.call.mock.calls).toEqual([['agent-chats.open', { id }], ['agent-chats.open', { id }]])
+    } finally { session.dispose(); native.dispose(); second.dispose(); secondNative.dispose() }
+  })
+
   it('leaves Codex stopped until its models or a Codex message are requested', async () => {
     const snapshot = harness([], 'stopped')
     snapshot.extensions['agent-chats'] = { providers: [{ id: 'claude', agentId: 'claude', label: 'Claude', capabilities: {} }], threads: [] }

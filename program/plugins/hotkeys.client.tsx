@@ -478,12 +478,7 @@ export class HotkeysService implements ClientHotkeysService {
     // use the same chords outside editable controls.
     const global = preservesEditableNavigation(event, event.target)
       ? undefined
-      : this.resolvedActions().find((action) => (
-        action.enabled && (
-          (action.binding && matchesGlobalBinding(event, action.binding))
-          || action.aliases?.some((binding) => matchesGlobalBinding(event, binding))
-        )
-      ))
+      : this.matchingGlobalAction(event)
     if (global) {
       event.preventDefault()
       event.stopPropagation()
@@ -572,6 +567,19 @@ export class HotkeysService implements ClientHotkeysService {
     const action = this.actions.get(id)
     if (!action || action.enabled?.() === false) return
     void Promise.resolve(action.run()).catch((error: unknown) => console.error(error))
+  }
+
+  private matchingGlobalAction(event: KeyEvent): HotkeyAction | undefined {
+    // Availability can inspect pane state or the DOM. Ordinary typing should
+    // neither evaluate unrelated actions nor build a shortcut-panel snapshot.
+    for (const action of this.actions.values()) {
+      if (
+        (matchesGlobalBinding(event, action.binding)
+          || action.aliases?.some((binding) => matchesGlobalBinding(event, binding)))
+        && (action.enabled?.() ?? true)
+      ) return action
+    }
+    return undefined
   }
 
   private clearPendingLeader(): void {

@@ -405,6 +405,9 @@ function selectionOffset(root: HTMLElement, target: Node | null, targetOffset: n
         const inside = visit(child, offset)
         if (inside === undefined) return undefined
         const position = before + inside
+        // Plain containers have no hidden suffix. Avoid serializing their
+        // entire subtree again just to return the position already found.
+        if (!affixes) return position
         const contentLength = [...content.childNodes]
           .map(serializeNode)
           .join('')
@@ -413,7 +416,7 @@ function selectionOffset(root: HTMLElement, target: Node | null, targetOffset: n
         // A visual caret at the end of formatted text belongs after its hidden
         // closing Markdown delimiter. This keeps the next word from inheriting
         // bold, emphasis, code, or link styling.
-        return affixes && position === contentEnd
+        return position === contentEnd
           ? position + affixes.suffix.length
           : position
       }

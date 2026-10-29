@@ -481,6 +481,87 @@ describe('hotkeys plugin', () => {
     }
   })
 
+  it('checks availability only for matching shortcuts while preserving dynamic aliases', async () => {
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+    const events = new EventTarget()
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        localStorage: { getItem: () => null, setItem: () => undefined },
+        addEventListener: events.addEventListener.bind(events),
+        removeEventListener: events.removeEventListener.bind(events),
+        setTimeout: globalThis.setTimeout.bind(globalThis),
+        clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      },
+    })
+    const service = new HotkeysService({
+      overlays: { snapshot: () => undefined, close: vi.fn() },
+    } as unknown as ClientUiService, {})
+    const context = new Context()
+    let firstAvailable = false
+    const firstEnabled = vi.fn(() => firstAvailable)
+    const secondEnabled = vi.fn(() => true)
+    const unrelatedEnabled = vi.fn(() => true)
+    const firstRun = vi.fn()
+    const secondRun = vi.fn()
+    const owner: Plugin = (ctx) => {
+      service.registerAction(ctx, {
+        id: 'first', label: 'First', category: 'Test',
+        binding: { kind: 'global', key: 'k', meta: true },
+        enabled: firstEnabled, run: firstRun,
+      })
+      service.registerAction(ctx, {
+        id: 'second', label: 'Second', category: 'Test',
+        binding: { kind: 'leader', key: 's' },
+        aliases: [{ kind: 'global', key: 'k', meta: true }],
+        enabled: secondEnabled, run: secondRun,
+      })
+      service.registerAction(ctx, {
+        id: 'unrelated', label: 'Unrelated', category: 'Test',
+        binding: { kind: 'global', key: 't', meta: true },
+        enabled: unrelatedEnabled, run: vi.fn(),
+      })
+    }
+    const press = (key: string, metaKey = false, isComposing = false): Event => {
+      const event = Object.assign(new Event('keydown', { cancelable: true }), {
+        key, metaKey, isComposing,
+        ctrlKey: false, altKey: false, shiftKey: false, repeat: false,
+      })
+      Object.defineProperty(event, 'target', {
+        value: { closest: () => ({ getAttribute: () => 'true' }) },
+      })
+      events.dispatchEvent(event)
+      return event
+    }
+    try {
+      const fiber = await context.plugin(owner)
+      service.setLeaderBinding('second', 'x')
+      firstEnabled.mockClear()
+      secondEnabled.mockClear()
+      unrelatedEnabled.mockClear()
+
+      for (const letter of 'ordinary draft text') expect(press(letter).defaultPrevented).toBe(false)
+      expect(press('k', true, true).defaultPrevented).toBe(false)
+      expect(firstEnabled).not.toHaveBeenCalled()
+      expect(secondEnabled).not.toHaveBeenCalled()
+      expect(unrelatedEnabled).not.toHaveBeenCalled()
+
+      expect(press('k', true).defaultPrevented).toBe(true)
+      expect(firstRun).not.toHaveBeenCalled()
+      expect(secondRun).toHaveBeenCalledOnce()
+      firstAvailable = true
+      expect(press('k', true).defaultPrevented).toBe(true)
+      expect(firstRun).toHaveBeenCalledOnce()
+      expect(secondRun).toHaveBeenCalledOnce()
+      expect(unrelatedEnabled).not.toHaveBeenCalled()
+      await fiber.dispose()
+    } finally {
+      service.dispose()
+      if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+      else delete (globalThis as { window?: Window }).window
+    }
+  })
+
   it('suspends only the Canvas action when its dependency unloads', async () => {
     const context = new Context()
     const actions = new Map<string, HotkeyAction>()

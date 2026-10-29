@@ -2178,7 +2178,8 @@ function WorkspaceLayout({
   const workspacePickerRef = useRef<HTMLDivElement>(null)
   const workspacePickerMenuRef = useRef<HTMLDivElement>(null)
   const [renamingViewId, setRenamingViewId] = useState<string>()
-  const [renamingViewName, setRenamingViewName] = useState('')
+  // Native rename input should not rerender every mounted pane per character.
+  const renamingViewName = useRef('')
   const [renameError, setRenameError] = useState('')
   const [renameSaving, setRenameSaving] = useState(false)
   const renameInFlight = useRef(false)
@@ -2601,16 +2602,16 @@ function WorkspaceLayout({
     setRenameError('')
     setLayout((current) => activateWorkspaceTab(current, view.id))
     setRenamingViewId(view.id)
-    setRenamingViewName(view.name)
+    renamingViewName.current = view.name
   }
 
   const finishRename = async (save: boolean): Promise<void> => {
     if (renameInFlight.current) return
     const viewId = renamingViewId
-    const requestedName = renamingViewName.trim()
+    const requestedName = renamingViewName.current.trim()
     const view = registry.syncTabNames(layoutRef.current).views.find((candidate) => candidate.id === viewId)
     if (!save || !view || !requestedName || requestedName === view.name) {
-      setRenamingViewId(undefined); setRenamingViewName(''); setRenameError('')
+      setRenamingViewId(undefined); renamingViewName.current = ''; setRenameError('')
       return
     }
     const generation = renameGeneration.current
@@ -2632,7 +2633,7 @@ function WorkspaceLayout({
         return { ...synced, views: synced.views.map((candidate) => candidate.id === viewId ? { ...candidate, name } : candidate) }
       })
       setRenamingViewId(undefined)
-      setRenamingViewName('')
+      renamingViewName.current = ''
     } catch (error) {
       if (generation === renameGeneration.current) setRenameError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -3083,13 +3084,13 @@ function WorkspaceLayout({
             <input
               ref={renameInput}
               className="workspace-tab-name-input"
-              value={renamingViewName}
+              defaultValue={renamingViewName.current}
               readOnly={renameSaving}
               aria-busy={renameSaving}
               aria-invalid={Boolean(renameError)}
               title={renameError || undefined}
               aria-label={`Rename ${view.name}`}
-              onChange={(event) => setRenamingViewName(event.target.value)}
+              onChange={(event) => { renamingViewName.current = event.target.value }}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
               onDoubleClick={(event) => event.stopPropagation()}
