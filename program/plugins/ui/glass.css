@@ -1,0 +1,114 @@
+/* Soft light along the upper edge gives glass depth. Existing borders and
+   outer shadows supply the rest, without a second dark seam around the rim. */
+:root {
+  --ui-glass-highlight: light-dark(
+    color-mix(in srgb, white 32%, transparent),
+    color-mix(in srgb, white 6%, transparent));
+  --ui-glass-control-highlight: light-dark(
+    color-mix(in srgb, white 18%, transparent),
+    color-mix(in srgb, white 4%, transparent));
+  --ui-glass-raised: inset 0 1px 1px var(--ui-glass-highlight);
+  --ui-glass-control-edge: inset 0 1px 1px var(--ui-glass-control-highlight);
+  --ui-glass-floating-elevation: 0 5px 16px rgba(39, 43, 58, 0.11), 0 1px 3px rgba(39, 43, 58, 0.06);
+  --ui-panel-shadow: var(--ui-glass-raised), var(--shadow-popover);
+  --ui-dialog-shadow: var(--ui-glass-raised), var(--shadow-modal);
+}
+
+/* Small tabs need less light than a full panel. Both orientations share the
+   same quiet edge, while drop indicators retain their own paint. */
+:root :is(.workspace-tabbar, .vertical-tab-rail) .workspace-tabs .workspace-tab.is-active:not([data-tab-drop]) {
+  box-shadow: var(--ui-glass-control-edge);
+}
+
+/* Public primitives and older action controls share paint without changing
+   their fills, target sizes, or shapes. Menu, tree, and search rows stay flat.
+   A transparent tool reveals its edge only when its existing fill appears. */
+:root :is(
+  .alto-button, .button, .alto-icon-button, .icon-button, .alto-segment,
+  .alto-toolbar-modes > button,
+  .workspace-pane-actions button,
+  .workspace-tab-close, .workspace-tab-add, .workspace-history-controls > button,
+  .pane-tab-close, .pane-tab-new, .canvas-dock-button,
+  .composer-attach, button.composer-workspace-trigger,
+  .composer-permission-trigger, .composer-model-trigger, .open-in-ide-button, .send-button,
+  .composer-images button, .composer-file button,
+  .cordis-code-block > figcaption button, .activity-message-copy,
+  .theme-mode-picker > button, .plugin-category-filters > button,
+  .shortcut-row > button, .hotkeys-reset, .hotkeys-close, .model-defaults-load,
+  .source-review-modes > button, .source-review-comment-send, .source-edit-actions > button, .source-vim-help > header > button,
+  .steer-edit-button, .steer-now, .steer-remove,
+  .git-pane-button, .git-pane-popover > header > button,
+  .work-target-button, .work-target-branch-actions > button, .work-target-location-error > button,
+  .diff-viewer-footer > button, .markdown-viewer-error > button, .pdf-viewer-error > button,
+  select.alto-field, .settings-row select, .hotkey-leader-setting select, .alto-toolbar-picker > select
+):not(:disabled):not([aria-disabled='true']):not(
+  .alto-choice-row, .settings-row, .theme-accent-preset,
+  [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option'], [role='treeitem']
+) {
+  box-shadow: var(--alto-button-shadow, var(--ui-glass-control-rest, none));
+
+  &:where(:hover, [aria-pressed='true'], [aria-expanded='true'], [aria-checked='true'], [aria-selected='true'], .active, .is-active, .is-selected) {
+    box-shadow: var(--alto-button-shadow-hover, var(--ui-glass-control-edge));
+  }
+
+  /* Pressing settles the light instead of adding an inverted dark bevel. */
+  &:where(:active) { box-shadow: var(--alto-button-shadow, none); }
+  &:where(:active:hover) { box-shadow: var(--alto-button-shadow-hover, var(--alto-button-shadow, none)); }
+}
+
+/* Filled actions keep the edge at rest. Ghost buttons and icon tools remain
+   transparent until interaction, including the separate New chat action. */
+:root :is(.alto-button, .button):not(.ghost),
+:root .composer .send-button,
+:root :is(
+  .shortcut-row > button, .hotkeys-reset, .model-defaults-load,
+  .work-target-branch-actions > button, .source-review-comment-send, .source-edit-accept,
+  .markdown-viewer-error > button, .pdf-viewer-error > button, .composer-images button
+),
+:root :is(select.alto-field, .settings-row select, .hotkey-leader-setting select, .alto-toolbar-picker > select) {
+  --ui-glass-control-rest: var(--ui-glass-control-edge);
+}
+
+/* These older scopes suppressed all shadows, including on descendants. Drop
+   that inherited suppression while retaining each control's explicit hooks. */
+:root :is(.workspace-tabbar, .vertical-tab-rail, .markdown-selection-menu),
+:root .approval-body .button {
+  --alto-button-shadow: initial;
+  --alto-button-shadow-hover: initial;
+}
+
+:root :is(.workspace-tabbar, .vertical-tab-rail, .markdown-selection-menu) :is(.alto-button, .button):not(.primary) {
+  --ui-glass-control-rest: none;
+}
+
+/* This action already floats above the transcript. Retain its original
+   elevation when adding an edge, including during keyboard focus. */
+:root .conversation-jump-latest:not(:disabled):not([aria-disabled='true']) {
+  box-shadow: var(--ui-glass-control-edge), var(--ui-glass-floating-elevation);
+
+  &:where(:active) { box-shadow: var(--ui-glass-floating-elevation); }
+}
+
+/* The existing sheet overlay starts below the title band and follows its
+   curved edge. The outer material shadow and corner mask stay independent. */
+:root .workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view[role='tabpanel']::before {
+  box-shadow: var(--ui-glass-raised);
+}
+
+/* Compose with the editor's original elevation and accent glow. Workspace
+   composers use a different elevation stack from standalone editors. */
+:root .composer {
+  box-shadow: var(--ui-glass-raised), var(--composer-resting-shadow);
+}
+
+:root .composer.is-editing {
+  box-shadow: var(--ui-glass-raised), var(--composer-editing-shadow);
+}
+
+:root .workspace-layout-root .workspace-pane-composer .composer {
+  box-shadow: var(--ui-glass-raised), var(--shadow-chat);
+}
+
+:root .workspace-layout-root .workspace-pane-composer .composer.is-editing {
+  box-shadow: var(--ui-glass-raised), var(--composer-focus-shadow), var(--shadow-chat);
+}

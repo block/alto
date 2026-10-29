@@ -7,6 +7,7 @@ import geometry from './ui/geometry.css'
 import focus from './ui/focus.css'
 import markdownInline from './ui/markdown-inline.css'
 import markdownCode from './ui/markdown-code.css'
+import glass from './ui/glass.css'
 
 const interfaceAppearance: BrowserPlugin = (ctx) => {
   ctx.clientUi.registerStyle(ctx, 'interface-appearance-tokens', String(tokens))
@@ -17,6 +18,7 @@ const interfaceAppearance: BrowserPlugin = (ctx) => {
   ctx.clientUi.registerStyle(ctx, 'interface-focus', String(focus))
   ctx.clientUi.registerStyle(ctx, 'interface-markdown-inline', String(markdownInline))
   ctx.clientUi.registerStyle(ctx, 'interface-markdown-code', String(markdownCode))
+  ctx.clientUi.registerStyle(ctx, 'interface-glass-edges', String(glass))
 }
 
 interfaceAppearance.inject = ['clientUi']
