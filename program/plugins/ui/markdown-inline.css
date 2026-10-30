@@ -6,6 +6,14 @@
   --markdown-inline-code-fill: color-mix(in srgb, var(--text) 5%, transparent);
 }
 
+/* Reasoning and live work fade their prose; inline code follows that same ink
+   instead of retaining the stronger color used in a finished response. */
+:root .activity-reasoning .activity-markdown,
+:root .activity-turn-live-trace .activity-working-shimmer {
+  --markdown-inline-code-ink: currentColor;
+  --markdown-inline-code-fill: color-mix(in srgb, currentColor 5%, transparent);
+}
+
 :root .activity-markdown a:not(.git-action) {
   color: var(--markdown-link-ink);
   font-weight: inherit;
@@ -52,7 +60,7 @@
 /* Fenced code and editable math keep their own layout and palette. */
 :root .activity-markdown :not(pre) > code:not([data-markdown-math]) {
   padding: calc(var(--space-1) / 3) calc(var(--space-1) * 1.5);
-  color: var(--text-strong);
+  color: var(--markdown-inline-code-ink, var(--text-strong));
   border: 0;
   border-radius: var(--radius-dense);
   background: var(--markdown-inline-code-fill);

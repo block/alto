@@ -271,6 +271,18 @@
   }
 }
 
+/* The pane picker focuses Chat on opening. Use its row fill for that focus
+   state, retaining a system edge when colors are forced. */
+:root [data-native-overlay='workspace-pane-kind'] .workspace-pane-kind-options > button:focus-visible {
+  --ui-row-background: var(--ui-hover);
+  outline: none;
+
+  @media (forced-colors: active) {
+    outline: 1px solid Highlight;
+    outline-offset: -1px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :where(.alto-popup-panel, .alto-dialog, .alto-tooltip, .alto-choice-row, .alto-segment) {
     animation: none;

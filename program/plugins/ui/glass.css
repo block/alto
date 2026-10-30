@@ -9,6 +9,12 @@
     color-mix(in srgb, white 4%, transparent));
   --ui-glass-raised: inset 0 1px 1px var(--ui-glass-highlight);
   --ui-glass-control-edge: inset 0 1px 1px var(--ui-glass-control-highlight);
+  --ui-glass-control-hover: color-mix(in srgb, var(--panel-solid) 16%, transparent);
+  --ui-glass-control-selected: color-mix(in srgb, var(--panel-solid) 38%, transparent);
+  --ui-glass-control-pressed: color-mix(in srgb, var(--panel-solid) 55%, transparent);
+  --ui-glass-control-lighting: linear-gradient(145deg,
+    color-mix(in srgb, var(--ui-glass-control-highlight) 50%, transparent), transparent 55%);
+  --ui-glass-progress-elevation: 0 1px 2px rgba(28, 32, 44, 0.035), 0 8px 24px rgba(28, 32, 44, 0.05);
   --ui-glass-floating-elevation: 0 5px 16px rgba(39, 43, 58, 0.11), 0 1px 3px rgba(39, 43, 58, 0.06);
   --ui-panel-shadow: var(--ui-glass-raised), var(--shadow-popover);
   --ui-dialog-shadow: var(--ui-glass-raised), var(--shadow-modal);
@@ -95,13 +101,80 @@
   box-shadow: var(--ui-glass-raised);
 }
 
-/* Compose with the editor's original elevation and accent glow. Workspace
-   composers use a different elevation stack from standalone editors. */
+/* The editor echoes the chrome's accent wash more quietly. Keep its original
+   opaque surface token for control/focus formulas; only this paint is glass. */
 :root .composer {
+  --ui-composer-glass-tone: color-mix(in srgb, var(--accent) 2%, var(--composer-surface));
+  --ui-composer-glass-fill: light-dark(
+    color-mix(in srgb, var(--ui-composer-glass-tone) 64%, transparent),
+    color-mix(in srgb, var(--ui-composer-glass-tone) 70%, transparent));
+  --ui-composer-glass-light: light-dark(
+    color-mix(in srgb, white 18%, transparent),
+    color-mix(in srgb, white 4%, transparent));
+  --ui-composer-glass-lighting: linear-gradient(145deg, var(--ui-composer-glass-light), transparent 55%);
+  --composer-placeholder-ink: var(--ui-text-secondary);
+  background: var(--ui-composer-glass-tone);
   box-shadow: var(--ui-glass-raised), var(--composer-resting-shadow);
 }
 
+/* Queue cards and the floating progress pill share the editor's quiet tint
+   and lighting. Each feature retains its own bounds, shape, and behavior. */
+:root :is(.steer-queue, .turn-progress-pill) {
+  --ui-glass-panel-tone: color-mix(in srgb, var(--accent) 2%, var(--ui-surface));
+  --ui-glass-panel-fill: light-dark(
+    color-mix(in srgb, var(--ui-glass-panel-tone) 74%, transparent),
+    color-mix(in srgb, var(--ui-glass-panel-tone) 82%, transparent));
+  background: var(--ui-glass-panel-tone);
+}
+
+/* Its existing border supplies the rim; retain the pill's light elevation. */
+:root .turn-progress-pill {
+  box-shadow: var(--ui-glass-control-edge), var(--ui-glass-progress-elevation);
+}
+
+@media (prefers-reduced-transparency: no-preference) and (forced-colors: none) {
+  :root :is(.steer-queue, .turn-progress-pill) {
+    background: var(--ui-glass-control-lighting), var(--ui-glass-panel-fill);
+  }
+
+  @supports (backdrop-filter: blur(1px)) {
+    :root .composer {
+      background: var(--ui-composer-glass-lighting), var(--ui-composer-glass-fill);
+      -webkit-backdrop-filter: blur(12px) saturate(108%);
+      backdrop-filter: blur(12px) saturate(108%);
+    }
+
+    /* Let a small strip of conversation pass behind the glass. Equal changes
+       to the viewport and its bottom padding preserve the last message's
+       clearance and scroll range without moving or resizing the editor.
+       Queued messages keep their existing space above the Composer. */
+    :root .workspace-chat-pane:not(.workspace-typed-pane):has(> .workspace-pane-composer):not(:has(> .steer-queue:not([hidden]))) {
+      --ui-composer-underlap: calc(4 * var(--space-3));
+
+      > .workspace-pane-conversation {
+        margin-bottom: calc(-1 * var(--ui-composer-underlap));
+
+        &::after { content: none; }
+        > .scrollback-minimap { max-height: calc(100% - var(--ui-composer-underlap)); }
+      }
+
+      .conversation-feed {
+        padding-bottom: calc(2 * var(--ui-composer-underlap));
+        scroll-padding-bottom: var(--ui-composer-underlap);
+      }
+
+      .conversation-jump-latest { bottom: calc(var(--space-4) + var(--ui-composer-underlap)); }
+      > .workspace-pane-composer .composer-wrap { background: transparent; }
+    }
+  }
+}
+
+/* Compose with the editor's original elevation and accent glow. Workspace
+   composers use a different elevation stack from standalone editors. */
 :root .composer.is-editing {
+  --ui-composer-glass-fill: light-dark(
+    color-mix(in srgb, var(--ui-composer-glass-tone) 82%, transparent),
+    color-mix(in srgb, var(--ui-composer-glass-tone) 86%, transparent));
   box-shadow: var(--ui-glass-raised), var(--composer-editing-shadow);
 }
 
@@ -111,4 +184,61 @@
 
 :root .workspace-layout-root .workspace-pane-composer .composer.is-editing {
   box-shadow: var(--ui-glass-raised), var(--composer-focus-shadow), var(--shadow-chat);
+}
+
+/* White light reads on colored chrome, but disappears on pale content glass.
+   A little of the selected action color keeps that same hover visible here. */
+:root :is(.composer, .steer-queue, .turn-progress-pill) {
+  --ui-glass-control-hover: color-mix(in srgb, var(--ui-action) 8%, transparent);
+  --ui-glass-control-pressed: color-mix(in srgb, var(--ui-action) 12%, transparent);
+}
+
+/* The same light edge used by sidebar tools appears only under the pointer.
+   Controls stay quiet at rest and need no extra backdrop filter. */
+:root :is(.composer, .steer-queue, .turn-progress-pill) button:is(
+  .composer-attach, button.composer-workspace-trigger,
+  .composer-permission-trigger, .composer-model-trigger, .send-button,
+  .composer-images button, .composer-file button,
+  .steer-edit-button, .steer-now, .steer-remove, .steer-edit-actions button,
+  .turn-subagents-trigger, .file-change-review
+):not(:disabled):not([aria-disabled='true']) {
+  background-image: none;
+  box-shadow: none;
+
+  &:where(:hover) {
+    box-shadow: var(--ui-glass-control-edge);
+  }
+
+  &:where(:hover:active) {
+    box-shadow: none;
+  }
+}
+
+/* Secondary actions stay transparent until hover. Primary actions and image
+   dismiss controls retain their existing fills and contrast. */
+:root :is(.composer, .steer-queue, .turn-progress-pill) button:is(
+  .composer-attach, button.composer-workspace-trigger,
+  .composer-permission-trigger, .composer-model-trigger, .composer-file button,
+  .steer-edit-button, .steer-now, .steer-remove, .steer-edit-actions button:not(:last-child),
+  .turn-subagents-trigger, .file-change-review
+):not(:disabled):not([aria-disabled='true']) {
+  background-color: transparent;
+
+  &:where(:hover) { background-color: var(--ui-glass-control-hover); }
+  &:where(:hover:active) { background-color: var(--ui-glass-control-pressed); }
+}
+
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  :root .turn-progress-pill {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (forced-colors: active) {
+  :root :is(.composer, .steer-queue, .turn-progress-pill) {
+    --composer-placeholder-ink: GrayText;
+    background: Canvas;
+    color: CanvasText;
+  }
 }

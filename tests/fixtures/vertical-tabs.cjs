@@ -486,14 +486,15 @@ async function check() {
       const pane=document.querySelector('.workspace-view:not([hidden]) .workspace-chat-pane:not(.workspace-typed-pane)'),style=getComputedStyle(pane),ctx=document.createElement('canvas').getContext('2d');
       const box=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,height:r.height}};
       const color=value=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=value;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data]};
-      const role=name=>{const probe=document.createElement('i');probe.style.backgroundColor='var('+name+')';pane.append(probe);const result=color(getComputedStyle(probe).backgroundColor);probe.remove();return result};
+      const role=(name,owner=pane)=>{const probe=document.createElement('i');probe.style.backgroundColor='var('+name+')';owner.append(probe);const result=color(getComputedStyle(probe).backgroundColor);probe.remove();return result};
       const composer=pane.querySelector('.composer'),bubble=pane.querySelector('.activity-user'),tasks=document.querySelector('.todo-header-button'),agents=document.querySelector('.agents-toggle-count');
       const tab=document.querySelector('.workspace-tab:not(.workspace-tab-group-label)'),group=document.querySelector('.workspace-tab-group-label'),feed=pane.querySelector('.conversation-feed-content'),view=pane.closest('.workspace-view');
       const controls=[tab,group,tasks,document.querySelector('.test-tool'),document.querySelector('.workspace-tab-add'),document.querySelector('.workspace-history-controls > button')];
       return {pane:box(pane),title:box(pane.querySelector('.workspace-pane-title-text')),feed:box(feed),composer:box(composer),tasks:box(tasks),
         width:parseFloat(style.getPropertyValue('--workspace-column-width')),gutter:parseFloat(style.getPropertyValue('--workspace-column-gutter')),
         fonts:[tab,pane.querySelector('.workspace-pane-title'),pane.querySelector('.activity-agent .activity-content'),pane.querySelector('[data-cordis-composer-editor]')].map(el=>getComputedStyle(el).fontFamily),
-        fills:{bubble:color(getComputedStyle(bubble).backgroundColor),composer:color(getComputedStyle(composer).backgroundColor),sheet:role('--workspace-surface-sheet'),recessed:role('--workspace-surface-recessed'),raised:role('--workspace-surface-raised')},chrome:role('--workspace-surface-chrome'),
+        fills:{bubble:color(getComputedStyle(bubble).backgroundColor),composer:color(getComputedStyle(composer).backgroundColor),composerBase:role('--composer-surface',composer),sheet:role('--workspace-surface-sheet'),recessed:role('--workspace-surface-recessed'),raised:role('--workspace-surface-raised')},chrome:role('--workspace-surface-chrome'),
+        glassEnabled:matchMedia('(prefers-reduced-transparency: no-preference) and (forced-colors: none)').matches && CSS.supports('backdrop-filter','blur(1px)'),
         radii:[composer,bubble,...controls].map(el=>getComputedStyle(el).borderRadius),radius:style.getPropertyValue('--workspace-radius').trim(),composerRadius:style.getPropertyValue('--radius-composer').trim(),originalRadius:getComputedStyle(document.documentElement).getPropertyValue('--radius-composer').trim(),
         roundSupported:CSS.supports('corner-shape','round'),corners:[composer,bubble,...controls].map(el=>getComputedStyle(el).getPropertyValue('corner-shape')),
         controls:controls.map(box),groupFrame:parseFloat(getComputedStyle(group,'::before').borderTopLeftRadius),groupInset:parseFloat(getComputedStyle(group).getPropertyValue('--workspace-tab-group-inset')),
@@ -509,7 +510,9 @@ async function check() {
     near(measured.feed.left, measured.composer.left, 'transcript and composer align')
     assert.ok(measured.fonts.every(font => font === measured.fonts[0]), label + ': navigation, title, transcript, and real editor share one font family ' + JSON.stringify(measured.fonts))
     assert.deepEqual(measured.fills.bubble, measured.fills.recessed, label + ': message uses the recessed surface')
-    assert.deepEqual(measured.fills.composer, measured.fills.raised, label + ': real composer uses the raised surface')
+    assert.deepEqual(measured.fills.composerBase, measured.fills.raised, label + ': composer control formulas retain their opaque raised surface')
+    if (measured.glassEnabled) assert.ok(measured.fills.composer[3] > 0 && measured.fills.composer[3] < 255, label + ': composer paint is translucent')
+    else assert.equal(measured.fills.composer[3], 255, label + ': reduced-transparency composer paint is opaque')
     assert.notDeepEqual(measured.fills.bubble, measured.fills.composer, label + ': message and composer retain distinct surface roles')
     assert.equal(measured.originalRadius, '48px', label + ': original composer radius is preserved')
     assert.equal(measured.composerRadius, measured.originalRadius, label + ': appearance keeps the composer radius')
@@ -769,14 +772,16 @@ async function check() {
     })
     const assertAccentChrome = async theme => {
       const accents = [['violet', '#7c3aed'], ['blue', '#2563eb'], ['warm', '#ea580c'], ['green', '#16a34a'], ['black', '#000000'], ['white', '#ffffff']]
-      const nativeColors = new Set(), opaqueColors = new Set()
+      const nativeColors = new Set(), opaqueColors = new Set(), composerColors = new Set()
       let content
       for (const [name, accent] of accents) {
         await run(`document.documentElement.style.setProperty('--alto-theme-accent',${JSON.stringify(accent)})`)
         await settle()
         const appearance = await assertCoherence(theme + ': ' + name + ' accent')
-        if (content) assert.deepEqual(appearance.fills, content, theme + ': changing the accent preserves sheet, message, and composer fills')
-        else content = appearance.fills
+        const { composer, ...contentFills } = appearance.fills
+        composerColors.add(JSON.stringify(composer))
+        if (content) assert.deepEqual(contentFills, content, theme + ': changing the accent preserves sheet, message, and composer control-base fills')
+        else content = contentFills
         let nativeColor, stateColors
         for (const orientation of ['vertical', 'horizontal']) {
           const label = theme + ': ' + name + ' ' + orientation
@@ -808,6 +813,7 @@ async function check() {
       }
       assert.equal(nativeColors.size, accents.length, theme + ': every accent recolors the glass')
       assert.equal(opaqueColors.size, accents.length, theme + ': every accent recolors opaque chrome')
+      assert.equal(composerColors.size, accents.length, theme + ': every accent recolors the composer glass')
       await run("document.documentElement.style.removeProperty('--alto-theme-accent')")
       await settle()
     }

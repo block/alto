@@ -7,9 +7,11 @@
   --workspace-chrome-ink: color-mix(in srgb, var(--text-strong) 75%, light-dark(black, white));
   --workspace-surface-raised: var(--panel-solid);
   --workspace-surface-recessed: var(--panel-soft);
-  --workspace-control-hover: color-mix(in srgb, var(--panel-solid) 16%, transparent);
-  --workspace-control-selected: color-mix(in srgb, var(--panel-solid) 38%, transparent);
-  --workspace-control-pressed: color-mix(in srgb, var(--panel-solid) 55%, transparent);
+  /* Share glass feedback with in-pane controls; retain the workspace fallback
+     when the optional app-wide appearance owner is disabled. */
+  --workspace-control-hover: var(--ui-glass-control-hover, color-mix(in srgb, var(--panel-solid) 16%, transparent));
+  --workspace-control-selected: var(--ui-glass-control-selected, color-mix(in srgb, var(--panel-solid) 38%, transparent));
+  --workspace-control-pressed: var(--ui-glass-control-pressed, color-mix(in srgb, var(--panel-solid) 55%, transparent));
   --workspace-chrome: var(--workspace-surface-chrome);
   /* A visible accent wash gives the chrome its color while native material
      remains the larger part of the translucent surface. */
