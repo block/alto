@@ -20,7 +20,7 @@
     /* The rounded fill defines the edge; an overlaid hairline would be
        antialiased again by the corner cutout. */
     --workspace-sheet-edge: 0px;
-    --workspace-sheet-shadow: 0 1px 8px rgb(0 0 0 / 8%), 0 0 2px rgb(0 0 0 / 4%);
+    --workspace-sheet-shadow: 0 1px 12px rgb(0 0 0 / 8%), 0 0 3px rgb(0 0 0 / 4%);
     background: var(--workspace-material-tint, color-mix(in srgb, var(--panel-solid) 16%, transparent));
   }
 
@@ -37,22 +37,32 @@
     background: transparent;
   }
 
-  /* Cast the sheet's shadow from outside its mask, so only the rounded
-     content edge casts onto the glass, leaving title text and controls crisp. */
-  html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] > .workspace-views:has(> .workspace-view[role='tabpanel']:not([hidden])) {
+  /* Let the horizontal sheet cast upward onto the tab glass. Content remains
+     clipped by each view; only the shared sheet shadow escapes this box. */
+  html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='horizontal'] {
+    overflow: visible;
+  }
+
+  /* Both orientations cast the same soft shadow from outside the content
+     mask, leaving title text and controls crisp. */
+  html[data-desktop-platform='darwin'] .workspace-body > .workspace-views:has(> .workspace-view[role='tabpanel']:not([hidden])) {
     position: relative;
     z-index: 0;
     overflow: visible;
   }
 
-  html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] > .workspace-views:has(> .workspace-view[role='tabpanel']:not([hidden]))::before {
+  html[data-desktop-platform='darwin'] .workspace-body > .workspace-views:has(> .workspace-view[role='tabpanel']:not([hidden]))::before {
     position: absolute;
     z-index: -1;
-    inset: calc(var(--workspace-pane-header-height) - var(--workspace-sheet-edge)) 0 0;
+    inset: 0;
     content: '';
-    border-top-left-radius: var(--workspace-sheet-radius);
     box-shadow: var(--workspace-sheet-shadow);
     pointer-events: none;
+  }
+
+  html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] > .workspace-views:has(> .workspace-view[role='tabpanel']:not([hidden]))::before {
+    top: calc(var(--workspace-pane-header-height) - var(--workspace-sheet-edge));
+    border-top-left-radius: var(--workspace-sheet-radius);
   }
 
   html[data-desktop-platform='darwin'] .workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view[role='tabpanel'] {

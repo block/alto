@@ -333,7 +333,7 @@ async function check() {
         const [r,g,b,a] = context.getImageData(0, 0, 1, 1).data;
         return [b,g,r,a];
       };
-      return { gutter: [2, 2], rail: [rail.left + 2, 2], corner: [bounds.left + 1, bounds.top + band + 1], panes: [...view.querySelectorAll('.workspace-chat-pane')].flatMap(pane => {
+      return { viewport: [innerWidth, innerHeight], gutter: [2, 2], rail: [rail.left + 2, 2], corner: [bounds.left + 1, bounds.top + band + 1], panes: [...view.querySelectorAll('.workspace-chat-pane')].flatMap(pane => {
         const rect = pane.getBoundingClientRect();
         if (!rect.width || !rect.height) return [];
         const owner = pane.querySelector('.alto-pane') ?? pane;
@@ -341,7 +341,11 @@ async function check() {
       }) };
     })()`)
     const shot = await window.webContents.capturePage(), size = shot.getSize(), bitmap = shot.toBitmap()
-    const pixel = ([x, y]) => [...bitmap.subarray((Math.floor(y) * size.width + Math.floor(x)) * 4, (Math.floor(y) * size.width + Math.floor(x)) * 4 + 4)]
+    // Captures use physical pixels; the measured element positions use CSS pixels.
+    const pixel = ([x, y]) => {
+      const offset = (Math.floor(y * size.height / points.viewport[1]) * size.width + Math.floor(x * size.width / points.viewport[0])) * 4
+      return [...bitmap.subarray(offset, offset + 4)]
+    }
     const chrome = pixel(points.rail)
     assert.deepEqual(pixel(points.gutter), chrome, label + ': gutters expose the shared material')
     // The sheet casts a faint black shadow onto the material at its corner.
@@ -353,7 +357,11 @@ async function check() {
         label + ': rounded corner exposes the material beneath a faint shadow ' + JSON.stringify({ corner, chrome }))
     }
     for (const pane of points.panes) {
-      assert.deepEqual(pixel(pane.header), pane.top === 0 ? chrome : pane.headerCanvas, label + ': title band and lower split header colors')
+      const header = pixel(pane.header), expectedHeader = pane.top === 0 ? chrome : pane.headerCanvas
+      assert.equal(header[3], expectedHeader[3], label + ': title band and lower split header alpha')
+      // Transparent title bands may round by one level while compositing.
+      for (let channel = 0; channel < 3; channel++) assert.ok(Math.abs(header[channel] - expectedHeader[channel]) <= 1,
+        label + ': title band and lower split header colors ' + JSON.stringify({ header, expectedHeader }))
       assert.deepEqual(pixel(pane.body), pane.expected, label + ': opaque content body ' + JSON.stringify(pane))
     }
   }

@@ -112,7 +112,7 @@
     color-mix(in srgb, white 18%, transparent),
     color-mix(in srgb, white 4%, transparent));
   --ui-composer-glass-lighting: linear-gradient(145deg, var(--ui-composer-glass-light), transparent 55%);
-  --composer-placeholder-ink: var(--ui-text-secondary);
+  --composer-placeholder-ink: light-dark(#a0a0a5, #8b8b92);
   background: var(--ui-composer-glass-tone);
   box-shadow: var(--ui-glass-raised), var(--composer-resting-shadow);
 }
