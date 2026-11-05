@@ -604,6 +604,15 @@
               ]
             },
             {
+              "id": "pull-request-pane",
+              "name": "Pull Request Pane",
+              "description": "Opens GitHub pull requests with summary, checks, discussion, and shared code diffs.",
+              "module": "plugins/pull-request-pane.ts",
+              "client": "plugins/pull-request-pane.client.tsx",
+              "enabled": true,
+              "config": {}
+            },
+            {
               "id": "orchestrator",
               "name": "Agents",
               "description": "Shows native subagent status and conversation history from the parent chat.",

@@ -694,11 +694,13 @@ export function MarkdownContent({
   className,
   label,
   codeBlock: CodeBlock,
+  urlTransform,
 }: {
   source: string
   className: string
   label?: string
   codeBlock?: ComponentType<MarkdownCodeBlockProps>
+  urlTransform?: (url: string, key: string) => string
 }): ReactNode {
   const math = useContext(MathRendererContext)
   const Math = math?.component
@@ -738,7 +740,7 @@ export function MarkdownContent({
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         skipHtml
-        urlTransform={markdownUrlTransform}
+        urlTransform={(url, key) => markdownUrlTransform(urlTransform ? urlTransform(url, key) : url)}
         components={components}
       >
         {markdownSource}

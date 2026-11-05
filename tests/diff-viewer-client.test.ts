@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it, vi } from 'vitest'
+import { ClientUiRegistry } from '../src/client/plugin-runtime.js'
+import diffViewerClient from '../program/plugins/diff-viewer.client.js'
 import {
   diffReviewPaneRequest,
   diffReviewItems,
@@ -9,7 +14,11 @@ import {
 } from '../program/plugins/diff-viewer.client.js'
 import { sendReviewComments } from '../program/plugins/diff-review-comments.js'
 import { openGitDiffPane } from '../program/plugins/git-pane-status.client.js'
-import type { DiffReviewDocument } from '../program/plugins/diff-viewer-api.js'
+import {
+  DIFF_CONTENT_COMPONENT,
+  type DiffContentProps,
+  type DiffReviewDocument,
+} from '../program/plugins/diff-viewer-api.js'
 
 const document: DiffReviewDocument = {
   id: 'review-1',
@@ -21,6 +30,72 @@ const document: DiffReviewDocument = {
 }
 
 describe('diff viewer client', () => {
+  it('sends a remote PR review without a thread ID to a chat in its own workspace', async () => {
+    const wrong = { snapshot: () => ({ turn: { tag: 'idle' } }), send: vi.fn(), steer: vi.fn() }
+    const intended = { snapshot: () => ({ threadId: 'thread-a', turn: { tag: 'idle' } }), send: vi.fn(), steer: vi.fn() }
+    const submit = vi.fn(async (_draft: unknown, send: () => Promise<void>) => send())
+    const layout = {
+      paneTargets: () => [
+        { workspaceId: 'unrelated-workspace', paneId: 'blank-chat', focused: true, session: wrong },
+        { workspaceId: 'pr-workspace', paneId: 'chat-a', focused: false, session: intended },
+      ], focusPane: vi.fn(),
+    }
+    const { threadId: _threadId, ...remoteDocument } = document
+    await sendReviewComments({ submit } as never, layout as never, remoteDocument, 'pr-workspace', [{
+      id: 'note', itemId: 'file', path: 'a.ts', side: 'additions', start: 1, end: 1,
+      body: 'Keep the validation.', createdAt: document.createdAt,
+    }])
+    expect(wrong.send).not.toHaveBeenCalled()
+    expect(intended.send).toHaveBeenCalledOnce()
+    expect(layout.focusPane).toHaveBeenCalledExactlyOnceWith('pr-workspace', 'chat-a')
+  })
+
+  it('shares the diff content renderer with other panes and removes it with its owner', async () => {
+    const context = new Context()
+    const ui = new ClientUiRegistry()
+    const call = vi.fn()
+    const explorerState = { revision: 0 }
+    context.provide('clientUi', ui)
+    context.provide('clientHost', { call } as never)
+    context.provide('clientCodeExplorer', {
+      subscribe: () => () => undefined,
+      snapshot: () => explorerState,
+    } as never)
+    context.provide('clientWorkspaceLayout', {
+      registerPaneKind: vi.fn(),
+      paneTargets: () => [],
+    } as never)
+    const fiber = await context.plugin(diffViewerClient, {})
+    try {
+      const Content = ui.component<DiffContentProps>(DIFF_CONTENT_COMPONENT)
+      expect(Content).toBeDefined()
+      expect(diffViewerClient.resources?.provides?.components).toContain(DIFF_CONTENT_COMPONENT)
+      const render = (patch: string, refreshing = false) => renderToStaticMarkup(createElement(Content!, {
+        document: { ...document, title: 'Review pull request #42', patch },
+        workspaceId: 'workspace-1',
+        visible: true,
+        onRefresh: () => undefined,
+        refreshing,
+      }))
+      const html = render(document.patch)
+      expect(html).toContain('Review pull request #42')
+      expect(html).toContain('diff-viewer-code')
+      expect(html).toContain('aria-label="Diff layout"')
+      expect(html).toContain('aria-label="Refresh diff"')
+      expect(html).not.toContain('Choose diff revision')
+      expect(html).not.toContain('Working tree')
+      expect(render('')).toContain('No text changes to display.')
+      expect(render(document.patch, true)).toMatch(/aria-label="Refresh diff" disabled=""/u)
+      expect(call).not.toHaveBeenCalled()
+
+      await fiber.dispose()
+      expect(ui.component(DIFF_CONTENT_COMPONENT)).toBeUndefined()
+      expect(ui.rootRenderers()).toEqual([])
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('attaches a review comment to the selected Pierre diff line', () => {
     const itemId = `${document.id}:0:0`
     const comment: ReviewComment = {

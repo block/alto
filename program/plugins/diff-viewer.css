@@ -27,7 +27,7 @@
   min-height: 0;
 }
 
-.diff-viewer-pane.is-overlay .diff-viewer-toolbar {
+.diff-viewer-pane:is(.is-overlay, .is-content) .diff-viewer-toolbar {
   --alto-pane-toolbar-end-padding: var(--space-3);
 }
 
@@ -61,7 +61,12 @@
 }
 
 .diff-viewer-body > .file-tree {
+  border-right: 0;
   background: var(--ui-surface-inset);
+}
+
+.diff-viewer-body > .file-tree ~ .diff-viewer-code {
+  border-left: 1px solid var(--ui-divider);
 }
 
 .diff-viewer-code {
@@ -72,6 +77,8 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  border-top-left-radius: var(--radius-row);
+  clip-path: inset(0 round var(--radius-row) 0 0 0);
   background: color-mix(in srgb, var(--border-soft) 72%, var(--canvas));
   --diffs-light-bg: var(--canvas);
   --diffs-dark-bg: var(--canvas);

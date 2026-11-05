@@ -143,7 +143,7 @@ function targetChat(
   workspaceId: string,
 ): WorkspacePaneTarget | undefined {
   const targets = layout.paneTargets()
-  return targets.find((target) => target.session.snapshot().threadId === document.threadId)
+  return (document.threadId ? targets.find((target) => target.session.snapshot().threadId === document.threadId) : undefined)
     ?? targets.find((target) => target.workspaceId === workspaceId && target.focused)
     ?? targets.find((target) => target.workspaceId === workspaceId)
 }
