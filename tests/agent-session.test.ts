@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AgentSessionService } from '../program/plugins/agent-session.client.js'
 import { initialAgentConfig } from '../program/plugins/agent-model-options.js'
 import { agentChatStateKey, type AgentChat } from '../program/plugins/agent-chats-api.js'
@@ -43,6 +43,153 @@ function fixture() {
   const session = new AgentSessionService(native, host)
   return { session, native, host, call, extensions, update: () => listeners.forEach((listener) => listener()) }
 }
+
+describe('saved ACP transcript restoration', () => {
+  const revisionMismatch = 'browser program revision unknown is incompatible with server revision 4'
+  const saved: AgentChat = { ...structuredClone(chat), summary: { ...chat.summary, providerId: 'claude', title: 'Saved Claude chat' }, activities: [
+    { id: 'saved-user', kind: 'user', title: 'You', content: 'Saved question', timestamp: '' },
+    { id: 'saved-answer', kind: 'agent', title: 'Assistant', content: 'Saved answer', status: 'completed', timestamp: '' },
+  ] }
+
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('retries cold-start revision gates and hydrates saved messages from delayed extension state', async () => {
+    const f = fixture()
+    f.session.dispose()
+    f.extensions['agent-chats'] = { providers: [{ id: 'claude', label: 'Claude', capabilities: {} }], threads: [saved.summary] } as unknown as JsonValue
+    f.call.mockRejectedValueOnce(new Error(revisionMismatch))
+      .mockRejectedValueOnce(new Error('browser program revision 3 is incompatible with server revision 4'))
+      .mockResolvedValue({ summary: saved.summary, permissionMode: 'ask' } as unknown as JsonValue)
+    const persist = vi.fn()
+    const session = new AgentSessionService(f.native, f.host, { restoreThreadId: id, persist })
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(f.call).toHaveBeenCalledExactlyOnceWith('agent-chats.open', { id })
+      await vi.advanceTimersByTimeAsync(99)
+      expect(f.call).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(f.call).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(199)
+      expect(f.call).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(f.call).toHaveBeenCalledTimes(3)
+      expect(persist).toHaveBeenCalledExactlyOnceWith(id)
+      expect(session.snapshot()).toMatchObject({ threadId: id, providerId: 'claude', activities: [] })
+
+      f.extensions[agentChatStateKey(id)] = saved as unknown as JsonValue
+      f.update()
+      expect(session.snapshot().activities).toEqual(saved.activities)
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(f.call.mock.calls).toEqual(Array.from({ length: 3 }, () => ['agent-chats.open', { id }]))
+      expect(vi.getTimerCount()).toBe(0)
+      expect(f.native.openThread).not.toHaveBeenCalled()
+      expect(f.native.send).not.toHaveBeenCalled()
+    } finally { session.dispose() }
+  })
+
+  it('uses the same retry path to republish a transcript after server reconnect', async () => {
+    const f = fixture()
+    f.extensions[agentChatStateKey(id)] = saved as unknown as JsonValue
+    f.call.mockResolvedValue({ summary: saved.summary, permissionMode: 'ask' } as unknown as JsonValue)
+    try {
+      await f.session.openThread(saved.summary)
+      expect(f.session.snapshot().activities).toEqual(saved.activities)
+      delete f.extensions[agentChatStateKey(id)]
+      f.call.mockRejectedValueOnce(new Error(revisionMismatch))
+      f.update()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(f.call).toHaveBeenCalledTimes(2)
+      expect(f.session.snapshot().activities).toEqual(saved.activities)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(f.call).toHaveBeenCalledTimes(3)
+      expect(f.session.snapshot().activities).toEqual(saved.activities)
+      f.extensions[agentChatStateKey(id)] = saved as unknown as JsonValue
+      f.update()
+      expect(f.session.snapshot().activities).toEqual(saved.activities)
+      expect(f.native.send).not.toHaveBeenCalled()
+    } finally { f.session.dispose() }
+  })
+
+  it.each(['Agent chat was not found', 'Authentication required', 'the harness is not connected'])(
+    'shows permanent open failures without retrying: %s', async (message) => {
+      const f = fixture()
+      f.call.mockRejectedValue(new Error(message))
+      try {
+        await f.session.openThread(saved.summary)
+        expect(f.session.snapshot().activities).toEqual([expect.objectContaining({
+          kind: 'status', title: 'Agent error', content: message, status: 'failed',
+        })])
+        f.update()
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(f.call).toHaveBeenCalledExactlyOnceWith('agent-chats.open', { id })
+        expect(vi.getTimerCount()).toBe(0)
+      } finally { f.session.dispose() }
+    },
+  )
+
+  it('stops retrying revision gates after a bounded delay and shows the failure', async () => {
+    const f = fixture()
+    f.call.mockRejectedValue(new Error(revisionMismatch))
+    try {
+      const opening = f.session.openThread(saved.summary)
+      await vi.advanceTimersByTimeAsync(9_499)
+      expect(f.call).toHaveBeenCalledTimes(7)
+      expect(f.session.snapshot().activities).toEqual([])
+      await vi.advanceTimersByTimeAsync(1)
+      await opening
+      expect(f.call).toHaveBeenCalledTimes(8)
+      expect(f.session.snapshot().activities).toEqual([expect.objectContaining({ title: 'Agent error', content: revisionMismatch })])
+      f.update()
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(f.call).toHaveBeenCalledTimes(8)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { f.session.dispose() }
+  })
+
+  it.each(['new chat', 'provider selection', 'disposal'] as const)('cancels pending retry timers on %s', async (action) => {
+    const f = fixture()
+    f.call.mockRejectedValue(new Error(revisionMismatch))
+    const changed = vi.fn()
+    f.session.subscribe(changed)
+    try {
+      const opening = f.session.openThread(chat.summary)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(vi.getTimerCount()).toBe(1)
+      if (action === 'new chat') f.session.newThread()
+      else if (action === 'provider selection') f.session.setProvider('claude')
+      else f.session.dispose()
+      const state = f.session.snapshot()
+      const changes = changed.mock.calls.length
+      expect(vi.getTimerCount()).toBe(0)
+      await opening
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(f.call).toHaveBeenCalledExactlyOnceWith('agent-chats.open', { id })
+      expect(f.session.snapshot()).toBe(state)
+      expect(changed).toHaveBeenCalledTimes(changes)
+      expect(state.activities).toEqual([])
+      if (action !== 'disposal') expect(state.threadId).toBeUndefined()
+    } finally { f.session.dispose() }
+  })
+
+  it('ignores an older open response after another chat is selected', async () => {
+    const f = fixture()
+    let release!: (value: JsonValue) => void
+    const second = { ...structuredClone(saved), summary: { ...saved.summary, id: 'acp-22222222-2222-2222-2222-222222222222' } }
+    f.call.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+      .mockResolvedValueOnce(second as unknown as JsonValue)
+    try {
+      const firstOpening = f.session.openThread(saved.summary)
+      await f.session.openThread(second.summary)
+      const selected = f.session.snapshot()
+      release(saved as unknown as JsonValue)
+      await firstOpening
+      expect(f.session.snapshot()).toBe(selected)
+      expect(f.session.snapshot()).toMatchObject({ threadId: second.summary.id, activities: saved.activities })
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { f.session.dispose() }
+  })
+})
 
 describe('local ACP draft selections', () => {
   function localDraft() {
