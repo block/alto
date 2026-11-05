@@ -44,10 +44,18 @@ export interface WorkspaceTabAddonProps {
   threadIds: readonly string[]
 }
 
+export interface WorkspaceTabGroupAddonProps {
+  groupId: string
+  /** Distinct chats across all tabs in this collapsed group. */
+  threadIds: readonly string[]
+}
+
 export interface WorkspaceTabAddon {
   id: string
   order?: number
   renderer: ComponentType<WorkspaceTabAddonProps>
+  /** Summarizes hidden member tabs while their group is collapsed. */
+  groupRenderer?: ComponentType<WorkspaceTabGroupAddonProps>
 }
 
 export interface WorkspaceTabAddonRegistration {

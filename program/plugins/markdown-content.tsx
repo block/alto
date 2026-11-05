@@ -6,6 +6,7 @@ export interface MarkdownContentProps {
   source: string
   className: string
   label?: string
+  urlTransform?: (url: string, key: string) => string
 }
 
 /** Keep external panes on the active Markdown, code, math, and file-link renderers. */

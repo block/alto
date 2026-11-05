@@ -13,10 +13,11 @@
   --workspace-control-selected: var(--ui-glass-control-selected, color-mix(in srgb, var(--panel-solid) 38%, transparent));
   --workspace-control-pressed: var(--ui-glass-control-pressed, color-mix(in srgb, var(--panel-solid) 55%, transparent));
   --workspace-chrome: var(--workspace-surface-chrome);
-  /* A visible accent wash gives the chrome its color while native material
-     remains the larger part of the translucent surface. */
-  --workspace-material-tint: color-mix(in srgb,
-    color-mix(in srgb, var(--accent) 60%, var(--workspace-surface-raised)) 20%, transparent);
+  /* Keep the accent wash stable and add a little theme-colored backing.
+     This lifts dark backdrops in light mode and softens bright ones in dark
+     mode, while leaving 66% of the native material visible. */
+  --workspace-material-tint: color-mix(in srgb, var(--accent) 12%,
+    color-mix(in srgb, var(--workspace-surface-raised) 25%, transparent));
   --workspace-column-width: var(--composer-content-width);
   --workspace-column-gutter: var(--composer-content-gutter);
   --workspace-column-inset: max(var(--workspace-column-gutter), calc((100% - var(--workspace-column-width)) / 2));

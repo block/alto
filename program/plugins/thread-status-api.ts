@@ -101,6 +101,21 @@ export function aggregateThreadWorkStatus(
   return finished ? 'finished' : undefined
 }
 
+export function threadWorkStatusCounts(
+  snapshot: ClientThreadStatusSnapshot,
+  threadIds: readonly string[],
+): { running: number; finished: number } {
+  const runningThreads = new Set(snapshot.running)
+  const finishedThreads = new Set(snapshot.finished)
+  let running = 0
+  let finished = 0
+  for (const threadId of new Set(threadIds)) {
+    if (runningThreads.has(threadId)) running += 1
+    else if (finishedThreads.has(threadId)) finished += 1
+  }
+  return { running, finished }
+}
+
 declare module 'cordis' {
   interface Context {
     clientThreadStatus: ClientThreadStatusService

@@ -30,7 +30,7 @@ export const PullRequestRow = memo(function PullRequestRow({ pr, items }: {
   const parent = pullRequestParent(pr, items)
   const StatusIcon = status.group === 'ready' ? Check : status.group === 'attention' ? CircleAlert : Clock3
   return (
-    <a className="pr-dashboard-row" href={pr.url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${pr.title} (${pr.repository}#${pr.number}) on GitHub — ${pr.draft ? 'Draft' : status.reason}`} title={`${pr.title}\n${pr.repository}#${pr.number} · ${pr.branch}\n${pr.draft ? 'Draft · ' : ''}${pullRequestChecks(pr)} · ${pullRequestReview(pr)}\nOpen on GitHub`}>
+    <a className="pr-dashboard-row" href={pr.url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${pr.title} (${pr.repository}#${pr.number}) in Alto — ${pr.draft ? 'Draft' : status.reason}`} title={`${pr.title}\n${pr.repository}#${pr.number} · ${pr.branch}\n${pr.draft ? 'Draft · ' : ''}${pullRequestChecks(pr)} · ${pullRequestReview(pr)}\nOpen in Alto`}>
       <span className="pr-dashboard-row-meta">
         <span className="pr-dashboard-repository">{pr.repository} <span>#{pr.number}{parent ? ` · ↳ #${parent.number}` : ''}</span></span>
         <time dateTime={pr.updatedAt} title={`Updated ${pullRequestAge(pr.updatedAt)}`}>{pullRequestAge(pr.updatedAt).replace(' ago', '')}</time>

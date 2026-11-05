@@ -588,7 +588,7 @@ function BrowserPane({
                     <Globe2 size={22} />
                     <strong>Open this page in Alto Desktop</strong>
                     <span>Authenticated browser tabs use the native desktop surface.</span>
-                    <a href={tab.url} rel="noreferrer" target="_blank">Open in a browser</a>
+                    <a href={tab.url} rel="noreferrer" target="_blank" data-pull-request-external>Open in a browser</a>
                   </div>
                 )
               ) : (

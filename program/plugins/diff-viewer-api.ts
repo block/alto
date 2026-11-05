@@ -5,6 +5,7 @@ export const DIFF_VIEWER_READ_METHOD = 'diff-viewer.read'
 export const DIFF_VIEWER_COMMITS_METHOD = 'diff-viewer.commits'
 export const DIFF_VIEWER_PANE_KIND = 'diff-viewer'
 export const DIFF_VIEWER_COMMIT_RESOURCE_PREFIX = 'commit:'
+export const DIFF_CONTENT_COMPONENT = 'diff.content'
 
 export function commitDiffResource(commit: string): string {
   const ref = commit.trim()
@@ -61,6 +62,15 @@ export interface DiffReviewDocument {
   threadId?: string
   patch: string
   createdAt: string
+}
+
+/** A supplied, immutable diff snapshot rendered with Alto's review tools. */
+export interface DiffContentProps {
+  document: DiffReviewDocument
+  workspaceId: string
+  visible: boolean
+  onRefresh?: () => void
+  refreshing?: boolean
 }
 
 export interface DiffReviewReference {

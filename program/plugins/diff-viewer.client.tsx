@@ -43,6 +43,7 @@ import {
 } from './chat-surfaces-api.js'
 import {
   commitRefFromDiffResource,
+  DIFF_CONTENT_COMPONENT,
   DIFF_VIEWER_COMMITS_METHOD,
   DIFF_VIEWER_CREATE_METHOD,
   DIFF_VIEWER_PANE_KIND,
@@ -51,6 +52,7 @@ import {
   parseDiffReviewDocument,
   parseDiffReviewReference,
   type DiffCommitSummary,
+  type DiffContentProps,
   type DiffReviewDocument,
 } from './diff-viewer-api.js'
 import {
@@ -208,6 +210,9 @@ function DiffViewerPane({
   ui,
   explorers,
   presentation = 'pane',
+  suppliedDocument,
+  onRefresh,
+  refreshing = false,
   onDraftChange,
   onClose,
 }: WorkspacePaneKindProps & {
@@ -215,7 +220,10 @@ function DiffViewerPane({
   layout: ClientWorkspaceLayoutService
   ui: ClientUiService
   explorers: ClientCodeExplorerService
-  presentation?: 'pane' | 'overlay'
+  presentation?: 'pane' | 'overlay' | 'content'
+  suppliedDocument?: DiffReviewDocument
+  onRefresh?: () => void
+  refreshing?: boolean
   onDraftChange?: (active: boolean) => void
   onClose?: () => void
 }): ReactNode {
@@ -237,9 +245,10 @@ function DiffViewerPane({
   const [activeTreePath, setActiveTreePath] = useState<string>()
   const [filesVisible, setFilesVisible] = useState(true)
   const viewer = useRef<CodeViewHandle<ReviewComment>>(null)
-  const explorerState = useSyncExternalStore(explorers.subscribe, explorers.snapshot)
+  const explorerState = useSyncExternalStore(explorers.subscribe, explorers.snapshot, explorers.snapshot)
   const theme = useThemeAppearance()
   const hasDraft = draft !== undefined
+  const suppliedDocumentId = suppliedDocument?.id
 
   useEffect(() => {
     onDraftChange?.(hasDraft)
@@ -252,7 +261,7 @@ function DiffViewerPane({
   }, [pane.resource, pane.workspace])
 
   useEffect(() => {
-    if (!activated) return
+    if (!activated || suppliedDocumentId !== undefined) return
     let current = true
     setCommitsLoading(true)
     void host.call(DIFF_VIEWER_COMMITS_METHOD, { workspace: pane.workspace }).then((value) => {
@@ -263,10 +272,10 @@ function DiffViewerPane({
       if (current) setCommitsLoading(false)
     })
     return () => { current = false }
-  }, [activated, host, pane.workspace, reload])
+  }, [activated, host, pane.workspace, reload, suppliedDocumentId])
 
   useEffect(() => {
-    if (!activated) return
+    if (!activated || suppliedDocumentId !== undefined) return
     let current = true
     setState({ tag: 'loading' })
     setActiveTreePath(undefined)
@@ -294,9 +303,22 @@ function DiffViewerPane({
       if (current) setState({ tag: 'failed', problem: error instanceof Error ? error.message : String(error) })
     })
     return () => { current = false }
-  }, [activated, commitRef, host, pane.resource, pane.thread?.id, pane.workspace, reload])
+  }, [activated, commitRef, host, pane.resource, pane.thread?.id, pane.workspace, reload, suppliedDocumentId])
 
-  const document = state.tag === 'ready' ? state.document : undefined
+  useEffect(() => {
+    if (!activated || suppliedDocumentId === undefined) return
+    // Refreshing PR metadata keeps the snapshot id and any in-progress note.
+    setComments(loadReviewComments(suppliedDocumentId))
+    setCommentVersion((version) => version + 1)
+    setSelection(null)
+    setDraft(undefined)
+    setActiveTreePath(undefined)
+    setSendProblem(undefined)
+  }, [activated, suppliedDocumentId])
+
+  const document = suppliedDocument
+    ? activated ? suppliedDocument : undefined
+    : state.tag === 'ready' ? state.document : undefined
   const items = useMemo(() => {
     if (!document?.patch.trim()) return []
     try {
@@ -304,7 +326,7 @@ function DiffViewerPane({
     } catch {
       return []
     }
-  }, [commentVersion, comments, document])
+  }, [commentVersion, comments, document?.id, document?.patch])
 
   const openDraft = (next: CodeViewLineSelection): void => {
     const item = items.find((candidate) => candidate.id === next.id)
@@ -398,9 +420,14 @@ function DiffViewerPane({
   const Explorer = explorerState.explorer?.component
   const explorerAvailable = Boolean(Explorer && document && diffPaths.length > 0)
   return (
-    <section className={`${clientStyles.pane} diff-viewer-pane${presentation === 'overlay' ? ' is-overlay' : ''}`}>
+    <section className={`${clientStyles.pane} diff-viewer-pane${presentation === 'pane' ? '' : ` is-${presentation}`}`}>
       <header className={`${clientStyles.paneHeader} ${paneToolbarStyles.pane} diff-viewer-toolbar`}>
-        <label
+        {suppliedDocument ? (
+          <div className={`${paneToolbarStyles.title} diff-viewer-summary`} title={suppliedDocument.title}>
+            <FileDiff size={14} strokeWidth={1.6} aria-hidden="true" />
+            <span>{suppliedDocument.title}</span>
+          </div>
+        ) : <label
           className={`${paneToolbarStyles.picker} diff-viewer-commit-picker`}
           title={commitsLoading ? 'Loading recent commits…' : 'Choose working tree or commit'}
         >
@@ -423,7 +450,7 @@ function DiffViewerPane({
             ))}
           </select>
           <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
-        </label>
+        </label>}
         <div className={`${paneToolbarStyles.actions} diff-viewer-toolbar-actions`}>
           {explorerAvailable && (
             <div className={`${paneToolbarStyles.group} diff-viewer-control-group`}>
@@ -456,9 +483,18 @@ function DiffViewerPane({
             >
               <TextWrap size={14} strokeWidth={1.6} />
             </button>
-            <button className={clientStyles.iconButton} type="button" title="Refresh diff" aria-label="Refresh diff" onClick={() => setReload((value) => value + 1)}>
-              <RefreshCw size={14} strokeWidth={1.6} />
-            </button>
+            {(!suppliedDocument || onRefresh) && (
+              <button
+                className={clientStyles.iconButton}
+                type="button"
+                title="Refresh diff"
+                aria-label="Refresh diff"
+                disabled={refreshing}
+                onClick={() => suppliedDocument ? onRefresh?.() : setReload((value) => value + 1)}
+              >
+                <RefreshCw size={14} strokeWidth={1.6} />
+              </button>
+            )}
           </div>
           {presentation === 'overlay' && onClose && (
             <div className={`${paneToolbarStyles.group} diff-viewer-control-group`}>
@@ -479,11 +515,11 @@ function DiffViewerPane({
             select={selectDiffFile}
           />
         )}
-        {state.tag === 'loading' && <div className="diff-viewer-state"><RefreshCw className="is-spinning" size={16} /> Loading diff…</div>}
-        {state.tag === 'failed' && <div className="diff-viewer-state is-error" role="alert">{state.problem}</div>}
+        {!suppliedDocument && state.tag === 'loading' && <div className="diff-viewer-state"><RefreshCw className="is-spinning" size={16} /> Loading diff…</div>}
+        {!suppliedDocument && state.tag === 'failed' && <div className="diff-viewer-state is-error" role="alert">{state.problem}</div>}
         {document && !document.patch.trim() && (
           <div className="diff-viewer-state">
-            {commitRef ? 'No changes in this commit.' : 'No working tree changes.'}
+            {suppliedDocument ? 'No text changes to display.' : commitRef ? 'No changes in this commit.' : 'No working tree changes.'}
           </div>
         )}
         {document?.patch.trim() && items.length === 0 && <div className="diff-viewer-state is-error">This patch could not be parsed.</div>}
@@ -747,25 +783,51 @@ export async function openDiffReview(
 }
 
 const diffViewerClient: BrowserPlugin = (ctx) => {
+  const host = ctx.clientHost
+  const layout = ctx.clientWorkspaceLayout
+  const ui = ctx.clientUi
+  const explorers = ctx.clientCodeExplorer
+  const Content = ({ document, workspaceId, visible, onRefresh, refreshing }: DiffContentProps) => (
+    <DiffViewerPane
+      workspaceId={workspaceId}
+      pane={{
+        type: 'pane',
+        id: `diff-content:${document.id}`,
+        kind: DIFF_VIEWER_PANE_KIND,
+        workspace: document.workspace,
+      }}
+      focused={false}
+      visible={visible}
+      presentation="content"
+      suppliedDocument={document}
+      {...(onRefresh ? { onRefresh } : {})}
+      {...(refreshing !== undefined ? { refreshing } : {})}
+      host={host}
+      layout={layout}
+      ui={ui}
+      explorers={explorers}
+    />
+  )
   const ReviewAction = (props: FileReviewActionProps) => (
     <FileReviewAction
       {...props}
-      host={ctx.clientHost}
-      layout={ctx.clientWorkspaceLayout}
-      ui={ctx.clientUi}
+      host={host}
+      layout={layout}
+      ui={ui}
     />
   )
   const OverlayRoot = () => (
     <DiffReviewOverlayRoot
-      host={ctx.clientHost}
-      layout={ctx.clientWorkspaceLayout}
-      ui={ctx.clientUi}
-      explorers={ctx.clientCodeExplorer}
+      host={host}
+      layout={layout}
+      ui={ui}
+      explorers={explorers}
     />
   )
-  ctx.clientUi.registerComponent(ctx, FILE_REVIEW_ACTION_COMPONENT, ReviewAction)
-  ctx.clientUi.registerRoot(ctx, 'diff-review-overlay', OverlayRoot)
-  ctx.clientWorkspaceLayout.registerPaneKind(ctx, {
+  ui.registerComponent(ctx, FILE_REVIEW_ACTION_COMPONENT, ReviewAction)
+  ui.registerComponent(ctx, DIFF_CONTENT_COMPONENT, Content)
+  ui.registerRoot(ctx, 'diff-review-overlay', OverlayRoot)
+  layout.registerPaneKind(ctx, {
     id: DIFF_VIEWER_PANE_KIND,
     label: 'Diff',
     description: 'Review code changes and send inline comments to chat',
@@ -774,16 +836,16 @@ const diffViewerClient: BrowserPlugin = (ctx) => {
     renderer: (props) => (
       <DiffViewerPane
         {...props}
-        host={ctx.clientHost}
-        layout={ctx.clientWorkspaceLayout}
-        ui={ctx.clientUi}
-        explorers={ctx.clientCodeExplorer}
+        host={host}
+        layout={layout}
+        ui={ui}
+        explorers={explorers}
       />
     ),
   })
-  ctx.clientUi.registerStyle(ctx, 'diff-viewer', String(styles))
+  ui.registerStyle(ctx, 'diff-viewer', String(styles))
   return () => {
-    ctx.clientUi.overlays.close(DIFF_REVIEW_OVERLAY_ID)
+    ui.overlays.close(DIFF_REVIEW_OVERLAY_ID)
     diffReviewOverlay.close()
   }
 }
@@ -791,7 +853,7 @@ const diffViewerClient: BrowserPlugin = (ctx) => {
 diffViewerClient.inject = ['clientCodeExplorer', 'clientHost', 'clientUi', 'clientWorkspaceLayout']
 diffViewerClient.resources = {
   provides: {
-    components: [FILE_REVIEW_ACTION_COMPONENT],
+    components: [FILE_REVIEW_ACTION_COMPONENT, DIFF_CONTENT_COMPONENT],
     roots: ['diff-review-overlay'],
   },
 }

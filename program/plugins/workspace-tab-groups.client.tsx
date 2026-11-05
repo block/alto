@@ -1,9 +1,9 @@
 import { ChevronRight, Check, Plus, X } from 'lucide-react'
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clientStyles, type BrowserPlugin, type ClientUiService } from '../../src/client/plugin-api.js'
-import type { WorkspaceLayoutState } from './workspace-layout-state.js'
-import type { WorkspaceTabStripProps } from './workspace-layout-api.js'
+import { workspacePane, workspacePaneIds, type WorkspaceLayoutState } from './workspace-layout-state.js'
+import type { WorkspaceTabAddon, WorkspaceTabStripProps } from './workspace-layout-api.js'
 import { assignTabToGroup, createTabGroup, dropWorkspaceTabs, tabGroupShortcutTargets, TAB_GROUP_COLORS, ungroupTabs, updateTabGroup, type WorkspaceTabDestination, type WorkspaceTabDrag } from './workspace-tab-groups.js'
 import styles from './workspace-tab-groups.css'
 
@@ -77,7 +77,8 @@ function dropPreview(layout: WorkspaceLayoutState, source: WorkspaceTabDrag, str
   }
 }
 
-export function WorkspaceTabGroups({ orientation = 'horizontal', layout, change, rootRef, ui, beginDrag, renderTab, children, tabActions = [] }: WorkspaceTabStripProps & { ui: ClientUiService }): ReactNode {
+export function WorkspaceTabGroups({ orientation = 'horizontal', layout, change, rootRef, ui, beginDrag, renderTab, children, tabActions = [], tabAddons = [] }: WorkspaceTabStripProps & { ui: ClientUiService; tabAddons?: readonly WorkspaceTabAddon[] }): ReactNode {
+  const statusId = useId()
   const [menu, setMenu] = useState<GroupMenu>()
   const [name, setName] = useState('')
   const panel = useRef<HTMLDivElement>(null)
@@ -241,6 +242,13 @@ export function WorkspaceTabGroups({ orientation = 'horizontal', layout, change,
       if (group) seen.add(group.id)
       const members = group ? layout.views.filter((candidate) => candidate.groupId === group.id) : []
       const active = members.some((member) => member.id === layout.activeViewId)
+      const threadIds = first && group?.collapsed ? [...new Set(members.flatMap((member) =>
+        workspacePaneIds(member.root).flatMap((paneId) => {
+          const threadId = workspacePane(member.root, paneId)?.thread?.id
+          return threadId ? [threadId] : []
+        }),
+      ))] : []
+      const descriptionId = group ? `${statusId}-${encodeURIComponent(group.id)}` : undefined
       const shortcutIndex = shortcuts.findIndex((target) => group ? target.groupId === group.id : target.id === view.id)
       return <Fragment key={view.id}>
         {first && group && <button
@@ -252,6 +260,7 @@ export function WorkspaceTabGroups({ orientation = 'horizontal', layout, change,
           data-tab-drop={preview?.targetKind === 'group' && preview.targetId === group.id ? preview.edge : undefined}
           aria-label={group.name + ' tab group, ' + members.length + (members.length === 1 ? ' tab' : ' tabs')}
           aria-expanded={!group.collapsed}
+          aria-describedby={group.collapsed ? descriptionId : undefined}
           title={group.name + ' · click to ' + (group.collapsed ? 'expand' : 'collapse') + ' · right-click to edit'}
           {...handlers('group', group.id)}
           onClick={() => change((current) => updateTabGroup(current, group.id, { collapsed: !group.collapsed }))}
@@ -262,6 +271,12 @@ export function WorkspaceTabGroups({ orientation = 'horizontal', layout, change,
           }}
         >
           <span>{group.name}</span>
+          <span className="workspace-tab-group-status" id={descriptionId}>
+            {group.collapsed && tabAddons.map((addon) => {
+              const Addon = addon.groupRenderer
+              return Addon ? <Addon key={addon.id} groupId={group.id} threadIds={threadIds} /> : null
+            })}
+          </span>
           <span className="workspace-tab-group-count" aria-hidden="true">{members.length}</span>
           <span className="workspace-tab-group-toggle" aria-hidden="true">
             <ChevronRight size={12} className={group.collapsed ? '' : 'is-expanded'} />
@@ -341,7 +356,8 @@ export function WorkspaceTabGroups({ orientation = 'horizontal', layout, change,
 }
 
 const tabGroups: BrowserPlugin = (ctx) => {
-  const Strip = (props: WorkspaceTabStripProps): ReactNode => <WorkspaceTabGroups {...props} ui={ctx.clientUi} />
+  const Strip = (props: WorkspaceTabStripProps): ReactNode => <WorkspaceTabGroups {...props} ui={ctx.clientUi}
+    tabAddons={ctx.clientWorkspaceLayout.tabAddons()} />
   ctx.clientWorkspaceLayout.registerTabStrip(ctx, { id: 'tab-groups', renderer: Strip, shortcutTargets: tabGroupShortcutTargets })
   ctx.clientUi.registerStyle(ctx, 'workspace-tab-groups', String(styles))
 }

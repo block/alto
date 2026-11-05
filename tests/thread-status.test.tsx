@@ -15,6 +15,7 @@ import {
   aggregateThreadWorkStatus,
   OptionalThreadStatusService,
   threadWorkStatus,
+  threadWorkStatusCounts,
   type ClientThreadStatusService,
 } from '../program/plugins/thread-status-api.js'
 import { HistoryPanel } from '../program/plugins/ui/history.js'
@@ -157,6 +158,26 @@ describe('chat status', () => {
     expect(aggregateThreadWorkStatus(status, ['thread-finished', 'thread-running']))
       .toBe('running')
     expect(aggregateThreadWorkStatus(status, ['thread-idle'])).toBeUndefined()
+  })
+
+  it('counts distinct chats in a group and keeps working chats out of the unread count', () => {
+    const status = {
+      revision: 1,
+      running: ['thread-working', 'thread-working', 'unrelated-working'],
+      finished: ['thread-unread-a', 'thread-unread-b', 'thread-working', 'unrelated-unread'],
+    }
+
+    expect(threadWorkStatusCounts(status, [
+      'thread-unread-a', 'thread-unread-a', 'thread-working', 'thread-unread-b', 'thread-idle',
+    ])).toEqual({ running: 1, finished: 2 })
+    expect(threadWorkStatusCounts(status, ['thread-working'])).toEqual({ running: 1, finished: 0 })
+    expect(threadWorkStatusCounts(status, ['thread-unread-b'])).toEqual({ running: 0, finished: 1 })
+  })
+
+  it('does not count statuses belonging to chats outside a group', () => {
+    const status = { revision: 1, running: ['elsewhere-working'], finished: ['elsewhere-unread'] }
+    expect(threadWorkStatusCounts(status, ['thread-idle'])).toEqual({ running: 0, finished: 0 })
+    expect(threadWorkStatusCounts(status, [])).toEqual({ running: 0, finished: 0 })
   })
 
   it('hides work status for the selected chat in the sidebar', () => {

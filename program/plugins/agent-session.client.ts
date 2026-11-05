@@ -15,6 +15,12 @@ function openedChat(value: unknown): AgentChat | undefined {
 }
 
 const emptyCatalog: AgentChatCatalog = { providers: [], threads: [] }
+const chatOpenRetryDelays = [100, 200, 400, 800, 1_600, 3_200, 3_200]
+
+interface ChatOpenOperation {
+  cancelRetry?: () => void
+}
+
 const projectedSummaries = new WeakMap<LocalProject[], WeakMap<ThreadSummary[], ThreadSummary[]>>()
 
 function agentSummaries(projects: LocalProject[], threads: ThreadSummary[]): ThreadSummary[] {
@@ -70,6 +76,7 @@ export class AgentSessionService implements ClientSessionService {
   private revision = 0
   private configuring: Promise<void> = Promise.resolve()
   private requestedState: string | undefined
+  private openingChat: ChatOpenOperation | undefined
 
   constructor(
     private readonly native: ClientSessionService,
@@ -240,18 +247,62 @@ export class AgentSessionService implements ClientSessionService {
       && catalog.threads.some((thread) => thread.id === this.threadId)) {
       const id = this.threadId
       const generation = this.generation
-      this.requestedState = id
       // A server restart removes per-chat extension state. Reopen the saved
       // transcript once; never send an ACP identifier through Codex history.
-      void this.host.call('agent-chats.open', { id }).then((value) => {
-        if (this.disposed || generation !== this.generation) return
-        this.chat = this.publishedChat(id) ?? openedChat(value)
-        this.sync()
-      }, (error: unknown) => {
-        if (this.disposed || generation !== this.generation) return
-        this.problem = error instanceof Error ? error.message : String(error)
-        this.sync()
-      })
+      void this.openChat(id, generation)
+    }
+  }
+
+  private cancelChatOpen(): void {
+    const operation = this.openingChat
+    this.openingChat = undefined
+    operation?.cancelRetry?.()
+  }
+
+  private async openChat(id: string, generation: number): Promise<boolean> {
+    this.cancelChatOpen()
+    const operation: ChatOpenOperation = {}
+    this.openingChat = operation
+    this.requestedState = id
+    const current = (): boolean => !this.disposed && generation === this.generation
+      && this.threadId === id && this.openingChat === operation
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const value = await this.host.call('agent-chats.open', { id })
+          if (!current()) return false
+          if (!isRecord(value) || !isRecord(value.summary) || value.summary.id !== id
+            || typeof value.summary.providerId !== 'string') throw new Error('Agent did not open this chat')
+          const opened = value as unknown as Pick<AgentChat, 'summary' | 'permissionMode'>
+          // Current servers acknowledge with metadata; the transcript arrives
+          // separately as extension state. Keep it while reconnecting.
+          this.chat = this.publishedChat(id) ?? openedChat(value) ?? this.chat
+          this.providerId = opened.summary.providerId
+          this.permissionMode = opened.permissionMode
+          this.problem = undefined
+          this.sync()
+          return true
+        } catch (error) {
+          if (!current()) return false
+          const message = error instanceof Error ? error.message : String(error)
+          const delay = chatOpenRetryDelays[attempt]
+          // Workspace panes may mount before the browser activates its program
+          // revision. Other failures need attention, rather than repeated opens.
+          if (delay !== undefined && /^browser program revision (?:unknown|\d+) is incompatible with server revision \d+$/u.test(message)) {
+            const retry = await new Promise<boolean>((resolve) => {
+              const timer = setTimeout(() => { delete operation.cancelRetry; resolve(true) }, delay)
+              operation.cancelRetry = () => { clearTimeout(timer); resolve(false) }
+            })
+            if (!retry || !current()) return false
+            continue
+          }
+          this.problem = message
+          this.sync()
+          return false
+        }
+      }
+    } finally {
+      if (this.openingChat === operation) this.openingChat = undefined
     }
   }
 
@@ -312,7 +363,9 @@ export class AgentSessionService implements ClientSessionService {
   // remote workstation, so send() starts it after the first prompt is submitted.
   setProvider(id: string): void {
     if ((this.state.threadId && this.state.activities.length > 0) || this.state.turn.tag !== 'idle' || !this.state.providers?.some((provider) => provider.id === id)) return
+    this.cancelChatOpen()
     this.generation++
+    this.pendingRestore = undefined
     this.providerSelectionChanged = true
     this.threadId = undefined
     this.chat = undefined
@@ -490,7 +543,9 @@ export class AgentSessionService implements ClientSessionService {
     if (this.threadId) await this.host.call('agent-chats.cancel', { id: this.threadId })
   }
   newThread(project?: LocalProject | null): void {
+    this.cancelChatOpen()
     this.generation++
+    this.pendingRestore = undefined
     this.threadId = undefined
     this.chat = undefined
     this.startupPrompt = undefined
@@ -514,6 +569,8 @@ export class AgentSessionService implements ClientSessionService {
     return this.native.retargetNewThread(project)
   }
   async openThread(thread: ThreadSummary): Promise<void> {
+    this.cancelChatOpen()
+    this.pendingRestore = undefined
     this.providerSelectionChanged = true
     this.startupPrompt = undefined
     this.pendingPrompt = undefined
@@ -537,14 +594,7 @@ export class AgentSessionService implements ClientSessionService {
     this.requestedState = thread.id
     this.chat = undefined
     this.sync()
-    const value = await this.host.call('agent-chats.open', { id: thread.id })
-    if (this.disposed || generation !== this.generation) return
-    const opened = value as unknown as Pick<AgentChat, 'summary' | 'permissionMode'>
-    this.chat = this.publishedChat(thread.id) ?? openedChat(value)
-    this.providerId = opened.summary.providerId
-    this.permissionMode = opened.permissionMode
-    this.options.persist?.(thread.id)
-    this.sync()
+    if (await this.openChat(thread.id, generation) && !this.disposed && generation === this.generation) this.options.persist?.(thread.id)
   }
   async renameThread(id: string, name: string): Promise<void> {
     if (!isAgentChatId(id)) return this.native.renameThread(id, name)
@@ -570,5 +620,5 @@ export class AgentSessionService implements ClientSessionService {
     await this.host.call('agent-chats.approve', { id: this.threadId, requestId: String(id), optionId: result.optionId })
   }
   resolveProposal(id: string, decision: 'accept' | 'decline'): Promise<void> { return this.native.resolveProposal(id, decision) }
-  dispose(): void { this.disposed = true; this.generation++; this.cleanup.forEach((cleanup) => cleanup()); this.listeners.clear() }
+  dispose(): void { this.disposed = true; this.cancelChatOpen(); this.generation++; this.cleanup.forEach((cleanup) => cleanup()); this.listeners.clear() }
 }

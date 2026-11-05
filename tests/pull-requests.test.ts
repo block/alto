@@ -189,7 +189,7 @@ describe('pull request pane presentation', () => {
     const html = renderToStaticMarkup(createElement(PullRequestRow, { pr: item, items: [item] }))
     expect(html).not.toContain('Work in progress')
     expect(html).not.toContain('pr-dashboard-row-status')
-    expect(html).toContain('on GitHub — Draft')
+    expect(html).toContain('in Alto — Draft')
     expect(html).toContain('Draft · Checks passed')
     expect(html).toContain('pr-dashboard-pr-title')
     expect(html).toContain('href="https://github.com/example/alto/pull/1"')
@@ -206,11 +206,14 @@ describe('pull request pane presentation', () => {
     expect(html).not.toContain('pr-dashboard-row-check')
   })
 
-  it('links to GitHub and escapes untrusted PR titles', () => {
+  it('advertises opening in Alto, preserves its URL fallback, and escapes untrusted PR titles', () => {
     const item = pr({ title: '<script>not markup</script>' })
     const html = renderToStaticMarkup(createElement(PullRequestRow, { pr: item, items: [item] }))
     expect(html).toContain('href="https://github.com/example/alto/pull/1"')
     expect(html).toContain('target="_blank" rel="noopener noreferrer"')
+    expect(html).toContain('Open in Alto')
+    expect(html).toContain('in Alto —')
+    expect(html).not.toContain('Open on GitHub')
     expect(html).toContain('&lt;script&gt;not markup&lt;/script&gt;')
     expect(html).not.toContain('<script>')
     expect(html).toMatch(/^<a class="pr-dashboard-row" href="https:\/\/github.com\/example\/alto\/pull\/1"/)
