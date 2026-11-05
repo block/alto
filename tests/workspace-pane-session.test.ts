@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest'
 import { AgentSessionService } from '../program/plugins/agent-session.client.js'
-import type { AgentChat } from '../program/plugins/agent-chats-api.js'
+import { agentChatStateKey, type AgentChat } from '../program/plugins/agent-chats-api.js'
 import type { ClientSessionService, ClientSessionSnapshot } from '../program/plugins/session-api.js'
 import { restoreWorkspacePaneSession } from '../program/plugins/workspace-layout.client.js'
 import type { WorkspacePaneNode } from '../program/plugins/workspace-layout-state.js'
@@ -30,14 +30,20 @@ function fixture() {
   }
 }
 
-it('restores a Claude pane on connection even when Codex has failed, without reopening it on later updates', async () => {
+it('restores saved Claude messages after startup activation without starting Codex or reopening on later updates', async () => {
+  vi.useFakeTimers()
   const f = fixture()
   const chat: AgentChat = {
     summary: { id: 'acp-11111111-1111-1111-1111-111111111111', providerId: 'claude', providerSessionId: 'claude-session', cwd: '/repo',
       title: 'Saved Claude chat', preview: '', createdAt: 1, updatedAt: 1 },
-    permissionMode: 'ask', turn: 'idle', activities: [], requests: [],
+    permissionMode: 'ask', turn: 'idle', requests: [], activities: [
+      { id: 'saved-user', kind: 'user', title: 'You', content: 'Earlier question', timestamp: '' },
+      { id: 'saved-answer', kind: 'agent', title: 'Assistant', content: 'Saved Claude answer', status: 'completed', timestamp: '' },
+    ],
   }
-  const call = vi.fn(async () => chat)
+  const call = vi.fn(async () => ({ summary: chat.summary, permissionMode: chat.permissionMode }))
+    .mockRejectedValueOnce(new Error('browser program revision unknown is incompatible with server revision 1'))
+  f.harness.extensions['agent-chats'] = JSON.parse(JSON.stringify({ providers: [], threads: [chat.summary] }))
   const host = { call, snapshot: () => ({ connected: f.state.connected, snapshot: f.harness }), subscribe: () => () => {} } as unknown as ClientHostService
   const session = new AgentSessionService(f.session, host)
   const stop = restoreWorkspacePaneSession(session, { ...f.pane, thread: chat.summary })
@@ -45,16 +51,24 @@ it('restores a Claude pane on connection even when Codex has failed, without reo
     expect(call).not.toHaveBeenCalled()
     f.state.connected = true
     f.changed()
-    await vi.waitFor(() => expect(session.snapshot().threadId).toBe(chat.summary.id))
-    expect(call).toHaveBeenCalledExactlyOnceWith('agent-chats.open', { id: chat.summary.id })
+    await vi.runAllTimersAsync()
+    expect(session.snapshot().threadId).toBe(chat.summary.id)
+    expect(call).toHaveBeenCalledTimes(2)
+    expect(call).toHaveBeenLastCalledWith('agent-chats.open', { id: chat.summary.id })
     expect(f.openThread).not.toHaveBeenCalled()
+    // Modern servers acknowledge the open separately from transcript state.
+    expect(session.snapshot().activities).toEqual([])
+    f.harness.extensions[agentChatStateKey(chat.summary.id)] = JSON.parse(JSON.stringify(chat))
+    f.changed()
+    expect(session.snapshot().activities.map((item) => item.content)).toEqual(['Earlier question', 'Saved Claude answer'])
     f.changed()
     f.state.connected = false
     f.changed()
     f.state.connected = true
     f.changed()
-    expect(call).toHaveBeenCalledTimes(1)
-  } finally { stop(); session.dispose() }
+    expect(call).toHaveBeenCalledTimes(2)
+    expect(session.snapshot().activities.map((item) => item.content)).toEqual(['Earlier question', 'Saved Claude answer'])
+  } finally { stop(); session.dispose(); vi.useRealTimers() }
   expect(f.listeners.size).toBe(0)
 })
 

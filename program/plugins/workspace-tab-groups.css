@@ -105,6 +105,58 @@ html[data-alto-theme='dark'] [data-group-color] {
   transform: translateY(25%);
 }
 
+/* Collapsed groups reuse their members' status icons, with separate counts so
+   ongoing work does not obscure unread chats. Empty summaries keep the usual
+   total-tab count and the existing label geometry. */
+.workspace-tab-group-status:empty { display: none; }
+.workspace-tab-group-status,
+.workspace-tab-group-statuses,
+.workspace-tab-group-status-item {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.workspace-tab-group-statuses { gap: var(--space-2); }
+.workspace-tab-group-status-item { gap: calc(var(--space-1) / 2); }
+.workspace-tab-group-status-item[data-status='finished'] { color: var(--accent); }
+.workspace-tabs .workspace-tab-group-label:has(> .workspace-tab-group-status:not(:empty)) {
+  /* The grid already reserves the action column; shared tab padding needs
+     only its outer inset, even when the appearance stylesheet loads later. */
+  --workspace-tab-trailing-inset: var(--workspace-tab-action-inset, var(--space-1));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto var(--workspace-tab-action-size, var(--control-icon));
+  column-gap: var(--ui-row-gap);
+  padding-inline: var(--ui-row-inline-padding) var(--workspace-tab-action-inset, var(--space-1));
+}
+.workspace-tabs .workspace-tab-group-label:has(> .workspace-tab-group-status:not(:empty)) > .workspace-tab-group-count {
+  display: none;
+}
+.workspace-tabs .workspace-tab-group-label:has(> .workspace-tab-group-status:not(:empty)) > .workspace-tab-group-toggle {
+  position: static;
+  margin: 0;
+}
+
+/* Even the icon-only rail keeps hidden chat status visible. Stack the two
+   counts above its small group-color marker within one normal-height row. */
+.vertical-tab-rail.is-collapsed .workspace-tab-group-label:has(> .workspace-tab-group-status:not(:empty)) {
+  min-height: var(--vertical-tab-height);
+  flex-basis: var(--vertical-tab-height);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--space-1) / 2);
+  padding: 0;
+}
+.vertical-tab-rail.is-collapsed .workspace-tab-group-label > .workspace-tab-group-status:not(:empty) {
+  display: inline-flex;
+}
+.vertical-tab-rail.is-collapsed .workspace-tab-group-statuses {
+  flex-direction: column;
+  gap: 0;
+}
+
 /* Keep the tab headers mounted so reversing a collapse continues from the
    current width. Inert members leave keyboard and drag navigation immediately. */
 .workspace-tab-group-member {
