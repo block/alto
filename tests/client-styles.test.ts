@@ -481,7 +481,7 @@ describe('client style contract', () => {
       expect(css).not.toMatch(/-viewer-actions\s*\{[^}]*gap:/s)
     }
     expect(diffCss).not.toContain('--space-6')
-    expect(diffCss).toMatch(/\.diff-viewer-pane\.is-overlay \.diff-viewer-toolbar\s*\{[^}]*--alto-pane-toolbar-end-padding: var\(--space-3\);/s)
+    expect(diffCss).toMatch(/\.diff-viewer-pane:is\(\.is-overlay, \.is-content\) \.diff-viewer-toolbar\s*\{[^}]*--alto-pane-toolbar-end-padding: var\(--space-3\);/s)
     expect(codeTourClient).toContain('diff-viewer-commit-picker has-leading-icon')
     expect(browserClient).toContain('className={paneToolbarStyles.group}')
     expect(browserCss).not.toMatch(/\.browser-workspace-toolbar > button/)
