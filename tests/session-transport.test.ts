@@ -7,6 +7,8 @@ import type {
   HarnessEvent,
   HarnessSnapshot,
   JsonValue,
+  ModelOption,
+  SkillOption,
   ThreadSummary,
   ThreadView,
 } from '../src/shared/protocol.js'
@@ -96,9 +98,167 @@ class ControllableHost implements ClientHostService {
     for (const listener of this.listeners) listener()
     this.emit({ type: 'extensions.updated', payload: {}, patches: { [name]: patch }, partial: true })
   }
+
+  patchCodex(change: Partial<HarnessSnapshot['codex']>): void {
+    const snapshot = this.state.snapshot!
+    const codex = { ...snapshot.codex, ...change }
+    this.state = { ...this.state, revision: this.state.revision + 1, snapshot: { ...snapshot, codex } }
+    for (const listener of this.listeners) listener()
+    this.emit({ type: 'codex.status', payload: codex })
+  }
 }
 
 describe('session transport projection', () => {
+  it('keeps the injected model catalog stable across host and transcript updates and refreshes changed source catalogs', async () => {
+    const snapshot = harness([], 'ready')
+    const source: ModelOption[] = [{ id: 'native', displayName: 'Native model', isDefault: true }]
+    snapshot.codex.models = source
+    snapshot.extensions.monitor = { revision: 0 }
+    const host = new ControllableHost(snapshot)
+    host.command.mockResolvedValue(view([]))
+    const first = new SessionService(host, { restoreActiveThread: false })
+    const second = new SessionService(host, { restoreActiveThread: false })
+    try {
+      await first.openThread(summary())
+      const models = first.snapshot().harness!.codex.models
+      expect(models.map((model) => model.id)).toEqual(['gpt-6-astra', 'native'])
+      expect(source).toHaveLength(1)
+      expect(second.snapshot().harness!.codex.models).toBe(models)
+      for (let index = 0; index < 20; index++) {
+        host.patchExtension('monitor', { o: { revision: { r: index + 1 } } })
+        host.emit({ type: 'codex.notification', payload: { method: 'item/agentMessage/delta',
+          params: { threadId: 'thread-a', itemId: 'answer', delta: 'chunk ' } } })
+        expect(first.snapshot().harness!.codex.models).toBe(models)
+        expect(second.snapshot().harness!.codex.models).toBe(models)
+      }
+      expect(first.snapshot().activities.at(-1)?.content).toBe('chunk '.repeat(20))
+
+      const changed = [{ ...source[0]!, displayName: 'Renamed native model' }, { id: 'new', displayName: 'New model' }]
+      host.patchCodex({ models: changed })
+      const next = first.snapshot().harness!.codex.models
+      expect(next).not.toBe(models)
+      expect(next.map((model) => model.displayName)).toEqual(['GPT-6 Astra', 'Renamed native model', 'New model'])
+      expect(second.snapshot().harness!.codex.models).toBe(next)
+
+      const upstream = [{ id: 'gpt-6-astra', displayName: 'Upstream Astra' }, ...changed]
+      host.patchCodex({ models: upstream })
+      expect(first.snapshot().harness!.codex.models).toBe(upstream)
+      expect(first.snapshot().harness!.codex.models.filter((model) => model.id === 'gpt-6-astra')).toHaveLength(1)
+    } finally { first.dispose(); second.dispose() }
+  })
+
+  it('retains routed model catalogs while unrelated inputs change and updates missing selections, providers, and models', async () => {
+    const snapshot = harness([], 'ready')
+    snapshot.codex.models = [
+      { id: 'gpt-6-astra', displayName: 'Astra' },
+      { id: 'native', displayName: 'Native model', isDefault: true },
+      { id: 'native-second', displayName: 'Second native model' },
+      { id: 'explicit-openai', displayName: 'Explicit OpenAI', modelProvider: 'openai' },
+      { id: 'external', displayName: 'External model', modelProvider: 'external' },
+    ]
+    snapshot.extensions.monitor = { revision: 0 }
+    const host = new ControllableHost(snapshot)
+    host.command.mockImplementation((type: string, payload: { threadId?: string }) => Promise.resolve(type === 'thread.open'
+      ? { summary: { ...summary(payload.threadId), ...(payload.threadId === 'external-thread' ? { modelProvider: 'external' } : {}) }, messages: [] }
+      : []))
+    const native = new SessionService(host, { restoreActiveThread: false })
+    const session = new AgentSessionService(native, host)
+    try {
+      await session.openThread(summary())
+      const models = session.snapshot().models
+      expect(models?.map((model) => model.id)).toEqual(['gpt-6-astra', 'native', 'native-second', 'explicit-openai'])
+      for (let index = 0; index < 20; index++) {
+        host.patchExtension('monitor', { o: { revision: { r: index + 1 } } })
+        host.emit({ type: 'codex.notification', payload: { method: 'item/agentMessage/delta',
+          params: { threadId: 'thread-a', itemId: 'answer', delta: 'chunk ' } } })
+        await vi.advanceTimersByTimeAsync(16)
+        expect(session.snapshot().models).toBe(models)
+      }
+      expect(session.snapshot().activities.at(-1)?.content).toBe('chunk '.repeat(20))
+      session.setModel('native-second')
+      expect(session.snapshot().session.model).toBe('native-second')
+      expect(session.snapshot().models).toBe(models)
+
+      session.setModel('saved-model')
+      const missing = session.snapshot().models
+      expect(missing).not.toBe(models)
+      expect(missing?.at(-1)).toEqual({ id: 'saved-model', displayName: 'saved-model', modelProvider: 'openai' })
+      host.patchExtension('monitor', { o: { revision: { r: 21 } } })
+      expect(session.snapshot().models).toBe(missing)
+      session.setModel('different-saved-model')
+      expect(session.snapshot().models?.at(-1)?.id).toBe('different-saved-model')
+      expect(session.snapshot().models).not.toBe(missing)
+      session.setModel('native')
+      expect(session.snapshot().models).toBe(models)
+
+      await session.openThread({ ...summary('external-thread'), modelProvider: 'external' })
+      const external = session.snapshot().models
+      expect(external?.map((model) => model.id)).toEqual(['external'])
+      host.patchExtension('monitor', { o: { revision: { r: 22 } } })
+      expect(session.snapshot().models).toBe(external)
+
+      // Unqualified models follow the native provider, even when the selected
+      // conversation has an explicit provider that has not changed.
+      host.patchCodex({ defaults: { permissionMode: 'ask', modelProvider: 'external' } })
+      expect(session.snapshot().models).not.toBe(external)
+      expect(session.snapshot().models?.map((model) => model.id)).toEqual(['gpt-6-astra', 'native', 'native-second', 'external'])
+      const changed = snapshot.codex.models.map((model) => model.id === 'external' ? { ...model, displayName: 'Renamed external model' } : model)
+      host.patchCodex({ models: changed })
+      expect(session.snapshot().models?.find((model) => model.id === 'external')?.displayName).toBe('Renamed external model')
+      session.newThread()
+      expect(session.snapshot().models).toBe(changed)
+    } finally { session.dispose(); native.dispose() }
+  })
+
+  it('keeps unavailable ACP skills stable while preserving real local skill and provider changes', async () => {
+    const snapshot = harness([], 'ready')
+    const localThread = { ...summary('acp-11111111-1111-1111-1111-111111111111'), providerId: 'pi', providerSessionId: 'local-session' }
+    const remoteThread = { ...localThread, id: 'acp-22222222-2222-2222-2222-222222222222', providerId: 'cloud', providerSessionId: 'remote-session' }
+    const providers = [{ id: 'pi', label: 'Pi', capabilities: {} }, { id: 'cloud', label: 'Claude', remoteLocation: 'Blox', capabilities: {} }]
+    snapshot.extensions['agent-chats'] = { providers, threads: [localThread, remoteThread] } as unknown as JsonValue
+    snapshot.extensions.monitor = { revision: 0 }
+    for (const thread of [localThread, remoteThread]) snapshot.extensions[agentChatStateKey(thread.id)] = {
+      summary: thread, permissionMode: 'ask', turn: 'idle', requests: [], activities: [],
+    } as unknown as JsonValue
+    const host = new ControllableHost(snapshot)
+    let skills: SkillOption[] = [{ name: 'first', path: '/first', description: 'First skill', scope: 'repo' }]
+    host.command.mockImplementation((type: string) => Promise.resolve(type === 'skill.list' ? skills : []))
+    host.call.mockImplementation(async (_method: string, payload: { id: string }) => ({
+      summary: payload.id === remoteThread.id ? remoteThread : localThread, permissionMode: 'ask',
+    }))
+    const native = new SessionService(host, { restoreActiveThread: false, initialWorkspace: '/tmp/project' })
+    const session = new AgentSessionService(native, host)
+    try {
+      await vi.advanceTimersByTimeAsync(80)
+      expect(native.snapshot().skills).toBe(skills)
+      await session.openThread(remoteThread)
+      const unavailable = session.snapshot().skills
+      expect(unavailable).toEqual([])
+      for (let index = 0; index < 20; index++) {
+        host.patchExtension('monitor', { o: { revision: { r: index + 1 } } })
+        host.patchExtension(agentChatStateKey(remoteThread.id), { o: { activities: { r: [
+          { id: 'answer', kind: 'agent', title: 'Assistant', content: `Reply ${index}`, timestamp: '' },
+        ] } } })
+        expect(session.snapshot().skills).toBe(unavailable)
+      }
+      expect(session.snapshot().activities.at(-1)?.content).toBe('Reply 19')
+
+      skills = [{ name: 'second', path: '/second', description: 'Second skill', scope: 'repo' }]
+      host.emit({ type: 'codex.notification', payload: { method: 'skills/changed' } })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(native.snapshot().skills).toBe(skills)
+      expect(session.snapshot().skills).toBe(unavailable)
+      await session.openThread(localThread)
+      expect(session.snapshot().skills).toBe(skills)
+
+      const remoteProviders = [{ ...providers[0]!, remoteLocation: 'Blox' }, providers[1]!]
+      host.patchExtension('agent-chats', { o: { providers: { r: remoteProviders } } })
+      expect(session.snapshot().skills).toBe(unavailable)
+      host.patchExtension('agent-chats', { o: { providers: { r: providers } } })
+      expect(session.snapshot().skills).toBe(skills)
+    } finally { session.dispose(); native.dispose() }
+  })
+
   it('reuses ACP projections through real native-session delivery and immutable extension patches', async () => {
     const id = 'acp-11111111-1111-1111-1111-111111111111'
     const thread = { ...summary(id), providerId: 'pi', providerSessionId: 'pi-session' }

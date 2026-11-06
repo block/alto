@@ -1,13 +1,13 @@
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ArrowRight, ArrowUpRight, Check, ChevronDown, CircleAlert, CircleDot, Clock3, GitMerge, GitPullRequest, Layers, Link2, MessageSquare, RefreshCw } from 'lucide-react'
 import { clientStyles, type BrowserPlugin, type ClientHostService, type ClientUiService } from '../../src/client/plugin-api.js'
-import type { JsonValue } from '../../src/shared/protocol.js'
-import { DIFF_CONTENT_COMPONENT, parseDiffReviewDocument, type DiffContentProps, type DiffReviewDocument } from './diff-viewer-api.js'
+import { DIFF_CONTENT_COMPONENT, type DiffContentProps } from './diff-viewer-api.js'
 import type { MarkdownContentProps } from './markdown-content.js'
 import { paneToolbarStyles } from './pane-toolbar.js'
 import { PR_PANE, pullRequestAge, pullRequestChecks, pullRequestReview } from './pull-requests-api.js'
 import { pullRequestViewStore } from './pull-requests-store.js'
-import { PULL_REQUEST_DIFF_METHOD, PULL_REQUEST_PANE_KIND, PULL_REQUEST_READ_METHOD, parsePullRequestDetails, parsePullRequestReference, type PullRequestCheck, type PullRequestDetails, type PullRequestComment } from './pull-request-pane-api.js'
+import { PULL_REQUEST_PANE_KIND, parsePullRequestReference, type PullRequestCheck, type PullRequestDetails, type PullRequestComment } from './pull-request-pane-api.js'
+import { PullRequestPaneLoader, pullRequestRevision, type PullRequestCachedView, type PullRequestLoadMode } from './pull-request-pane-loader.js'
 import type { ClientWorkspaceLayoutService, WorkspacePaneKindProps } from './workspace-layout-api.js'
 import { uiStyles } from './ui/appearance.js'
 import styles from './pull-request-pane.css'
@@ -15,24 +15,18 @@ import styles from './pull-request-pane.css'
 const REFRESH_INTERVAL = 60_000
 const rememberedKey = (paneId: string) => `alto.pull-request-pane.${paneId}`
 
-/** Restored panes can mount before the browser acknowledges a new program. */
-export async function callPullRequestRead(host: Pick<ClientHostService, 'call'>, method: string, payload: JsonValue, signal: AbortSignal): Promise<JsonValue> {
-  const delays = [100, 200, 400, 800, 1600, 3200]
-  for (let attempt = 0; ; attempt++) {
-    signal.throwIfAborted()
-    try { return await host.call(method, payload) }
-    catch (error) {
-      signal.throwIfAborted()
-      const message = error instanceof Error ? error.message : String(error)
-      const delay = delays[attempt]
-      if (delay === undefined || !/^browser program revision (?:unknown|\d+) is incompatible with server revision \d+$/u.test(message)) throw error
-      await new Promise<void>((resolve, reject) => {
-        const cancel = (): void => { clearTimeout(timer); reject(signal.reason) }
-        const timer = setTimeout(() => { signal.removeEventListener('abort', cancel); resolve() }, delay)
-        signal.addEventListener('abort', cancel, { once: true })
-      })
-    }
-  }
+export { callPullRequestRead } from './pull-request-pane-loader.js'
+
+interface PullRequestView extends PullRequestCachedView {
+  identity: string
+  problem: string
+  diffProblem: string
+  loading: boolean
+  diffLoading: boolean
+}
+
+function cachedView(identity: string, cached: PullRequestCachedView = {}): PullRequestView {
+  return { identity, ...cached, problem: '', diffProblem: '', loading: false, diffLoading: false }
 }
 
 function rememberedResource(paneId: string): string {
@@ -172,29 +166,30 @@ function PullRequestSummary({ pr, ui, onSelect, children }: { pr: PullRequestDet
   </div>
 }
 
-export function PullRequestPane({ pane, workspaceId, visible, host, ui }: WorkspacePaneKindProps & { host: ClientHostService; ui: ClientUiService }): ReactNode {
+export function PullRequestPane({ pane, workspaceId, visible, host, ui, loader }: WorkspacePaneKindProps & { host: ClientHostService; ui: ClientUiService; loader: PullRequestPaneLoader }): ReactNode {
   const initial = rememberedResource(pane.id) || pane.resource || ''
   const [resource, setResource] = useState(initial)
   const [input, setInput] = useState(initial)
   const [editing, setEditing] = useState(!initial)
   const [inputProblem, setInputProblem] = useState('')
-  const [details, setDetails] = useState<PullRequestDetails>()
-  const [problem, setProblem] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [refresh, setRefresh] = useState(0)
-  const [diff, setDiff] = useState<DiffReviewDocument>()
-  const [diffProblem, setDiffProblem] = useState('')
-  const [diffLoading, setDiffLoading] = useState(false)
-  const [diffRefresh, setDiffRefresh] = useState(0)
-  const loadedDiff = useRef('')
+  let canonicalResource = ''
+  try { canonicalResource = resource ? parsePullRequestReference(resource).url : '' } catch { /* Invalid restored resources remain editable. */ }
+  const workspace = pane.workspace ?? ''
+  const identity = JSON.stringify([canonicalResource || resource, workspace])
+  const [state, setState] = useState(() => cachedView(identity, canonicalResource ? loader.peek(canonicalResource, workspace) : {}))
+  const view = state.identity === identity ? state : cachedView(identity, canonicalResource ? loader.peek(canonicalResource, workspace) : {})
+  const { details, diff, problem, diffProblem, loading, diffLoading } = view
+  const currentDiff = !!details && view.diffRevision === pullRequestRevision(details)
+  const [request, setRequest] = useState({ identity, mode: 'open' as PullRequestLoadMode, version: 0 })
+  const consumedRequest = useRef(0)
+  const reload = (mode: PullRequestLoadMode): void => setRequest(current => ({ identity, mode, version: current.version + 1 }))
   const fieldId = useId()
   const prStore = useMemo(() => pullRequestViewStore(host), [host])
   const authored = useSyncExternalStore(prStore.subscribe, prStore.snapshot).snapshot.items
   useSyncExternalStore(ui.subscribe, ui.snapshot, ui.snapshot)
   const inputRef = useRef<HTMLInputElement>(null)
   const Diff = ui.component<DiffContentProps>(DIFF_CONTENT_COMPONENT)
-  let githubUrl = details?.url
-  try { githubUrl ??= parsePullRequestReference(resource).url } catch { /* Invalid resources remain editable. */ }
+  const githubUrl = details?.url ?? canonicalResource
 
   useEffect(() => {
     const next = rememberedResource(pane.id) || pane.resource || ''
@@ -203,51 +198,44 @@ export function PullRequestPane({ pane, workspaceId, visible, host, ui }: Worksp
 
   useEffect(() => { if (editing && visible) inputRef.current?.focus({ preventScroll: true }) }, [editing, visible])
 
-  useEffect(() => { setDetails(undefined); setDiff(undefined); loadedDiff.current = ''; setProblem(''); setDiffProblem('') }, [resource])
-
   useEffect(() => {
     if (!visible || !resource) return
+    if (!canonicalResource) { setState({ ...cachedView(identity), problem: 'Enter a GitHub PR URL or owner/repo#123.' }); return }
     let current = true
-    const controller = new AbortController()
-    setLoading(true)
-    void callPullRequestRead(host, PULL_REQUEST_READ_METHOD, { resource }, controller.signal).then(value => {
-      if (!current) return
-      setDetails(parsePullRequestDetails(value)); setProblem('')
-    }).catch((error: unknown) => { if (current) setProblem(error instanceof Error ? error.message : String(error)) })
-      .finally(() => { if (current) setLoading(false) })
-    return () => { current = false; controller.abort() }
-  }, [host, resource, visible, refresh])
+    const mode = request.identity === identity && consumedRequest.current !== request.version ? request.mode : 'open'
+    consumedRequest.current = request.version
+    const cached = loader.peek(canonicalResource, workspace)
+    const previous = state.identity === identity ? state : cachedView(identity, cached)
+    setState({ ...previous, details: cached.details ?? previous.details, diff: cached.diff ?? previous.diff,
+      diffRevision: cached.diff ? cached.diffRevision : previous.diffRevision,
+      problem: mode === 'diff' ? previous.problem : '', diffProblem: '', loading: mode !== 'diff', diffLoading: true })
+    const pending = loader.load(canonicalResource, workspace, mode, previous.details)
+    void pending.details.then(value => {
+      if (current && value) setState(previous => ({ ...previous, details: value, problem: '' }))
+    }).catch((error: unknown) => {
+      if (current) setState(previous => ({ ...previous, problem: error instanceof Error ? error.message : String(error) }))
+    }).finally(() => { if (current) setState(previous => ({ ...previous, loading: false })) })
+    void pending.diff.then(value => {
+      if (current) setState(previous => ({ ...previous, details: value.details ?? previous.details, diff: value.document, diffRevision: value.revision, diffProblem: '' }))
+    }).catch((error: unknown) => {
+      if (current) setState(previous => ({ ...previous, diffProblem: error instanceof Error ? error.message : String(error) }))
+    }).finally(() => { if (current) setState(previous => ({ ...previous, diffLoading: false })) })
+    // Shared requests can finish into the cache after this view hides or changes.
+    return () => { current = false }
+  }, [loader, identity, visible, request.version])
 
   useEffect(() => {
     if (!visible || !resource || !details || details.state !== 'OPEN') return
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') setRefresh(value => value + 1) }, REFRESH_INTERVAL)
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') reload('metadata') }, REFRESH_INTERVAL)
     return () => clearInterval(timer)
-  }, [visible, resource, details?.state])
-
-  useEffect(() => {
-    if (!visible || !details) return
-    try { if (parsePullRequestReference(resource).url !== details.url) return }
-    catch { return }
-    const key = `${resource}:${details.headSha}:${details.baseBranch}:${details.baseSha}:${diffRefresh}`
-    if (loadedDiff.current === key) return
-    let current = true
-    const controller = new AbortController()
-    setDiffLoading(true)
-    void callPullRequestRead(host, PULL_REQUEST_DIFF_METHOD, { resource: details.url, workspace: pane.workspace }, controller.signal).then(value => {
-      if (!current) return
-      loadedDiff.current = key
-      setDiff(parseDiffReviewDocument(value)); setDiffProblem('')
-    }).catch((error: unknown) => { if (current) setDiffProblem(error instanceof Error ? error.message : String(error)) })
-      .finally(() => { if (current) setDiffLoading(false) })
-    return () => { current = false; controller.abort() }
-  }, [host, resource, details?.url, details?.headSha, details?.baseBranch, details?.baseSha, visible, pane.workspace, diffRefresh])
+  }, [visible, identity, details?.state])
 
   const choose = (value: string): void => {
     let reference
     try { reference = parsePullRequestReference(value.trim()) }
     catch { setInputProblem('Enter a GitHub PR URL or owner/repo#123.'); return }
     setInputProblem(''); setInput(reference.url); setResource(reference.url); setEditing(false)
-    if (reference.url === resource) setRefresh(current => current + 1)
+    if (reference.url === resource) reload('refresh')
     try { localStorage.setItem(rememberedKey(pane.id), reference.url) } catch { /* Pane remains usable without local persistence. */ }
   }
 
@@ -256,7 +244,7 @@ export function PullRequestPane({ pane, workspaceId, visible, host, ui }: Worksp
       <div className={paneToolbarStyles.title}><GitPullRequest size={16} /><span>{details ? `${details.repository} #${details.number}` : 'GitHub pull request'}</span></div>
       <div className={paneToolbarStyles.actions}>
         <button type="button" className={uiStyles.iconButton} aria-label="Open another pull request" title="Open another pull request" aria-expanded={editing} onClick={() => { setEditing(value => !value); setInputProblem('') }}><Link2 size={14} /></button>
-        <button type="button" className={uiStyles.iconButton} aria-label="Refresh pull request" title="Refresh pull request" disabled={!resource || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={14} className={loading ? 'pull-request-spinning' : ''} /></button>
+        <button type="button" className={uiStyles.iconButton} aria-label="Refresh pull request" title="Refresh pull request" disabled={!resource || loading} onClick={() => reload('refresh')}><RefreshCw size={14} className={loading ? 'pull-request-spinning' : ''} /></button>
         {githubUrl && <ExternalLink className={uiStyles.iconButton} href={githubUrl} label="Open on GitHub"><ArrowUpRight size={15} /></ExternalLink>}
       </div>
     </header>
@@ -268,16 +256,16 @@ export function PullRequestPane({ pane, workspaceId, visible, host, ui }: Worksp
     {!resource && <div className="pull-request-empty"><GitPullRequest size={28} strokeWidth={1.3} /><h2>A closer look at a pull request</h2><p>Paste a PR link above, or open one from your conversations or the pull request menu.</p>{authored.length > 0 && <div className="pull-request-recents"><h3>Your open pull requests</h3>{authored.slice(0, 6).map(pr => <button type="button" className={uiStyles.row} key={pr.id} onClick={() => choose(pr.url)}><span>{pr.title}</span><small>{pr.repository} #{pr.number}</small></button>)}</div>}</div>}
     {resource && <>
 
-      {problem && <div className="pull-request-error" role="alert"><CircleAlert size={15} /><span>{problem}{details && ' Showing the last loaded version.'}</span><button type="button" className={uiStyles.button} onClick={() => setRefresh(value => value + 1)}>Retry</button></div>}
+      {problem && <div className="pull-request-error" role="alert"><CircleAlert size={15} /><span>{problem}{details && ' Showing the last loaded version.'}</span><button type="button" className={uiStyles.button} onClick={() => reload('refresh')}>Retry</button></div>}
       {!details && loading && <div className="pull-request-loading" role="status"><RefreshCw className="pull-request-spinning" size={17} />Loading pull request…</div>}
       {details && <div className="pull-request-summary-scroll" tabIndex={0} aria-label="Pull request overview and changes">
         <PullRequestSummary pr={details} ui={ui} onSelect={choose}>
           <section className="pull-request-changes" aria-label="Pull request changes">
             <h2>Changes <span className="pull-request-delta"><span>+{details.additions}</span><span>−{details.deletions}</span></span></h2>
             <div className="pull-request-diff">
-              {diffProblem && <div className="pull-request-error" role="alert"><CircleAlert size={15} /><span>{diffProblem}</span><button type="button" className={uiStyles.button} onClick={() => setDiffRefresh(value => value + 1)}>Retry</button><ExternalLink href={`${details.url}/files`}>View on GitHub</ExternalLink></div>}
-              {!diff && diffLoading && <div className="pull-request-loading" role="status"><RefreshCw className="pull-request-spinning" size={17} />Loading changes…</div>}
-              {diff && Diff && <Diff document={diff} workspaceId={workspaceId} visible={visible} refreshing={diffLoading} onRefresh={() => setDiffRefresh(value => value + 1)} />}
+              {diffProblem && <div className="pull-request-error" role="alert"><CircleAlert size={15} /><span>{diffProblem}</span><button type="button" className={uiStyles.button} onClick={() => reload('diff')}>Retry</button><ExternalLink href={`${details.url}/files`}>View on GitHub</ExternalLink></div>}
+              {(!diff || !currentDiff) && diffLoading && <div className="pull-request-loading" role="status"><RefreshCw className="pull-request-spinning" size={17} />Loading changes…</div>}
+              {diff && Diff && <div key={identity} className="pull-request-diff-content" hidden={!currentDiff}><Diff document={diff} workspaceId={workspaceId} visible={visible && currentDiff} refreshing={diffLoading} onRefresh={() => reload('diff')} /></div>}
               {diff && !Diff && <div className="pull-request-loading">Enable Diff Viewer to view changes here. <ExternalLink href={`${details.url}/files`}>View on GitHub</ExternalLink></div>}
             </div>
           </section>
@@ -287,14 +275,20 @@ export function PullRequestPane({ pane, workspaceId, visible, host, ui }: Worksp
   </section>
 }
 
+const MemoPullRequestPane = memo(PullRequestPane)
+
 const pullRequestPane: BrowserPlugin = ctx => {
   const host = ctx.clientHost
   const ui = ctx.clientUi
   const layout = ctx.clientWorkspaceLayout
+  const loader = new PullRequestPaneLoader(host)
+  ctx.effect(() => () => loader.dispose())
   layout.registerPaneKind(ctx, {
     id: PULL_REQUEST_PANE_KIND, label: 'Pull request', shortcut: 'g',
     description: 'Read a GitHub pull request, checks, discussion, and code changes', icon: GitPullRequest,
-    renderer: props => <PullRequestPane {...props} host={host} ui={ui} />,
+    // Workspace action callbacks change with the parent. Only consumed values
+    // cross this boundary, so unrelated chat updates do not rerender PR content.
+    renderer: ({ pane, workspaceId, visible }) => <MemoPullRequestPane pane={pane} workspaceId={workspaceId} visible={visible} focused={false} host={host} ui={ui} loader={loader} />,
   })
   ui.registerStyle(ctx, 'pull-request-pane', String(styles))
   ctx.effect(() => {

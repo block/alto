@@ -1409,6 +1409,26 @@ export function ActivityTimeline({
     ? window.visibleTurns
     : INITIAL_VISIBLE_TURNS
   const start = Math.max(0, turns.length - visibleTurns)
+  const previousCompletedFiles = useRef<{
+    key: string
+    files: Map<string, ActivityItem[]>
+  } | undefined>(undefined)
+  const completedFiles = useMemo(() => {
+    const previous = previousCompletedFiles.current?.key === windowKey
+      ? previousCompletedFiles.current.files
+      : undefined
+    const filesByTurn = new Map<string, ActivityItem[]>()
+    for (let index = start; index < turns.length; index++) {
+      const id = turns[index]?.[0]?.id
+      const files = completedLogicalTurnFiles(turns, index)
+      if (id === undefined || files === undefined) continue
+      const prior = previous?.get(id)
+      // Streaming a later turn must not invalidate completed file summaries.
+      filesByTurn.set(id, prior && sameActivityItems(prior, files) ? prior : files)
+    }
+    previousCompletedFiles.current = { key: windowKey, files: filesByTurn }
+    return filesByTurn
+  }, [turns, start, windowKey])
 
   const showEarlier = async (): Promise<void> => {
     if (start === 0 && hasEarlier && loadEarlier) await loadEarlier()
@@ -1466,7 +1486,7 @@ export function ActivityTimeline({
             codeBlock={codeBlock}
             reviewAction={reviewAction}
             session={session}
-            completedFileItems={completedLogicalTurnFiles(turns, index)}
+            completedFileItems={completedFiles.get(turn[0]?.id ?? '')}
             visible={visible}
             key={turn[0]?.id}
           />

@@ -83,8 +83,8 @@
   color: var(--text);
   font-family: var(--sans);
   font-size: var(--type-reading);
-  font-weight: 430;
-  line-height: 1.55;
+  font-weight: var(--weight-reading, 430);
+  line-height: var(--line-reading, 1.55);
   word-break: break-word;
 }
 

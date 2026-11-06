@@ -1158,8 +1158,8 @@ pre.activity-content {
 .activity-agent .activity-content,
 .activity-user .activity-content {
   font-family: var(--sans);
-  font-weight: 430;
-  line-height: 1.55;
+  font-weight: var(--weight-reading, 430);
+  line-height: var(--line-reading, 1.55);
 }
 .activity-agent .activity-content,
 .activity-user .activity-content { font-size: var(--type-reading); }
@@ -1326,8 +1326,8 @@ pre.activity-content {
 :is(.activity-turn-work, .activity-turn-final) .activity-agent .activity-markdown {
   color: var(--text);
   font-size: var(--type-reading);
-  font-weight: 430;
-  line-height: 1.55;
+  font-weight: var(--weight-reading, 430);
+  line-height: var(--line-reading, 1.55);
 }
 
 .activity-turn-work .activity-reasoning .activity-markdown {

@@ -73,13 +73,23 @@ const ASTRA_MODEL: ModelOption = {
   ],
 }
 
+const astraModelCatalogs = new WeakMap<ModelOption[], ModelOption[]>()
+const routedModelCatalogs = new WeakMap<ModelOption[], Map<string, ModelOption[]>>()
+
 function withAstraModel(harness: HarnessSnapshot | undefined): HarnessSnapshot | undefined {
-  if (!harness || harness.codex.status !== 'ready' || harness.codex.models.some((model) => model.id === ASTRA_MODEL.id)) return harness
+  if (!harness || harness.codex.status !== 'ready') return harness
+  const source = harness.codex.models
+  let models = astraModelCatalogs.get(source)
+  if (!models) {
+    models = source.some((model) => model.id === ASTRA_MODEL.id) ? source : [ASTRA_MODEL, ...source]
+    astraModelCatalogs.set(source, models)
+  }
+  if (models === source) return harness
   return {
     ...harness,
     codex: {
       ...harness.codex,
-      models: [ASTRA_MODEL, ...harness.codex.models],
+      models,
     },
   }
 }
@@ -126,12 +136,26 @@ function availableModels(state: ClientSessionSnapshot): ModelOption[] | undefine
   const nativeProvider = state.harness?.codex.defaults?.modelProvider ?? 'openai'
   const provider = state.session.modelProvider ?? nativeProvider
   if (!models.some((model) => model.modelProvider) && provider === nativeProvider) return undefined
-  const available = state.threadId
-    ? models.filter((model) => (model.modelProvider ?? nativeProvider) === provider)
-    : models
+  if (!state.threadId) return models
+  // Host patches and transcript deltas do not change these immutable catalogs.
+  // Reuse their projections across mounted panes as well as successive updates.
+  let catalogs = routedModelCatalogs.get(models)
+  if (!catalogs) routedModelCatalogs.set(models, catalogs = new Map())
+  const key = JSON.stringify([nativeProvider, provider])
+  let available = catalogs.get(key)
+  if (!available) {
+    available = models.filter((model) => (model.modelProvider ?? nativeProvider) === provider)
+    catalogs.set(key, available)
+  }
   const selected = state.session.model
-  if (!state.threadId || !selected || available.some((model) => model.id === selected)) return available
-  return [...available, { id: selected, displayName: selected, modelProvider: provider }]
+  if (!selected || available.some((model) => model.id === selected)) return available
+  const selectedKey = JSON.stringify([nativeProvider, provider, selected])
+  let withSelected = catalogs.get(selectedKey)
+  if (!withSelected) {
+    withSelected = [...available, { id: selected, displayName: selected, modelProvider: provider }]
+    catalogs.set(selectedKey, withSelected)
+  }
+  return withSelected
 }
 
 const THREAD_CACHE_LIMIT = 12

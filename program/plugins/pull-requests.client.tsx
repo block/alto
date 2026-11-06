@@ -229,10 +229,14 @@ export function PullRequestsChrome({ host, ui }: { host: ClientHostService; ui: 
   )
 }
 
+const MemoPullRequestsChrome = memo(PullRequestsChrome)
+
 const pullRequestsClient: BrowserPlugin = (ctx) => {
-  ctx.clientUi.registerRoot(ctx, 'pull-requests-chrome', () => <PullRequestsChrome host={ctx.clientHost} ui={ctx.clientUi} />)
-  ctx.clientUi.registerStyle(ctx, 'pull-requests', String(styles))
-  return () => ctx.clientUi.overlays.close(PR_PANEL)
+  const host = ctx.clientHost
+  const ui = ctx.clientUi
+  ui.registerRoot(ctx, 'pull-requests-chrome', () => <MemoPullRequestsChrome host={host} ui={ui} />)
+  ui.registerStyle(ctx, 'pull-requests', String(styles))
+  return () => ui.overlays.close(PR_PANEL)
 }
 pullRequestsClient.inject = ['clientHost', 'clientUi']
 pullRequestsClient.resources = { requires: { extensions: [PR_REFRESH] }, provides: { roots: ['pull-requests-chrome'] } }

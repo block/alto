@@ -69,7 +69,7 @@ html[data-workspace-tools='rail'] .pr-dashboard-flyout.is-open { transform: tran
 .pr-dashboard-row-meta > time { flex-shrink: 0; font-size: var(--type-supporting); color: var(--ui-text-secondary); }
 .pr-dashboard-row-link { flex-shrink: 0; color: var(--ui-text-secondary); }
 .pr-dashboard-row:hover .pr-dashboard-row-link { color: var(--ui-text); }
-.pr-dashboard-pr-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: var(--ui-size); font-weight: var(--weight-regular); line-height: var(--line-body); }
+.pr-dashboard-pr-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: var(--ui-size); font-weight: var(--ui-weight); line-height: var(--line-body); }
 .pr-dashboard-row-status { display: flex; align-items: center; gap: var(--space-2); color: var(--ui-text-secondary); font-size: var(--ui-size); line-height: var(--line-body); }
 .pr-dashboard-row-status > svg { flex-shrink: 0; }
 .pr-dashboard-row-status.is-ready > svg { color: var(--green); }

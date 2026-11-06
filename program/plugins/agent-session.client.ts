@@ -15,6 +15,7 @@ function openedChat(value: unknown): AgentChat | undefined {
 }
 
 const emptyCatalog: AgentChatCatalog = { providers: [], threads: [] }
+const EMPTY_SKILLS: ClientSessionSnapshot['skills'] = []
 const chatOpenRetryDelays = [100, 200, 400, 800, 1_600, 3_200, 3_200]
 
 interface ChatOpenOperation {
@@ -205,7 +206,7 @@ export class AgentSessionService implements ClientSessionService {
         activities: problem ? [...activities, { id: `agent-error:${this.threadId ?? 'new'}:${problem}`,
           kind: 'status' as const, title: 'Agent error', content: problem, status: 'failed', timestamp: '' }] : activities,
         hasEarlierActivities: false, loadingEarlierActivities: false,
-        skills: !provider?.remoteLocation && workspace === native.session.workspace ? native.skills : [],
+        skills: !provider?.remoteLocation && workspace === native.session.workspace ? native.skills : EMPTY_SKILLS,
         ...(native.harness ? { harness: { ...native.harness, pendingRequests: requests } } : {}),
       }
     }

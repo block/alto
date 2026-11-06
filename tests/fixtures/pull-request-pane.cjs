@@ -20,16 +20,27 @@ async function check() {
       import fileTreePlugin from './program/plugins/file-tree.client';
       import diffPlugin from './program/plugins/diff-viewer.client';
       import prPlugin from './program/plugins/pull-request-pane.client';
-      import {PullRequestRow} from './program/plugins/pull-requests.client';
+      import dashboardPlugin,{PullRequestRow} from './program/plugins/pull-requests.client';
+      import {PR_STATE,PR_REFRESH} from './program/plugins/pull-requests-api';
       const READ='pull-request.read',DIFF='pull-request.diff',base='https://github.com/example/repo/pull/';
       const account={login:'reviewer',url:'https://github.com/reviewer'};
       let visible=false,mounted=true,resource=base+'42',metadataVersion=1,patchVersion=1,baseVersion=1,serial=0,stackMode='none';
       const kinds=new Map(),hostListeners=new Set(),context=new Context(),ui=new ClientUiRegistry();
       const root=createRoot(document.getElementById('pane-mount'));
       const routingRoot=createRoot(document.getElementById('routing-mount'));
-      window.requests=[];window.pending=[];window.held=new Set([READ]);window.failNext=new Map();
+      globalThis.__prRenderCounts={parent:0,pane:0,markdown:0,diff:0,chrome:0,list:0};
+      let hostState={connected:true,connectionEpoch:1,revision:0,snapshot:{program:{revision:1},extensions:{}}},dashboardFiber,dashboardMounted=false;
+      let paneNode={type:'pane',id:'pr-pane',kind:'pull-request',workspace:'/repo',resource};
+      window.requests=[];window.pending=[];window.held=new Set([READ,DIFF]);window.failNext=new Map();
       window.openRequests=[];window.externalClicks=[];window.sent=[];window.focused=[];
       window.markdownReactClicks=[];window.dashboardReactClicks=[];window.reactClosed={markdown:0,dashboard:0};
+      const nativeNow=Date.now,nativeSetInterval=window.setInterval.bind(window),nativeClearInterval=window.clearInterval.bind(window),pollers=new Map();
+      let clockOffset=0;
+      Date.now=()=>nativeNow()+clockOffset;
+      Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>visible?'visible':'hidden'});
+      window.setInterval=(callback,delay,...args)=>{const id=nativeSetInterval(callback,delay,...args);if(delay===60000)pollers.set(id,()=>callback(...args));return id};
+      window.clearInterval=id=>{pollers.delete(id);nativeClearInterval(id)};
+      window.pollPullRequests=()=>{clockOffset+=60001;flushSync(()=>{for(const poll of [...pollers.values()])poll()})};
       const comment=(id,body)=>({id,body,author:account,createdAt:'2026-11-01T12:00:00Z',url:base+'42#'+id});
       const stackEntry=(number,position,state,draft,checks)=>({position,pullRequest:{number,url:base+number,title:'Native stack member '+number+' with a deliberately long title for narrow panes',state,draft,headBranch:'stack/'+number,baseBranch:position===1?'main':'stack/'+(number-1),...(checks?{checks}:{})}});
       const stackFields=()=>stackMode==='none'?{}:stackMode==='unavailable'?{stackUnavailable:true}:{
@@ -58,9 +69,10 @@ async function check() {
         patch:'diff --git a/src/glass.ts b/src/glass.ts\\n--- a/src/glass.ts\\n+++ b/src/glass.ts\\n@@ -1,2 +1,2 @@\\n-export const opacity = 0.4\\n+export const opacity = 0.'+patchVersion+'\\n export const accent = '+(baseVersion===1?'true':'false')+'\\n',
       });
       const host={subscribe:listener=>{hostListeners.add(listener);return()=>hostListeners.delete(listener)},
-        snapshot:()=>({connected:true,snapshot:{extensions:{}}}),
+        snapshot:()=>hostState,
         call:(method,payload)=>{
           const request={id:++serial,method,payload};window.requests.push(request);
+          if(method===PR_REFRESH)return Promise.resolve(null);
           if(method!==READ&&method!==DIFF)return Promise.reject(new Error('Unexpected request '+method));
           const number=Number(payload.resource.match(/\\d+(?:\\/files)?$/)[0].replace('/files',''));
           const value=method===READ?details(number):diff(number);
@@ -100,14 +112,28 @@ async function check() {
         </div>));
         render();window.ready=true;
       }
-      function render(){flushSync(()=>{
+      function HostParent(){
+        const state=React.useSyncExternalStore(host.subscribe,host.snapshot,host.snapshot);
+        globalThis.__prRenderCounts.parent++;
         const Pane=kinds.get('pull-request')?.renderer;
-        root.render(<section className="fixture-surface workspace-chat-pane workspace-typed-pane is-focused" data-workspace-pane-id="pr-pane" hidden={!visible}>
+        const Dashboard=dashboardMounted?ui.rootRenderers().find(root=>root.id==='pull-requests-chrome')?.renderer:undefined;
+        return <><section className="fixture-surface workspace-chat-pane workspace-typed-pane is-focused" data-workspace-pane-id="pr-pane" hidden={!visible}>
           <div className="workspace-typed-pane-content">
-            {mounted&&Pane&&<Pane workspaceId="workspace-1" pane={{type:'pane',id:'pr-pane',kind:'pull-request',workspace:'/repo',...(resource?{resource}:{})}} visible={visible} focused={visible}/>}
+            {mounted&&Pane&&<Pane workspaceId="workspace-1" pane={paneNode} visible={visible} focused={state.revision%2===0} closePane={()=>{}}/>}
           </div>
-        </section>);
+        </section>{Dashboard&&<Dashboard/>}</>;
+      }
+      function render(){flushSync(()=>{
+        if(paneNode.resource!==resource)paneNode={...paneNode,...(resource?{resource}:{resource:undefined})};
+        root.render(<HostParent/>);
       })}
+      window.emitHostChange=extension=>flushSync(()=>{
+        hostState={...hostState,revision:hostState.revision+1,snapshot:{...hostState.snapshot,extensions:{...hostState.snapshot.extensions,...extension}}};
+        for(const listener of hostListeners)listener();
+      });
+      window.unrelatedHostChange=()=>window.emitHostChange({fixtureAgentProgress:{sequence:hostState.revision+1,text:'Unrelated ACP progress'}});
+      window.dashboardSnapshot=title=>window.emitHostChange({[PR_STATE]:{phase:'ready',fetchedAt:Date.now()+hostState.revision,viewer:'reviewer',total:1,complete:true,error:null,items:[{...details(42),title}]}});
+      window.installDashboard=async()=>{flushSync(()=>routingRoot.render(null));dashboardFiber=await context.plugin(dashboardPlugin,{});dashboardMounted=true;render()};
       window.setVisible=value=>{visible=value;render()};
       window.bumpMetadata=()=>metadataVersion++;
       window.bumpPatch=()=>patchVersion++;
@@ -130,6 +156,7 @@ async function check() {
       };
       window.clickStackMember=(number,options={})=>document.querySelector('.pull-request-stack-entry[href="'+base+number+'"]').dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,button:0,...options}));
       window.showDashboard=()=>ui.overlays.open('pull-requests');
+      window.hideDashboard=()=>ui.overlays.close('pull-requests');
       window.dashboardOpen=()=>ui.overlays.snapshot()==='pull-requests';
       document.addEventListener('click',event=>{
         const anchor=event.target instanceof Element?event.target.closest('a[href]'):undefined;
@@ -147,19 +174,28 @@ async function check() {
       window.observe=()=>({text:document.body.innerText,requests:window.requests,pending:window.pending.map(({id,method,payload})=>({id,method,payload})),open:window.openRequests});
       window.disposePr=async()=>{mounted=false;render();await fibers.at(-1).dispose();return{kinds:[...kinds.keys()],style:!!document.querySelector('style[data-cordis-plugin-style="pull-request-pane"]')}};
       window.disposeDiff=async()=>{await fibers.at(-2).dispose();return !!ui.component('diff.content')};
-      window.teardown=async()=>{flushSync(()=>{root.unmount();routingRoot.unmount()});for(const fiber of fibers.reverse())await fiber.dispose();return{components:['markdown.content','diff.content'].filter(id=>ui.component(id)),styles:document.querySelectorAll('style[data-cordis-plugin-style]').length}};
+      window.teardown=async()=>{flushSync(()=>{root.unmount();routingRoot.unmount()});await dashboardFiber?.dispose();for(const fiber of fibers.reverse())await fiber.dispose();return{components:['markdown.content','diff.content'].filter(id=>ui.component(id)),styles:document.querySelectorAll('style[data-cordis-plugin-style]').length}};
       install().catch(error=>{window.setupError=String(error);console.error(error)});
     ` },
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     loader: { '.css': 'text' }, define: { 'process.env.NODE_ENV': '"production"' },
     // Reproduce the pre-fix layout without editing the source or supplying a
     // feature width from the fixture. The normal run uses production CSS intact.
-    plugins: process.env.ALTO_PR_PANE_WITHOUT_ROOT_FLEX ? [{ name: 'pr-pane-before-root-flex', setup(plugin) {
+    plugins: [{name:'pr-render-counts',setup(plugin){
+      plugin.onLoad({filter:/(?:pull-request-pane\.client|pull-requests\.client|diff-viewer\.client|markdown-content)\.tsx$/},async args=>{
+        let contents=await fs.readFile(args.path,'utf8');
+        if(args.path.endsWith('pull-request-pane.client.tsx'))contents=contents.replace('  const initial = rememberedResource(pane.id)', '  globalThis.__prRenderCounts.pane++;\n  const initial = rememberedResource(pane.id)');
+        if(args.path.endsWith('markdown-content.tsx'))contents=contents.replace('return function RegisteredMarkdownContent(props) {', "return function RegisteredMarkdownContent(props) { if (props.className.includes('pull-request-markdown')) globalThis.__prRenderCounts.markdown++;");
+        if(args.path.endsWith('diff-viewer.client.tsx'))contents=contents.replace('  const resourceCommit = commitRefFromDiffResource(pane.resource)', "  if (presentation === 'content') globalThis.__prRenderCounts.diff++;\n  const resourceCommit = commitRefFromDiffResource(pane.resource)");
+        if(args.path.endsWith('pull-requests.client.tsx'))contents=contents.replace('  const mount = useToggleMount(ui)', '  globalThis.__prRenderCounts.chrome++;\n  const mount = useToggleMount(ui)').replace('  const store = useMemo(() => pullRequestViewStore(host)', '  globalThis.__prRenderCounts.list++;\n  const store = useMemo(() => pullRequestViewStore(host)');
+        return{contents,loader:'tsx'};
+      });
+    }},...(process.env.ALTO_PR_PANE_WITHOUT_ROOT_FLEX ? [{ name: 'pr-pane-before-root-flex', setup(plugin) {
       plugin.onLoad({ filter: /pull-request-pane\.css$/ }, async args => ({
         contents: (await fs.readFile(args.path, 'utf8')).replace(/^(\.pull-request-pane \{)\n  flex: 1 1 0;/u, '$1'),
         loader: 'text',
       }))
-    } }] : [],
+    } }] : [])],
   })
   const css = (await Promise.all([
     'src/client/styles.css', 'src/client/pane-toolbar.css', 'program/plugins/ui/default.css', 'program/plugins/theme.css', 'program/plugins/workspace-layout.css',
@@ -225,14 +261,16 @@ async function check() {
     assert.equal(await count('pull-request.read'), 0, 'A restored hidden PR pane should load lazily')
     assert.equal(await count('pull-request.diff'), 0, 'Hidden PR panes must not download a patch')
     await run('setVisible(true)')
-    await until("!!document.querySelector('.pull-request-loading')&&pending.length===1")
+    await until("!!document.querySelector('.pull-request-loading')&&pending.some(request=>request.method==='pull-request.read')&&pending.some(request=>request.method==='pull-request.diff')")
+    assert.equal(await count('pull-request.read'), 1)
+    assert.equal(await count('pull-request.diff'), 1, 'Cold metadata and patch requests start together')
     assertFillsContainer(await run('geometry()'))
     assert.match(await run("document.querySelector('[role=status]').textContent"), /Loading pull request/)
-    await run("held.delete('pull-request.read');held.add('pull-request.diff');release(pending[0].id)")
+    await run("held.delete('pull-request.read');release(pending.find(request=>request.method==='pull-request.read').id)")
     await until("!!document.querySelector('.pull-request-heading')")
     assert.match(await run("document.querySelector('.pull-request-heading').textContent"), /PR 42/)
     await until("pending.some(request=>request.method==='pull-request.diff')")
-    assert.equal(await count('pull-request.diff'), 1, 'Visible PR details automatically load their changes')
+    assert.equal(await count('pull-request.diff'), 1, 'Metadata arriving reuses the already running patch request')
     await assertContinuousPage()
     assert.match(await run("document.querySelector('.pull-request-facts').textContent"), /Files changed1/)
     assert.match(await run("document.querySelector('.pull-request-status-list').textContent"), /1 passed · 1 failed · 1 running/)
@@ -272,19 +310,30 @@ async function check() {
     await click('[aria-label="Open another pull request"]')
     await run("type('.pull-request-address input','example/repo#partially-typed');window.savedAddress=document.querySelector('.pull-request-address input')")
     await run('bumpMetadata()')
-    await click('[aria-label="Refresh pull request"]')
-    await until("document.querySelector('.pull-request-heading').textContent.includes('revision 2')")
+    await run('pollPullRequests()')
+    await until("document.querySelector('.pull-request-heading').textContent.includes('revision 2')&&!document.querySelector('[aria-label=\"Refresh diff\"]').disabled")
     assert.equal(await run("savedAddress===document.querySelector('.pull-request-address input')&&savedAddress.value==='example/repo#partially-typed'"), true)
     await frames()
-    assert.equal(await count('pull-request.diff'), 1, 'Unchanged metadata should reuse the patch')
+    assert.equal(await count('pull-request.diff'), 2, 'The first unversioned parallel patch is revalidated after its freshness window')
     assert.equal(await run("savedDraft===document.querySelector('[aria-label=\"Review comment\"]')&&savedDraft.value==='Keep this unsaved review draft.'"), true)
+    const readsBeforeStablePoll = await count('pull-request.read')
+    await run('pollPullRequests()')
+    await until(`requests.filter(request=>request.method==='pull-request.read').length>${readsBeforeStablePoll}&&!document.querySelector('[aria-label="Refresh pull request"]').disabled`)
+    assert.equal(await count('pull-request.diff'), 2, 'Later unchanged metadata reuses the already revalidated patch')
     await run('setVisible(false);setVisible(true)')
     await until("!document.querySelector('[aria-label=\"Refresh pull request\"]').disabled")
     await frames()
-    assert.equal(await count('pull-request.diff'), 1, 'Hiding and showing must reuse an unchanged patch')
+    assert.equal(await count('pull-request.diff'), 2, 'Hiding and showing must reuse an unchanged patch')
     assert.equal(await run("savedDraft===document.querySelector('[aria-label=\"Review comment\"]')&&savedDraft.value==='Keep this unsaved review draft.'"), true)
+    const readsBeforeForcedRefresh = await count('pull-request.read')
+    await click('[aria-label="Refresh pull request"]')
+    await until("!document.querySelector('[aria-label=\"Refresh pull request\"]').disabled&&!document.querySelector('[aria-label=\"Refresh diff\"]').disabled")
+    assert.equal(await count('pull-request.read'), readsBeforeForcedRefresh + 1, 'Manual refresh bypasses cached metadata')
+    assert.equal(await count('pull-request.diff'), 3, 'Manual refresh reloads the patch even when metadata is unchanged')
+    assert.equal(await run("savedDraft===document.querySelector('[aria-label=\"Review comment\"]')&&savedDraft.value==='Keep this unsaved review draft.'"), true, 'Refreshing the same document retains the exact review editor')
     await click('[aria-label="Refresh diff"]')
-    await until("requests.filter(request=>request.method==='pull-request.diff').length===2&&!document.querySelector('[aria-label=\"Refresh diff\"]').disabled")
+    await until("requests.filter(request=>request.method==='pull-request.diff').length===4&&!document.querySelector('[aria-label=\"Refresh diff\"]').disabled")
+    assert.equal(await count('pull-request.read'), readsBeforeForcedRefresh + 1, 'The diff toolbar refresh does not reload metadata')
     assert.equal(await run("savedDraft===document.querySelector('[aria-label=\"Review comment\"]')&&savedDraft.value==='Keep this unsaved review draft.'"), true, 'Reloading the same immutable document preserves typed comments')
     assert.equal(await run("document.querySelector('.diff-review-comment p').textContent"), 'Saved remote review note.')
 
@@ -295,17 +344,19 @@ async function check() {
     assert.match(await run("document.querySelector('.pull-request-heading').textContent"), /revision 2/)
     await click('.pull-request-error button')
     await until("!document.querySelector('.pull-request-error')")
+    const diffsBeforeHeadChange = await count('pull-request.diff')
     await run('bumpPatch()')
     await click('[aria-label="Refresh pull request"]')
     await until("!document.querySelector('[aria-label=\"Refresh pull request\"]').disabled")
-    await until("requests.filter(request=>request.method==='pull-request.diff').length===3&&!document.querySelector('[aria-label=\"Refresh diff\"]').disabled")
+    await until(`requests.filter(request=>request.method==='pull-request.diff').length>${diffsBeforeHeadChange}&&!document.querySelector('[aria-label="Refresh diff"]').disabled`)
     assert.equal(await run("!!document.querySelector('[aria-label=\"Review comment\"]')"), false, 'A new immutable patch discards the old line selection draft')
     assert.equal(await run("!!document.querySelector('.diff-review-comment')"), false, 'Review notes belong to their immutable patch')
+    const diffsBeforeBaseChange = await count('pull-request.diff')
     await run('bumpBase()')
     await click('[aria-label="Refresh pull request"]')
     await until("!document.querySelector('[aria-label=\"Refresh pull request\"]').disabled")
-    await until("requests.filter(request=>request.method==='pull-request.diff').length===4&&!document.querySelector('[aria-label=\"Refresh diff\"]').disabled")
-    assert.equal(await count('pull-request.diff'), 4, 'A changed base revision invalidates the diff even when the head stays unchanged')
+    await until(`requests.filter(request=>request.method==='pull-request.diff').length>${diffsBeforeBaseChange}&&!document.querySelector('[aria-label="Refresh diff"]').disabled`)
+    assert.equal(await run("diffRoot().textContent.includes('false')"), true, 'A changed base revision invalidates the diff even when the head stays unchanged')
 
     const readsBeforeInvalid = await count('pull-request.read')
     const diffsBeforeChoose = await count('pull-request.diff')
@@ -313,21 +364,33 @@ async function check() {
     assert.equal(await run("document.querySelector('.pull-request-address input').getAttribute('aria-invalid')"), 'true')
     assert.equal(await count('pull-request.read'), readsBeforeInvalid)
     await run("held.add('pull-request.read');choose('example/repo#43')")
-    await until("pending.some(request=>request.payload.resource.endsWith('/43'))")
-    assert.equal(await count('pull-request.diff'), diffsBeforeChoose, 'Choosing a new URL must not request the previous PR patch under the new identity')
+    await until("pending.some(request=>request.method==='pull-request.read'&&request.payload.resource.endsWith('/43'))")
+    assert.equal(await count('pull-request.diff'), diffsBeforeChoose + 1)
+    assert.equal(await run("requests.filter(request=>request.method==='pull-request.diff').at(-1).payload.resource"), 'https://github.com/example/repo/pull/43', 'The early patch request uses the selected PR identity')
+    assert.equal(await run("!!document.querySelector('.diff-viewer-code')"), false, 'A patch finishing before metadata does not show the previous PR code')
     await run("choose('example/repo#44')")
-    await until("pending.some(request=>request.payload.resource.endsWith('/44'))")
-    assert.equal(await count('pull-request.diff'), diffsBeforeChoose)
-    await run("release(pending.find(request=>request.payload.resource.endsWith('/43')).id)")
+    await until("pending.some(request=>request.method==='pull-request.read'&&request.payload.resource.endsWith('/44'))")
+    assert.equal(await count('pull-request.diff'), diffsBeforeChoose + 2)
+    await run("release(pending.find(request=>request.method==='pull-request.read'&&request.payload.resource.endsWith('/43')).id)")
     await frames()
     assert.equal(await run("document.querySelector('.pull-request-heading')?.textContent.includes('PR 43')??false"), false, 'A previous URL response must not replace the current PR')
-    assert.equal(await count('pull-request.diff'), diffsBeforeChoose, 'An obsolete metadata response must not start a diff request')
-    await run("held.clear();release(pending.find(request=>request.payload.resource.endsWith('/44')).id)")
-    await until("document.querySelector('.pull-request-heading')?.textContent.includes('PR 44')")
+    assert.equal(await count('pull-request.diff'), diffsBeforeChoose + 2, 'Obsolete metadata does not start another patch request')
+    await run("held.clear();release(pending.find(request=>request.method==='pull-request.read'&&request.payload.resource.endsWith('/44')).id)")
+    await until("document.querySelector('.pull-request-heading')?.textContent.includes('PR 44')&&!!diffRoot()")
+    assert.equal(await count('pull-request.diff'), diffsBeforeChoose + 2, 'A diff-first completion is reused when matching metadata arrives')
     assert.equal(await run("localStorage.getItem('alto.pull-request-pane.pr-pane')"), 'https://github.com/example/repo/pull/44')
+    const readsBeforeWarmReturn = await count('pull-request.read')
+    const diffsBeforeWarmReturn = await count('pull-request.diff')
+    await run("held.add('pull-request.read');held.add('pull-request.diff');choose('example/repo#42')")
+    await until("document.querySelector('.pull-request-heading')?.textContent.includes('PR 42')&&!!diffRoot()")
+    assert.equal(await count('pull-request.read'), readsBeforeWarmReturn, 'Returning to a fresh cached PR shows its summary without a new request')
+    assert.equal(await count('pull-request.diff'), diffsBeforeWarmReturn, 'Returning to a fresh cached PR reuses its immutable patch')
+    await run("choose('example/repo#44');held.clear()")
+    await until("document.querySelector('.pull-request-heading')?.textContent.includes('PR 44')&&!!diffRoot()")
     await run('restore()')
-    await until("document.querySelector('.pull-request-heading')?.textContent.includes('PR 44')")
-    assert.equal(await run('requests.filter(request=>request.method===\'pull-request.read\').at(-1).payload.resource'), 'https://github.com/example/repo/pull/44')
+    await until("document.querySelector('.pull-request-heading')?.textContent.includes('PR 44')&&!!diffRoot()")
+    assert.equal(await count('pull-request.read'), readsBeforeWarmReturn, 'Unmounting and restoring a pane reuses the fresh shared summary')
+    assert.equal(await count('pull-request.diff'), diffsBeforeWarmReturn, 'Unmounting and restoring a pane reuses the shared patch')
 
     await run("clickLink('root-link');clickLink('files-link');clickLink('files-comment-link');clickLink('commits-link');clickLink('comment-link');clickLink('query-link')")
     assert.equal(await run('openRequests.length'), 6)
@@ -359,10 +422,12 @@ async function check() {
     assert.equal(await run('externalClicks.length'), 7)
 
     assert.equal(await run("!!document.querySelector('.pull-request-stack')"), false, 'A PR without a native stack does not show one')
-    const diffCountBeforeStack = await count('pull-request.diff')
+    const diffsBeforeStackExpiry = await count('pull-request.diff')
     await run("setStackMode('full')")
-    await click('[aria-label="Refresh pull request"]')
-    await until("!!document.querySelector('.pull-request-stack')")
+    await run('pollPullRequests()')
+    await until("!!document.querySelector('.pull-request-stack')&&!document.querySelector('[aria-label=\"Refresh diff\"]').disabled")
+    assert.equal(await count('pull-request.diff'), diffsBeforeStackExpiry + 1, 'A newly visited PR revalidates its provisional patch after the freshness window')
+    const diffCountBeforeStack = await count('pull-request.diff')
     assert.equal(await run("document.querySelector('.pull-request-stack').open"), true, 'Native stacks are expanded initially')
     assert.equal(await run("(()=>{const stack=document.querySelector('.pull-request-stack');return !!(stack.compareDocumentPosition(document.querySelector('.pull-request-status-list'))&Node.DOCUMENT_POSITION_FOLLOWING)&&!!(stack.compareDocumentPosition(document.querySelector('.pull-request-description'))&Node.DOCUMENT_POSITION_FOLLOWING)})()"), true, 'The native stack precedes PR status and description')
     assert.deepEqual(await run("[...document.querySelectorAll('.pull-request-stack-entry')].map(link=>Number(link.href.split('/').at(-1)))"), [41, 42, 44, 45], 'Native stack positions sort from the base branch')
@@ -372,7 +437,9 @@ async function check() {
     assert.match(await run("document.querySelector('.pull-request-stack-entry[href$=\"/41\"]').textContent"), /Merged/)
     assert.match(await run("document.querySelector('.pull-request-stack-entry[href$=\"/45\"]').textContent"), /Draft/)
     assert.deepEqual(await run("[...document.querySelectorAll('.pull-request-stack-entry [role=img]')].map(icon=>icon.getAttribute('aria-label'))"), ['Checks passed', 'Checks failing', 'Checks running'])
-    assert.equal(await count('pull-request.diff'), diffCountBeforeStack, 'Stack-only metadata updates reuse the existing diff')
+    await run('pollPullRequests()')
+    await until("!document.querySelector('[aria-label=\"Refresh pull request\"]').disabled&&!document.querySelector('[aria-label=\"Refresh diff\"]').disabled")
+    assert.equal(await count('pull-request.diff'), diffCountBeforeStack, 'Stack-only metadata updates reuse a revalidated diff')
     await click('.pull-request-stack > summary')
     assert.equal(await run("document.querySelector('.pull-request-stack').open"), false)
     await click('.pull-request-stack > summary')
@@ -396,26 +463,28 @@ async function check() {
     await run('restore()')
     await until("document.querySelector('.pull-request-heading')?.textContent.includes('PR 45')&&!!diffRoot()")
     assert.equal(await run("document.querySelector('.pull-request-stack [aria-current=page]').getAttribute('href')"), 'https://github.com/example/repo/pull/45', 'The chosen member survives restoring the original pane resource')
-    const diffCountBeforeStackStates = await count('pull-request.diff')
+    const diffsBeforeStackStateExpiry = await count('pull-request.diff')
     await run("setStackMode('partial')")
-    await click('[aria-label="Refresh pull request"]')
-    await until("document.querySelector('.pull-request-stack > p')?.textContent.includes('Showing 4 of 7')")
+    await run('pollPullRequests()')
+    await until("document.querySelector('.pull-request-stack > p')?.textContent.includes('Showing 4 of 7')&&!document.querySelector('[aria-label=\"Refresh diff\"]').disabled")
+    assert.equal(await count('pull-request.diff'), diffsBeforeStackStateExpiry + 1, 'The selected member also revalidates its initial provisional bytes after expiry')
+    const diffCountBeforeStackStates = await count('pull-request.diff')
     await click('.pull-request-stack > p a')
     assert.equal(await run('externalClicks.length'), 9, 'Partial native stacks disclose the GitHub continuation as an explicit external link')
     assert.equal(await run('openRequests.length'), 8)
     await run("setStackMode('unavailable')")
-    await click('[aria-label="Refresh pull request"]')
+    await run('pollPullRequests()')
     await until("!document.querySelector('.pull-request-stack')&&document.querySelector('.pull-request-summary').textContent.includes('Stack information is unavailable.')")
     assert.match(await run("document.querySelector('.pull-request-heading').textContent"), /PR 45/)
     assert.equal(await run('!!diffRoot()'), true, 'Unavailable stack metadata does not hide the PR or its changes')
     await run("setStackMode('none')")
-    await click('[aria-label="Refresh pull request"]')
-    await until("!document.querySelector('[aria-label=\"Refresh pull request\"]').disabled")
+    await run('pollPullRequests()')
+    await until("!document.querySelector('[aria-label=\"Refresh pull request\"]').disabled&&!document.querySelector('.pull-request-summary').textContent.includes('Stack information is unavailable.')")
     assert.equal(await run("document.querySelector('.pull-request-summary').textContent.includes('Stack information is unavailable.')"), false, 'A later non-stack result removes the stale stack notice')
     assert.equal(await run("!!document.querySelector('.pull-request-stack')"), false)
     assert.equal(await count('pull-request.diff'), diffCountBeforeStackStates, 'Stack availability and completeness updates do not reload unchanged code')
     await run("setStackMode('full')")
-    await click('[aria-label="Refresh pull request"]')
+    await run('pollPullRequests()')
     await until("!!document.querySelector('.pull-request-stack')")
 
     for (const theme of ['light', 'dark']) {
@@ -443,6 +512,34 @@ async function check() {
         await capture(`inline-changes-${theme}-${width}`)
       }
     }
+    await run('installDashboard()')
+    await frames()
+    const beforeNoise = await run('({...__prRenderCounts})')
+    assert.ok(beforeNoise.pane > 0 && beforeNoise.markdown > 0 && beforeNoise.diff > 0 && beforeNoise.chrome > 0 && beforeNoise.list > 0,
+      'The render counters cover the actual pane, shared Markdown/diff, and registered dashboard: ' + JSON.stringify(beforeNoise))
+    for (let index = 0; index < 20; index++) await run('unrelatedHostChange()')
+    await frames()
+    const afterClosedNoise = await run('({...__prRenderCounts})')
+    await run('showDashboard()')
+    await frames()
+    const beforeOpenNoise = await run('({...__prRenderCounts})')
+    for (let index = 0; index < 20; index++) await run('unrelatedHostChange()')
+    await frames()
+    const afterOpenNoise = await run('({...__prRenderCounts})')
+    const renderMetrics = { beforeNoise, afterClosedNoise, beforeOpenNoise, afterOpenNoise }
+    console.log('PR render isolation: ' + JSON.stringify(renderMetrics))
+    if (process.env.ALTO_PR_PANE_ARTIFACT_DIR) {
+      await fs.writeFile(path.join(process.env.ALTO_PR_PANE_ARTIFACT_DIR, 'render-counts.json'), JSON.stringify(renderMetrics, null, 2))
+    }
+    for (const [before, after, state] of [[beforeNoise, afterClosedNoise, 'closed'], [beforeOpenNoise, afterOpenNoise, 'open']]) {
+      assert.equal(after.parent - before.parent, 20, 'The subscribed host parent really rerenders for every unrelated event')
+      for (const key of ['pane', 'markdown', 'diff', 'chrome', 'list']) assert.equal(after[key], before[key],
+        `Unrelated host updates must not rerun ${key} with dashboard ${state}: ` + JSON.stringify(renderMetrics))
+    }
+    await run("dashboardSnapshot('Reactive PR snapshot after render isolation')")
+    await until("document.querySelector('#pull-requests-panel .pr-dashboard-pr-title')?.textContent==='Reactive PR snapshot after render isolation'")
+    assert.ok(await run('__prRenderCounts.list') > afterOpenNoise.list, 'The memo boundary still permits real PR store updates')
+    await run('hideDashboard()')
     assert.equal(await count('diff-viewer.read'), 0, 'PR snapshots must never trigger local working tree reads')
     assert.equal(await count('diff-viewer.commits'), 0, 'PR snapshots must never fetch local commit choices')
     assert.equal(await count('file-tree.list'), 0, 'The changed files tree uses supplied paths')

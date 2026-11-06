@@ -21,6 +21,8 @@
   --ui-size: var(--type-label);
   --ui-weight: var(--weight-medium);
   --ui-line: var(--line-control);
+  --weight-reading: 430;
+  --line-reading: 1.55;
   --ui-text: var(--text);
   --ui-text-strong: var(--text-strong);
   --ui-text-secondary: color-mix(in srgb, var(--text) 80%, var(--muted));

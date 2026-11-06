@@ -12,11 +12,21 @@ async function check() {
       import {createRoot} from 'react-dom/client';
       import {flushSync} from 'react-dom';
       import composerClient,{ComposerSurface} from './program/plugins/composer.client';
+      import {ActivityTimeline} from './program/plugins/ui/activity';
       const root=createRoot(document.getElementById('root')),listeners=new Set(),cleanups=[];
+      const completed=Array.from({length:20},(_,index)=>[
+        {id:'prompt:'+index,turnId:'turn:'+index,kind:'user',title:'You',content:'Please review change '+index,timestamp:'now'},
+        {id:'files:'+index,turnId:'turn:'+index,kind:'file',title:'Files',content:'',timestamp:'now',files:[
+          {path:'/repo/change-'+index+'.ts',kind:'update',diff:'@@ -1 +1,2 @@\\n-old\\n+new\\n+added',additions:2,deletions:1}]},
+        {id:'reply:'+index,turnId:'turn:'+index,kind:'agent',title:'Assistant',timestamp:'now',phase:'final_answer',durationMs:1200,
+          content:('Reviewed the **implementation** and checked the surrounding behavior.\\n\\n').repeat(12)},
+      ]).flat();
       let state={connected:true,harness:{codex:{status:'ready',models:[]},extensions:{}},projects:[],
         session:{workspace:'/repo',permissionMode:'full'},turn:{tag:'running'},
         skills:[{name:'imagegen',description:'Generate an image',path:'/imagegen',scope:'system'}],
-        activities:Array.from({length:150},(_,index)=>({id:String(index),text:'A streamed assistant reply. '.repeat(12)})),
+        activities:[...completed,
+          {id:'prompt:active',turnId:'active',kind:'user',title:'You',content:'Continue the review',timestamp:'now'},
+          {id:'reply:active',turnId:'active',kind:'agent',title:'Assistant',content:'A streamed assistant reply. ',timestamp:'now'}],
         canAcceptDirectInput:true,projectScope:'unscoped'};
       const session={snapshot:()=>state,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)}};
       const ui=new Proxy({canSubmitDuringTurn:()=>true},{get:(target,key)=>target[key]??(()=>{})});
@@ -25,7 +35,9 @@ async function check() {
       const preference={autoExpand:false},preferences={snapshot:()=>preference,subscribe:()=>()=>{}};
       const surface={id:'typing',kind:'composer',capabilities:['markdown','skills']};
       const draftStore={read:()=>draft,write:next=>{draft=next}};
-      function Background(){const current=useSyncExternalStore(session.subscribe,session.snapshot);return <article>{current.activities.map(row=><p key={row.id}>{row.text}</p>)}</article>}
+      window.reviewRenders=0;
+      function ReviewAction({files,activityId}){reviewRenders++;return <button data-review-id={activityId}>{files.map(file=>file.path+': '+file.additions+' additions').join(', ')}</button>}
+      function Background(){const current=useSyncExternalStore(session.subscribe,session.snapshot);return <article><ActivityTimeline items={current.activities} active session={session} reviewAction={ReviewAction}/></article>}
       window.editor=()=>document.querySelector('[data-cordis-composer-editor]');
       window.mount=text=>{
         draft={message:text,images:[],attachments:[]};window.submitted=[];
@@ -35,7 +47,10 @@ async function check() {
         const range=document.createRange();range.selectNodeContents(editor());range.collapse(false);
         getSelection().removeAllRanges();getSelection().addRange(range);window.originalEditor=editor();window.inputTimes=[];
       };
-      window.publish=()=>{state={...state,activities:state.activities.map((row,index)=>index===149?{...row,text:row.text+' streaming'}:row)};flushSync(()=>{for(const listener of listeners)listener()})};
+      const publish=next=>{state=next;flushSync(()=>{for(const listener of listeners)listener()})};
+      window.publish=()=>publish({...state,activities:state.activities.map(row=>row.id==='reply:active'?{...row,content:row.content+' streaming'}:row)});
+      window.publishUnrelated=()=>publish({...state,revision:(state.revision??0)+1});
+      window.changeCompletedFile=()=>publish({...state,activities:state.activities.map(row=>row.id==='files:0'?{...row,files:[{...row.files[0],additions:7}]}:row)});
       let began;
       document.addEventListener('beforeinput',()=>{began=performance.now()},true);
       document.addEventListener('input',()=>{if(began!==undefined){inputTimes.push(performance.now()-began);began=undefined}});
@@ -84,24 +99,34 @@ async function check() {
       for (let index = 0; index < 8; index++) await insert('w')
       await run('inputTimes=[];frames()')
       const before = await metrics()
+      const reviewsBefore = await run('reviewRenders')
       for (const character of typed) {
         if (streaming) await run('publish()')
         await insert(character)
       }
       await frames()
       const after = await metrics(), result = await retained(text + 'w'.repeat(8) + typed, name)
+      const completedReviewRenders = await run('reviewRenders') - reviewsBefore
       assert.equal(result.times.length, typed.length, name + ': each character takes the native input path')
       assert.equal(result.height, name === 'short' ? 31 : 180, name + ': autosizing retains its minimum and maximum')
       assert.equal(result.overflow, name !== 'short', name + ': long drafts retain scrolling')
       const times = [...result.times].sort((a, b) => a - b)
       measurements.push({ name, chars: text.length, p50: times[Math.floor(times.length * .5)], p95: times[Math.floor(times.length * .95)],
+        completedReviewRenders,
         scriptMsPerInput: (after.ScriptDuration - before.ScriptDuration) * 1000 / typed.length,
         taskMsPerInput: (after.TaskDuration - before.TaskDuration) * 1000 / typed.length })
     }
-    // Timings diagnose real Chromium input work; correctness never depends on a
-    // machine-speed threshold or an implementation-specific render counter.
+    // Timings diagnose real Chromium input work without machine-speed thresholds.
     console.log('Composer input measurements: ' + JSON.stringify(measurements))
     if (process.env.ALTO_COMPOSER_INPUT_METRICS) await fs.writeFile(process.env.ALTO_COMPOSER_INPUT_METRICS, JSON.stringify(measurements, null, 2))
+
+    await run("mount('A draft kept through background updates');window.reviewRenders=0")
+    for (let index = 0; index < 20; index++) await run('publishUnrelated();publish()')
+    assert.equal(await run('reviewRenders'), 0, 'Background events and new reply deltas do not recompute completed file reviews')
+    await retained('A draft kept through background updates', 'Completed conversation updates')
+    await run('changeCompletedFile()')
+    assert.equal(await run('reviewRenders'), 1, 'A changed completed file refreshes only its own review')
+    assert.equal(await run('document.querySelector("[data-review-id=\\"file-summary:local:turn:0\\"]").textContent'), '/repo/change-0.ts: 7 additions', 'Changed file details remain reactive')
 
     await run("mount('**bold** and ordinary text');window.formatted=editor().querySelector('strong');window.tail=editor().lastChild;getSelection().setBaseAndExtent(tail,5,tail,13)")
     for (let index = 0; index < 12; index++) await run('publish()')
