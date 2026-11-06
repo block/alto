@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useMemo,
   useSyncExternalStore,
@@ -103,12 +104,39 @@ export function App(): ReactNode {
     void activateCandidate(event.payload)
   }), [])
 
-  void clientUiRevision
+  const ui = snapshot?.ui
+  const shell = ui?.shell
+  if (!ui || !shell) {
+    return (
+      <KernelRecovery
+        host={clientHost}
+        hostState={hostState}
+        browserState={browserState}
+        required
+      />
+    )
+  }
 
-  const shell = snapshot?.ui.shell
-  const surfaces = snapshot?.ui.surfaces ?? []
-  const regions = snapshot?.ui.regions ?? []
-  const contributions = snapshot?.ui.contributions ?? []
+  return (
+    <div
+      className={`shell-kernel shell-font-${shell.theme?.font ?? 'system'} shell-density-${shell.theme?.density ?? 'comfortable'} shell-corners-${shell.theme?.corners ?? 'soft'}`}
+      style={themeStyle(shell.theme)}
+      data-shell-id={shell.id}
+      data-client-program-state={browserState.status}
+    >
+      <MemoizedShellContents ui={ui} revision={clientUiRevision} />
+      <KernelRecovery host={clientHost} hostState={hostState} browserState={browserState} />
+    </div>
+  )
+}
+
+function ShellContents({ ui, revision }: { ui: UiSnapshot; revision: number }): ReactNode {
+  void revision
+
+  const shell = ui.shell
+  const surfaces = ui.surfaces
+  const regions = ui.regions
+  const contributions = ui.contributions
   const surfaceMap = useMemo(
     () => new Map(surfaces.map((surface) => [surface.id, surface])),
     [surfaces],
@@ -138,16 +166,7 @@ export function App(): ReactNode {
   )
   const rootRenderers = browserProgram.ui.rootRenderers()
 
-  if (!shell) {
-    return (
-      <KernelRecovery
-        host={clientHost}
-        hostState={hostState}
-        browserState={browserState}
-        required
-      />
-    )
-  }
+  if (!shell) return null
 
   const renderFeature = (surface: UiSurface): ReactNode => {
     const Renderer = browserProgram.ui.renderer(surface)
@@ -213,12 +232,7 @@ export function App(): ReactNode {
   }
 
   return (
-    <div
-      className={`shell-kernel shell-font-${shell.theme?.font ?? 'system'} shell-density-${shell.theme?.density ?? 'comfortable'} shell-corners-${shell.theme?.corners ?? 'soft'}`}
-      style={themeStyle(shell.theme)}
-      data-shell-id={shell.id}
-      data-client-program-state={browserState.status}
-    >
+    <>
       <ShellTree
         node={shell.root}
         builtin={renderBuiltin}
@@ -228,7 +242,10 @@ export function App(): ReactNode {
         slot={renderSlot}
       />
       {rootRenderers.map(({ id, renderer: Renderer }) => <Renderer key={id} />)}
-      <KernelRecovery host={clientHost} hostState={hostState} browserState={browserState} />
-    </div>
+    </>
   )
 }
+
+// Transport updates must not reconcile every feature. UI registrations still
+// invalidate this boundary, and each feature keeps its own store subscriptions.
+const MemoizedShellContents = memo(ShellContents)

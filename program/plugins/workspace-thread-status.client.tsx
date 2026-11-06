@@ -1,30 +1,31 @@
 import type { Plugin } from 'cordis'
-import { useSyncExternalStore } from 'react'
-import { aggregateThreadWorkStatus, threadWorkStatusCounts } from './thread-status-api.js'
+import { memo, useCallback } from 'react'
+import { aggregateThreadWorkStatus, threadWorkStatusCounts, type ClientThreadStatusSnapshot } from './thread-status-api.js'
 import { ThreadStatusIndicator } from './ui/thread-status.js'
+import { useStoreSelector } from './ui/store-selector.js'
 import type { WorkspaceTabAddonProps, WorkspaceTabGroupAddonProps } from './workspace-layout-api.js'
 
 const workspaceThreadStatus: Plugin = (ctx) => {
-  const TabStatus = ({ threadIds }: WorkspaceTabAddonProps) => {
-    const status = useSyncExternalStore(
-      ctx.clientThreadStatus.subscribe,
-      ctx.clientThreadStatus.snapshot,
+  const threadStatus = ctx.clientThreadStatus
+  const TabStatus = memo(({ threadIds }: WorkspaceTabAddonProps) => {
+    const aggregate = useStoreSelector(
+      threadStatus,
+      useCallback((status: ClientThreadStatusSnapshot) => aggregateThreadWorkStatus(status, threadIds), [threadIds]),
     )
-    const aggregate = aggregateThreadWorkStatus(status, threadIds)
     if (!aggregate) return null
     return (
       <span className="workspace-tab-thread-status">
         <ThreadStatusIndicator status={aggregate} />
       </span>
     )
-  }
+  }, sameThreads)
 
-  const GroupStatus = ({ threadIds }: WorkspaceTabGroupAddonProps) => {
-    const status = useSyncExternalStore(
-      ctx.clientThreadStatus.subscribe,
-      ctx.clientThreadStatus.snapshot,
+  const GroupStatus = memo(({ threadIds }: WorkspaceTabGroupAddonProps) => {
+    const counts = useStoreSelector(
+      threadStatus,
+      useCallback((status: ClientThreadStatusSnapshot) => threadWorkStatusCounts(status, threadIds), [threadIds]),
+      sameCounts,
     )
-    const counts = threadWorkStatusCounts(status, threadIds)
     if (!counts.running && !counts.finished) return null
     const summaries = [
       { status: 'running', count: counts.running, label: 'working' },
@@ -40,7 +41,7 @@ const workspaceThreadStatus: Plugin = (ctx) => {
         </span>
       })}
     </span>
-  }
+  }, sameThreads)
 
   ctx.clientWorkspaceLayout.registerTabAddon(ctx, {
     id: 'workspace-thread-status',
@@ -48,6 +49,14 @@ const workspaceThreadStatus: Plugin = (ctx) => {
     renderer: TabStatus,
     groupRenderer: GroupStatus,
   })
+}
+
+function sameCounts(left: { running: number; finished: number }, right: { running: number; finished: number }): boolean {
+  return left.running === right.running && left.finished === right.finished
+}
+
+function sameThreads(left: { threadIds: readonly string[] }, right: { threadIds: readonly string[] }): boolean {
+  return left.threadIds.length === right.threadIds.length && left.threadIds.every((id, index) => id === right.threadIds[index])
 }
 
 workspaceThreadStatus.inject = ['clientThreadStatus', 'clientWorkspaceLayout']

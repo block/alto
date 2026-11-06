@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -20,7 +21,6 @@ import {
   type ReactNode,
 } from 'react'
 import {
-  parsePatchFiles,
   type CodeViewLineSelection,
   type CodeViewItem,
 } from '@pierre/diffs'
@@ -60,12 +60,12 @@ import {
   ReviewCommentComposer,
   loadReviewComments,
   normalizedReviewRange,
-  reviewAnnotations,
   saveReviewComments,
   sendReviewComments,
   type ReviewComment,
   type ReviewCommentDraft,
 } from './diff-review-comments.js'
+import { createDiffReviewProjection } from './diff-viewer-model.js'
 export { reviewPrompt, type ReviewComment } from './diff-review-comments.js'
 import type { ClientSessionService } from './session-api.js'
 import type {
@@ -190,15 +190,7 @@ export function diffReviewItems(
   comments: readonly ReviewComment[],
   version = 0,
 ): CodeViewItem<ReviewComment>[] {
-  return parsePatchFiles(document.patch, document.id, true).flatMap((patch, patchIndex) => (
-    patch.files.map((fileDiff, fileIndex) => ({
-      id: `${document.id}:${patchIndex}:${fileIndex}`,
-      type: 'diff' as const,
-      fileDiff,
-      annotations: reviewAnnotations(comments, fileDiff.name),
-      version,
-    }))
-  ))
+  return createDiffReviewProjection(document).items(comments).map(item => ({ ...item, version }))
 }
 
 function DiffViewerPane({
@@ -239,7 +231,6 @@ function DiffViewerPane({
   const [selection, setSelection] = useState<CodeViewLineSelection | null>(null)
   const [draft, setDraft] = useState<ReviewCommentDraft>()
   const [comments, setComments] = useState<ReviewComment[]>([])
-  const [commentVersion, setCommentVersion] = useState(0)
   const [sendProblem, setSendProblem] = useState<string>()
   const [sending, setSending] = useState(false)
   const [activeTreePath, setActiveTreePath] = useState<string>()
@@ -295,7 +286,6 @@ function DiffViewerPane({
       if (!current) return
       const document = parseDiffReviewDocument(value)
       setComments(loadReviewComments(document.id))
-      setCommentVersion((version) => version + 1)
       setSelection(null)
       setDraft(undefined)
       setState({ tag: 'ready', document })
@@ -309,7 +299,6 @@ function DiffViewerPane({
     if (!activated || suppliedDocumentId === undefined) return
     // Refreshing PR metadata keeps the snapshot id and any in-progress note.
     setComments(loadReviewComments(suppliedDocumentId))
-    setCommentVersion((version) => version + 1)
     setSelection(null)
     setDraft(undefined)
     setActiveTreePath(undefined)
@@ -319,21 +308,28 @@ function DiffViewerPane({
   const document = suppliedDocument
     ? activated ? suppliedDocument : undefined
     : state.tag === 'ready' ? state.document : undefined
-  const items = useMemo(() => {
-    if (!document?.patch.trim()) return []
+  const projection = useMemo(() => {
+    if (!document?.patch.trim()) return undefined
     try {
-      return diffReviewItems(document, comments, commentVersion)
+      return createDiffReviewProjection(document)
     } catch {
-      return []
+      return undefined
     }
-  }, [commentVersion, comments, document?.id, document?.patch])
+  }, [document?.id, document?.patch])
+  const items = useMemo(() => projection?.items(comments) ?? [], [projection, comments])
 
-  const openDraft = (next: CodeViewLineSelection): void => {
-    const item = items.find((candidate) => candidate.id === next.id)
-    if (!item || item.type !== 'diff') return
+  const openDraft = useCallback((next: CodeViewLineSelection): void => {
+    const path = projection?.pathForItem(next.id)
+    if (!path) return
     setSelection(next)
-    setDraft({ selection: next, path: item.fileDiff.name, body: '' })
-  }
+    setDraft({ selection: next, path, body: '' })
+  }, [projection])
+
+  const selectedLinesChanged = useCallback((next: CodeViewLineSelection | null): void => {
+    setSelection(next)
+    if (next) openDraft(next)
+    else setDraft(undefined)
+  }, [openDraft])
 
   const options = useMemo<CodeViewReactOptions<ReviewComment>>(() => ({
     diffStyle: style,
@@ -349,11 +345,9 @@ function DiffViewerPane({
     enableLineSelection: true,
     enableGutterUtility: true,
     onGutterUtilityClick: (range, context) => openDraft({ id: context.item.id, range }),
-  }), [items, lineWrap, style, theme.mode])
+  }), [openDraft, lineWrap, style, theme.mode])
 
-  const diffPaths = useMemo(() => items.flatMap((item) => (
-    item.type === 'diff' ? [item.fileDiff.name] : []
-  )), [items])
+  const diffPaths = useMemo(() => projection?.paths ?? [], [projection])
 
   useEffect(() => {
     const first = diffPaths[0]
@@ -361,24 +355,22 @@ function DiffViewerPane({
     setActiveTreePath((current) => current ?? `${document.workspace.replace(/[\\/]$/u, '')}/${first}`)
   }, [diffPaths, document])
 
-  const selectDiffFile = (filePath: string): void => {
+  const selectDiffFile = useCallback((filePath: string): void => {
     if (!document) return
     const root = document.workspace.replace(/[\\/]$/u, '').replaceAll('\\', '/')
     const normalized = filePath.replaceAll('\\', '/')
     const relative = normalized.startsWith(`${root}/`) ? normalized.slice(root.length + 1) : normalized
-    const item = items.find((candidate) => (
-      candidate.type === 'diff'
-      && (candidate.fileDiff.name === relative || candidate.fileDiff.name.endsWith(`/${relative}`))
-    ))
-    if (!item) return
+    const id = projection?.itemForPath(relative)
+    if (!id) return
     setActiveTreePath(filePath)
-    viewer.current?.scrollTo({ type: 'item', id: item.id, align: 'start', behavior: 'smooth' })
-  }
+    // A file choice is a jump. Animating across a large review highlights all
+    // intervening files and delays input while the destination is approached.
+    viewer.current?.scrollTo({ type: 'item', id, align: 'start', behavior: 'instant' })
+  }, [document?.workspace, projection])
 
   const updateComments = (next: ReviewComment[]): void => {
     if (!document) return
     setComments(next)
-    setCommentVersion((version) => version + 1)
     saveReviewComments(document.id, next)
   }
 
@@ -530,11 +522,7 @@ function DiffViewerPane({
             items={items}
             options={options}
             selectedLines={selection}
-            onSelectedLinesChange={(next) => {
-              setSelection(next)
-              if (next) openDraft(next)
-              else setDraft(undefined)
-            }}
+            onSelectedLinesChange={selectedLinesChanged}
             renderAnnotation={(annotation) => {
               const comment = annotation.metadata
               return comment

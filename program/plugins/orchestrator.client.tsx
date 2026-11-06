@@ -1,5 +1,5 @@
 import { Check, ChevronDown, CircleAlert, CircleDot, History, Network, RefreshCw, Square, X } from 'lucide-react'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clientStyles, type BrowserPlugin, type ClientHostService, type ClientUiService } from '../../src/client/plugin-api.js'
 import { errorMessage } from '../../src/shared/protocol.js'
@@ -9,6 +9,7 @@ import { AgentConversation } from './orchestrator-history.client.js'
 import { ORCHESTRATOR_OPEN, ORCHESTRATOR_PANEL, ORCHESTRATOR_REFRESH, ORCHESTRATOR_STOP, taskActive, taskStatusLabel, tasksForChat, type AgentTask } from './orchestrator-api.js'
 import { AgentsPanelController, AGENTS_TOGGLE_ACTION } from './orchestrator-panel.js'
 import { useAgentsPanelLayout } from './orchestrator-panel-layout.js'
+import { useContributionMount } from './ui/contribution-mount.js'
 import { agentViewStore } from './orchestrator-store.client.js'
 import { SubagentProgress } from './orchestrator-progress.client.js'
 import { TURN_PROGRESS_ACCESSORY, type TurnProgressAccessoryProps } from './turn-progress-api.js'
@@ -62,26 +63,10 @@ export function AgentTaskList({ tasks, ...actions }: AgentTaskListProps): ReactN
   return <AgentTaskGroups tasks={tasks.filter(taskActive)} {...actions} />
 }
 
-function useAgentMount(ui: ClientUiService): HTMLElement | null {
-  const revision = useSyncExternalStore(ui.subscribe, ui.snapshot)
-  const [mount, setMount] = useState<HTMLElement | null>(null)
-  useLayoutEffect(() => {
-    const sync = (): void => {
-      const target = document.querySelector<HTMLElement>('[data-ui-contribution="orchestrator-toggle"]')
-      setMount((current) => current === target ? current : target)
-    }
-    sync()
-    // Keep observing after mounting: a workspace reload can replace the toolbar.
-    const observer = new MutationObserver(sync)
-    observer.observe(document.querySelector('.shell-kernel') ?? document.body, { childList: true, subtree: true })
-    return () => observer.disconnect()
-  }, [revision])
-  return mount
-}
 export function AgentsChrome({ host, ui, session, markdown, controller }: {
   host: ClientHostService; ui: ClientUiService; session: ClientSessionService; markdown: ClientMarkdownService; controller: AgentsPanelController
 }): ReactNode {
-  const mount = useAgentMount(ui)
+  const mount = useContributionMount(ui, '[data-ui-contribution="orchestrator-toggle"]')
   const panelState = useSyncExternalStore(controller.subscribe, controller.snapshot)
   const { open, pinned } = panelState
   const store = useMemo(() => agentViewStore(host), [host])

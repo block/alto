@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import {
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -79,6 +80,7 @@ import { PluginsPanel } from './ui/plugins.js'
 import { ProjectSettings } from './ui/project-settings.js'
 import { uiStyles } from './ui/appearance.js'
 import { SettingsRadioMark, SettingsRow, SettingsSwitch } from './ui/settings.js'
+import { createSelectedSnapshot } from './ui/store-selector.js'
 import { currentSessionModelSummary, ModelDefaultsSettings } from './ui/model-defaults.js'
 import defaultStyles from './ui/default.css'
 import inputRequestStyles from './ui/user-input.css'
@@ -124,19 +126,63 @@ function useSession(session: ClientSessionService): ClientSessionSnapshot {
   return useSyncExternalStore(session.subscribe, session.snapshot)
 }
 
+function conversationSnapshot(state: ClientSessionSnapshot, showUnscopedRequests: boolean) {
+  return {
+    activities: state.activities,
+    threadId: state.threadId,
+    turn: state.turn,
+    connectionError: state.connectionError,
+    ...(state.remoteLocation !== undefined ? { remoteLocation: state.remoteLocation } : {}),
+    ...(state.remoteStarting !== undefined ? { remoteStarting: state.remoteStarting } : {}),
+    hasEarlierActivities: state.hasEarlierActivities,
+    loadingEarlierActivities: state.loadingEarlierActivities,
+    waitingFor: threadIntervention(state.harness, state.threadId),
+    requests: (state.harness?.pendingRequests ?? []).filter((request) => {
+      const threadId = requestThreadId(request.params)
+      return threadId ? threadId === state.threadId : showUnscopedRequests
+    }),
+    proposals: showUnscopedRequests ? state.harness?.program.proposals ?? [] : [],
+  }
+}
+
+function sameConversationSnapshot(
+  left: ReturnType<typeof conversationSnapshot>,
+  right: ReturnType<typeof conversationSnapshot>,
+): boolean {
+  return left.activities === right.activities
+    && left.threadId === right.threadId
+    && left.turn.tag === right.turn.tag
+    && left.connectionError === right.connectionError
+    && left.remoteLocation === right.remoteLocation
+    && left.remoteStarting === right.remoteStarting
+    && left.hasEarlierActivities === right.hasEarlierActivities
+    && left.loadingEarlierActivities === right.loadingEarlierActivities
+    && left.waitingFor === right.waitingFor
+    && left.requests.length === right.requests.length
+    && left.requests.every((request, index) => request === right.requests[index])
+    && left.proposals.length === right.proposals.length
+    && left.proposals.every((proposal, index) => proposal === right.proposals[index])
+}
+
 function useVisibleSession(
   session: ClientSessionService,
   visible: boolean,
-): ClientSessionSnapshot {
-  const frozen = useRef(session.snapshot())
+  showUnscopedRequests: boolean,
+): ReturnType<typeof conversationSnapshot> {
+  const selected = useMemo(() => createSelectedSnapshot(
+    session,
+    state => conversationSnapshot(state, showUnscopedRequests),
+    sameConversationSnapshot,
+  ), [session, showUnscopedRequests])
+  const frozen = useRef(selected())
   const subscribe = useMemo(
     () => visible ? session.subscribe : (_listener: () => void) => () => undefined,
     [session, visible],
   )
   const snapshot = useMemo(() => () => {
-    if (visible) frozen.current = session.snapshot()
+    if (visible) frozen.current = selected()
     return frozen.current
-  }, [session, visible])
+  }, [selected, visible])
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
@@ -549,7 +595,7 @@ export function ConversationSurface({
     conversationWindowVisibleServerSnapshot,
   )
   const activityVisible = visible && windowVisible
-  const state = useVisibleSession(session, activityVisible)
+  const state = useVisibleSession(session, activityVisible, showUnscopedRequests)
   const markdownState = useSyncExternalStore(markdown.subscribe, markdown.snapshot)
   useSyncExternalStore(ui.subscribe, ui.snapshot)
   const FileReviewAction = ui.component<FileReviewActionProps>(FILE_REVIEW_ACTION_COMPONENT)
@@ -564,11 +610,7 @@ export function ConversationSurface({
   const previousThreadRef = useRef<string | undefined>(undefined)
   const previousTurnRef = useRef(state.turn.tag)
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
-  const requests = (state.harness?.pendingRequests ?? []).filter((request) => {
-    const threadId = requestThreadId(request.params)
-    return threadId ? threadId === state.threadId : showUnscopedRequests
-  })
-  const proposals = showUnscopedRequests ? state.harness?.program.proposals ?? [] : []
+  const { requests, proposals } = state
 
   useLayoutEffect(() => {
     if (!visible) return
@@ -642,7 +684,7 @@ export function ConversationSurface({
               markdown={surface.markdown ?? true}
               active={state.turn.tag !== 'idle'}
               activeLabel={state.remoteStarting ? <RemoteSessionStartup state={state} visible={activityVisible} /> : undefined}
-              waitingFor={threadIntervention(state.harness, state.threadId)}
+              waitingFor={state.waitingFor}
               windowKey={state.threadId ?? 'new-thread'}
               hasEarlier={state.hasEarlierActivities}
               loadingEarlier={state.loadingEarlierActivities}
@@ -674,6 +716,26 @@ export function ConversationSurface({
     </div>
   )
 }
+
+const RegisteredConversationSurface = memo(function RegisteredConversationSurface(
+  props: Parameters<typeof ConversationSurface>[0],
+): ReactNode {
+  const { ui, session } = props
+  const questionComposer = useMemo(() => ({ ui, session }), [ui, session])
+  return (
+    <QuestionComposerContext.Provider value={questionComposer}>
+      <ConversationSurface {...props} />
+    </QuestionComposerContext.Provider>
+  )
+}, (left, right) => (
+  left.session === right.session
+  && left.ui === right.ui
+  && left.markdown === right.markdown
+  && left.visible === right.visible
+  && left.showUnscopedRequests === right.showUnscopedRequests
+  && left.surface.markdown === right.surface.markdown
+  && left.surface.emptyState === right.surface.emptyState
+))
 
 const uiSurfacesClient: BrowserPlugin = (ctx) => {
   const session = ctx.clientSession
@@ -730,14 +792,10 @@ const uiSurfacesClient: BrowserPlugin = (ctx) => {
     />
   )
   const Conversation = (props: ClientSurfaceProps) => (
-    <QuestionComposerContext.Provider value={{ ui, session }}>
-      <ConversationSurface {...props} session={session} markdown={markdown} ui={ui} />
-    </QuestionComposerContext.Provider>
+    <RegisteredConversationSurface {...props} session={session} markdown={markdown} ui={ui} />
   )
   const ConversationComponent = (props: ConversationComponentProps) => (
-    <QuestionComposerContext.Provider value={{ ui, session: props.session }}>
-      <ConversationSurface {...props} markdown={markdown} ui={ui} />
-    </QuestionComposerContext.Provider>
+    <RegisteredConversationSurface {...props} markdown={markdown} ui={ui} />
   )
   const ContributionRenderer = (props: ClientContributionProps) => (
     <Contribution {...props} command={host.command} />

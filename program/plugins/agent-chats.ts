@@ -15,6 +15,7 @@ import { errorMessage, isRecord, type JsonValue, type PermissionMode, type Threa
 import { AGENT_CHATS_STATE, agentChatStateKey, isAgentChatId, type AgentChat, agentPromptInput } from './agent-chats-api.js'
 import type { RemoteWorkspace } from './remote-workspace-api.js'
 import { remoteLaunchTarget, type RemoteLaunchTarget } from './remote-launch-api.js'
+import { snapshotJson } from '../../src/shared/json-snapshot.js'
 
 const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value)) as JsonValue
 // Child history is fetched through orchestrator.open. Broadcasting it with every
@@ -611,8 +612,11 @@ const plugin = async (ctx: Context, config: { historyProviders?: string[] } = {}
     if (!active) return
     const id = chat.summary.id
     const existing = states.get(id)
-    if (existing) existing.update(json(clientChat(chat)))
-    else states.set(id, extensions.registerState(ctx, agentChatStateKey(id), json(clientChat(chat))))
+    // Chat data contains only JSON values and optional undefined fields. Copy
+    // it without stringify/parse, which recopied the full transcript every 32 ms.
+    const value = snapshotJson(clientChat(chat) as unknown as JsonValue)
+    if (existing) existing.update(value)
+    else states.set(id, extensions.registerState(ctx, agentChatStateKey(id), value))
   }
   const bridge = new AgentToolBridge(ctx.tools, (id) => chats.toolContext(id))
   const chats: AgentChats = new AgentChats(agents, path.join(ctx.program.projectRoot, '.codex-cordis', 'agent-chats'), (chat) => {

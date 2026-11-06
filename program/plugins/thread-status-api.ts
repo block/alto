@@ -15,6 +15,21 @@ export interface ClientThreadStatusService {
   acknowledge(threadId: string): void
 }
 
+// All badges and chat lists share one index for each immutable store snapshot.
+const statusIndexes = new WeakMap<ClientThreadStatusSnapshot, {
+  running: ReadonlySet<string>
+  finished: ReadonlySet<string>
+}>()
+
+function statusIndex(snapshot: ClientThreadStatusSnapshot) {
+  let index = statusIndexes.get(snapshot)
+  if (!index) {
+    index = { running: new Set(snapshot.running), finished: new Set(snapshot.finished) }
+    statusIndexes.set(snapshot, index)
+  }
+  return index
+}
+
 const EMPTY_THREAD_STATUS: ClientThreadStatusSnapshot = Object.freeze({
   revision: 0,
   running: Object.freeze([]),
@@ -83,8 +98,9 @@ export function threadWorkStatus(
   snapshot: ClientThreadStatusSnapshot,
   threadId: string,
 ): ThreadWorkStatus | undefined {
-  if (snapshot.running.includes(threadId)) return 'running'
-  if (snapshot.finished.includes(threadId)) return 'finished'
+  const index = statusIndex(snapshot)
+  if (index.running.has(threadId)) return 'running'
+  if (index.finished.has(threadId)) return 'finished'
   return undefined
 }
 
@@ -105,13 +121,12 @@ export function threadWorkStatusCounts(
   snapshot: ClientThreadStatusSnapshot,
   threadIds: readonly string[],
 ): { running: number; finished: number } {
-  const runningThreads = new Set(snapshot.running)
-  const finishedThreads = new Set(snapshot.finished)
+  const index = statusIndex(snapshot)
   let running = 0
   let finished = 0
   for (const threadId of new Set(threadIds)) {
-    if (runningThreads.has(threadId)) running += 1
-    else if (finishedThreads.has(threadId)) finished += 1
+    if (index.running.has(threadId)) running += 1
+    else if (index.finished.has(threadId)) finished += 1
   }
   return { running, finished }
 }

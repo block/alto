@@ -1511,7 +1511,60 @@ interface TreeActions {
   tabDropTarget?: WorkspaceTabDropTarget
 }
 
-function LayoutTree({ workspaceId, node, actions }: { workspaceId: string; node: WorkspaceLayoutNode; actions: TreeActions }): ReactNode {
+interface TreeActionSlot {
+  current: TreeActions
+  actions: TreeActions
+}
+
+function sameEntries<T>(left: readonly T[], right: readonly T[]): boolean {
+  return left.length === right.length && left.every((entry, index) => entry === right[index])
+}
+
+/** Keep callbacks current without invalidating unchanged mounted pane trees. */
+function keepTreeActions(slot: TreeActionSlot | undefined, next: TreeActions): TreeActionSlot {
+  if (!slot) {
+    const created: TreeActionSlot = { current: next, actions: next }
+    created.actions = {
+      ...next,
+      split: (...args) => created.current.split(...args),
+      close: (...args) => created.current.close(...args),
+      focus: (...args) => created.current.focus(...args),
+      toggleFullscreen: (...args) => created.current.toggleFullscreen(...args),
+      resize: (...args) => created.current.resize(...args),
+      changed: (...args) => created.current.changed(...args),
+      selected: (...args) => created.current.selected(...args),
+      ready: (...args) => created.current.ready(...args),
+      draftStore: (...args) => created.current.draftStore(...args),
+    }
+    return created
+  }
+  slot.current = next
+  const previous = slot.actions
+  if (previous.factory !== next.factory || previous.renderers.Composer !== next.renderers.Composer
+    || previous.renderers.Conversation !== next.renderers.Conversation
+    || previous.focusedPaneId !== next.focusedPaneId || previous.maximizedPaneId !== next.maximizedPaneId
+    || previous.visible !== next.visible || previous.paneCount !== next.paneCount
+    || previous.tabDropTarget !== next.tabDropTarget || !sameEntries(previous.addons, next.addons)
+    || !sameEntries(previous.paneKinds, next.paneKinds)) {
+    slot.actions = {
+      ...previous,
+      factory: next.factory,
+      renderers: next.renderers,
+      focusedPaneId: next.focusedPaneId,
+      visible: next.visible,
+      paneCount: next.paneCount,
+      addons: next.addons,
+      paneKinds: next.paneKinds,
+    }
+    if (next.maximizedPaneId === undefined) delete slot.actions.maximizedPaneId
+    else slot.actions.maximizedPaneId = next.maximizedPaneId
+    if (next.tabDropTarget === undefined) delete slot.actions.tabDropTarget
+    else slot.actions.tabDropTarget = next.tabDropTarget
+  }
+  return slot
+}
+
+const LayoutTree = memo(function LayoutTreeContent({ workspaceId, node, actions }: { workspaceId: string; node: WorkspaceLayoutNode; actions: TreeActions }): ReactNode {
   if (node.type === 'pane') {
     const tabDropEdge = actions.tabDropTarget?.paneId === node.id
       ? actions.tabDropTarget.edge
@@ -1574,7 +1627,7 @@ function LayoutTree({ workspaceId, node, actions }: { workspaceId: string; node:
       <div className="workspace-split-second"><LayoutTree workspaceId={workspaceId} node={node.second} actions={actions} /></div>
     </div>
   )
-}
+})
 
 function WorkspaceLayoutControllerBridge({
   registry,
@@ -2157,6 +2210,11 @@ function WorkspaceLayout({
   const layoutChangedBeforeRestore = useRef(false)
   layoutRef.current = layout
   const sessions = useRef(new Map<string, ClientSessionService>())
+  const treeActions = useRef(new Map<string, TreeActionSlot>())
+  useEffect(() => {
+    const ids = new Set(layout.views.map((view) => view.id))
+    for (const id of treeActions.current.keys()) if (!ids.has(id)) treeActions.current.delete(id)
+  }, [layout.views])
   const drafts = useRef(new Map<string, PaneDraft>())
   const draftStores = useRef(new Map<string, PaneDraftStore>())
   const recentlyClosed = useRef<Array<
@@ -2530,71 +2588,76 @@ function WorkspaceLayout({
     }
   }
 
-  const actionsFor = (view: WorkspaceView): TreeActions => ({
-    factory,
-    renderers,
-    focusedPaneId: view.focusedPaneId,
-    ...(view.maximizedPaneId ? { maximizedPaneId: view.maximizedPaneId } : {}),
-    visible: !activePage && view.id === layout.activeViewId,
-    paneCount: workspacePaneIds(view.root).length,
-    split: (paneId, direction) => requestSplit(view, paneId, direction),
-    close: (paneId) => closePane(view.id, paneId),
-    focus: (paneId) => { focusViewPane(view, paneId) },
-    toggleFullscreen: (paneId) => updateView(view.id, (current) => {
-      const next: WorkspaceView = { ...current, focusedPaneId: paneId }
-      if (current.maximizedPaneId === paneId) delete next.maximizedPaneId
-      else next.maximizedPaneId = paneId
-      return next
-    }),
-    resize: (splitId, ratio) => updateView(view.id, (current) => ({
-      ...current,
-      root: resizeWorkspaceSplit(current.root, splitId, ratio),
-    })),
-    changed: (paneId, state) => updateView(view.id, (current) => {
-      const existing = workspacePane(current.root, paneId)
-      if (!existing) return current
-      const thread = paneThreadSummary(state, existing)
-      const workspace = thread?.cwd || state.session.workspace
-      const projectId = state.activeProjectId
-      const unscoped = state.projectScope === 'unscoped'
-      const nextPane = recordWorkspacePaneLocation(existing, {
-        workspace,
-        ...(projectId ? { projectId } : {}),
-        ...(unscoped ? { unscoped: true } : {}),
-        ...(thread ? { thread } : {}),
-      })
-      if (nextPane === existing) return current
-      const nextView: WorkspaceView = {
+  const actionsFor = (view: WorkspaceView): TreeActions => {
+    const next: TreeActions = {
+      factory,
+      renderers,
+      focusedPaneId: view.focusedPaneId,
+      ...(view.maximizedPaneId ? { maximizedPaneId: view.maximizedPaneId } : {}),
+      visible: !activePage && view.id === layout.activeViewId,
+      paneCount: workspacePaneIds(view.root).length,
+      split: (paneId, direction) => requestSplit(view, paneId, direction),
+      close: (paneId) => closePane(view.id, paneId),
+      focus: (paneId) => { focusViewPane(view, paneId) },
+      toggleFullscreen: (paneId) => updateView(view.id, (current) => {
+        const next: WorkspaceView = { ...current, focusedPaneId: paneId }
+        if (current.maximizedPaneId === paneId) delete next.maximizedPaneId
+        else next.maximizedPaneId = paneId
+        return next
+      }),
+      resize: (splitId, ratio) => updateView(view.id, (current) => ({
         ...current,
-        root: mapWorkspacePane(current.root, paneId, () => nextPane),
-      }
-      if (current.focusedPaneId === paneId) {
-        nextView.workspace = workspace
-        if (projectId) nextView.projectId = projectId
-        else delete nextView.projectId
-        if (unscoped) nextView.unscoped = true
-        else delete nextView.unscoped
-      }
-      return nextView
-    }),
-    selected: () => undefined,
-    ready: (paneId, session) => {
-      const key = `${view.id}:${paneId}`
-      if (session) {
-        sessions.current.set(paneId, session)
-        if (view.id === layout.activeViewId && paneId === view.focusedPaneId) {
-          sessionRouter.setActive(key, session)
+        root: resizeWorkspaceSplit(current.root, splitId, ratio),
+      })),
+      changed: (paneId, state) => updateView(view.id, (current) => {
+        const existing = workspacePane(current.root, paneId)
+        if (!existing) return current
+        const thread = paneThreadSummary(state, existing)
+        const workspace = thread?.cwd || state.session.workspace
+        const projectId = state.activeProjectId
+        const unscoped = state.projectScope === 'unscoped'
+        const nextPane = recordWorkspacePaneLocation(existing, {
+          workspace,
+          ...(projectId ? { projectId } : {}),
+          ...(unscoped ? { unscoped: true } : {}),
+          ...(thread ? { thread } : {}),
+        })
+        if (nextPane === existing) return current
+        const nextView: WorkspaceView = {
+          ...current,
+          root: mapWorkspacePane(current.root, paneId, () => nextPane),
         }
-      } else {
-        sessions.current.delete(paneId)
-        sessionRouter.clearActive(key)
-      }
-    },
-    addons: paneAddons,
-    paneKinds,
-    draftStore: draftStoreFor,
-    ...(view.id === layout.activeViewId && tabDropTarget ? { tabDropTarget } : {}),
-  })
+        if (current.focusedPaneId === paneId) {
+          nextView.workspace = workspace
+          if (projectId) nextView.projectId = projectId
+          else delete nextView.projectId
+          if (unscoped) nextView.unscoped = true
+          else delete nextView.unscoped
+        }
+        return nextView
+      }),
+      selected: () => undefined,
+      ready: (paneId, session) => {
+        const key = `${view.id}:${paneId}`
+        if (session) {
+          sessions.current.set(paneId, session)
+          if (view.id === layout.activeViewId && paneId === view.focusedPaneId) {
+            sessionRouter.setActive(key, session)
+          }
+        } else {
+          sessions.current.delete(paneId)
+          sessionRouter.clearActive(key)
+        }
+      },
+      addons: paneAddons,
+      paneKinds,
+      draftStore: draftStoreFor,
+      ...(view.id === layout.activeViewId && tabDropTarget ? { tabDropTarget } : {}),
+    }
+    const slot = keepTreeActions(treeActions.current.get(view.id), next)
+    treeActions.current.set(view.id, slot)
+    return slot.actions
+  }
 
   const beginRename = (view: WorkspaceView): void => {
     registry.showPage()

@@ -1,5 +1,6 @@
 import type { Context, Plugin } from 'cordis'
 import type { JsonValue } from '../../shared/protocol.js'
+import { snapshotJson } from '../../shared/json-snapshot.js'
 
 export type ClientExtensionHandler = (
   payload: JsonValue | undefined,
@@ -55,7 +56,7 @@ export class ClientExtensionRegistry {
     this.assertName(name)
     const entry: RegisteredState = {
       owner: owner.fiber.name,
-      value: structuredClone(value),
+      value: snapshotJson(value),
     }
     let active = false
     const dispose = owner.effect(() => {
@@ -72,7 +73,7 @@ export class ClientExtensionRegistry {
     return {
       update: (next) => {
         if (!active) throw new Error(`client extension state "${name}" is not active`)
-        entry.value = structuredClone(next)
+        entry.value = snapshotJson(next, entry.value)
         this.emitChanged(name)
       },
       dispose: async () => dispose(),

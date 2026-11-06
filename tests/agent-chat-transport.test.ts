@@ -194,3 +194,31 @@ it('keeps the harness connected while many subagents publish large transcripts',
   expect(saved.children?.[0]?.activities.at(-1)?.content).toBe(output)
   expect(saved.children?.[0]?.task.result).toBe(output)
 })
+
+it('streams small transcript patches and reconnects with the complete history', async () => {
+  const f = await fixture()
+  const chat = await f.ctx.agentChats.create('claude', process.cwd(), 'ask')
+  chat.activities = Array.from({ length: 200 }, (_, index) => ({ id: `saved-${index}`, kind: 'agent',
+    title: 'Assistant', content: `Saved answer ${index}. `.repeat(100), status: 'completed', timestamp: '12:00' }))
+  const base = { providerId: 'claude', sessionId: 'session', turnId: 'turn', occurredAt: new Date().toISOString() }
+  f.ctx.agentChats.event({ ...base, type: 'turn.started' })
+  f.ctx.agentChats.event({ ...base, type: 'message.delta', role: 'agent', content: { type: 'text', text: 'Hello' } })
+  const name = agentChatStateKey(chat.summary.id)
+  await vi.waitFor(() => expect(f.events.some((event) => updatesName(event, name))).toBe(true))
+  const offset = f.events.length
+  f.ctx.agentChats.event({ ...base, type: 'message.delta', role: 'agent', content: { type: 'text', text: ', world' } })
+  await vi.waitFor(() => expect(f.events.slice(offset).some((event) => (
+    event.type === 'extensions.updated' && event.patches?.[name] !== undefined
+  ))).toBe(true))
+  const update = f.events.slice(offset).find((event) => event.type === 'extensions.updated' && event.patches?.[name])
+  expect(JSON.stringify(update).length).toBeLessThan(1_000)
+  const second = new WebSocket(f.socket.url, f.protocol, { origin: f.origin })
+  cleanup.push(() => { second.terminate() })
+  const [data] = await once(second, 'message')
+  const initial = JSON.parse(data.toString()) as Extract<HarnessEvent, { type: 'snapshot' }>
+  const restored = initial.payload.extensions[name] as unknown as AgentChat
+  expect(restored.activities).toHaveLength(201)
+  expect(restored.activities[0]?.content).toBe(chat.activities[0]?.content)
+  expect(restored.activities.at(-1)?.content).toBe('Hello, world')
+  expect(restored).toEqual(f.ctx.clientExtensions.snapshot()[name])
+})

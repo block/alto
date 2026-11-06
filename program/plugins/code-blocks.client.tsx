@@ -1,6 +1,7 @@
 import { Check, Copy } from 'lucide-react'
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -108,7 +109,7 @@ export function DefaultCodeBlock({
 }: MarkdownCodeBlockProps & { config: CodeBlockConfig }): ReactNode {
   const [copied, setCopied] = useState(false)
   const copiedTimer = useRef<number | undefined>(undefined)
-  const highlighted = highlightedCode(code, language)
+  const highlighted = useMemo(() => highlightedCode(code, language), [code, language])
   const label = customLabel ?? codeLanguageLabel(language, config.languageLabels)
   const style = {
     '--code-block-font-size': `${clamp(config.fontSize, 13, 10, 18)}px`,

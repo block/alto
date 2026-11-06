@@ -180,6 +180,22 @@ describe('chat status', () => {
     expect(threadWorkStatusCounts(status, [])).toEqual({ running: 0, finished: 0 })
   })
 
+  it('keeps status lookups consistent across completion and acknowledgment snapshots', () => {
+    const running = { revision: 1, running: ['thread-a'], finished: [] }
+    const finished = { revision: 2, running: [], finished: ['thread-a'] }
+    const acknowledged = { revision: 3, running: [], finished: [] }
+    for (const [snapshot, expected] of [[running, 'running'], [finished, 'finished'], [acknowledged, undefined]] as const) {
+      expect(threadWorkStatus(snapshot, 'thread-a')).toBe(expected)
+      expect(aggregateThreadWorkStatus(snapshot, ['thread-a'])).toBe(expected)
+      expect(threadWorkStatusCounts(snapshot, ['thread-a', 'thread-a'])).toEqual({
+        running: expected === 'running' ? 1 : 0,
+        finished: expected === 'finished' ? 1 : 0,
+      })
+    }
+    expect(threadWorkStatus(running, 'thread-a')).toBe('running')
+    expect(threadWorkStatus(finished, 'thread-a')).toBe('finished')
+  })
+
   it('hides work status for the selected chat in the sidebar', () => {
     const entries: ThreadSummary[] = [
       {

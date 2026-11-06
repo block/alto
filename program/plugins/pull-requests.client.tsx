@@ -1,6 +1,6 @@
 import { uiStyles } from './ui/appearance.js'
 import { ArrowUpRight, Check, CircleAlert, Clock3, GitPullRequest, RefreshCw, Search, Settings2, X } from 'lucide-react'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { clientStyles, type BrowserPlugin, type ClientHostService, type ClientUiService } from '../../src/client/plugin-api.js'
 import {
@@ -11,6 +11,7 @@ import {
 import { startPullRequestPolling } from './pull-requests-refresh.js'
 import { DEFAULT_PR_FILTERS, PR_FILTERS_KEY, filterPullRequests, readPullRequestFilters, type PullRequestFilters } from './pull-requests-filters.js'
 import { pullRequestViewStore } from './pull-requests-store.js'
+import { useContributionMount } from './ui/contribution-mount.js'
 import styles from './pull-requests.css'
 
 const TOGGLE_MOUNT = '[data-ui-contribution="pull-requests-toggle"]'
@@ -177,25 +178,8 @@ export function PullRequestsList({ host, visible, close }: { host: ClientHostSer
   )
 }
 
-function useToggleMount(ui: ClientUiService): HTMLElement | null {
-  const revision = useSyncExternalStore(ui.subscribe, ui.snapshot)
-  const [mount, setMount] = useState<HTMLElement | null>(null)
-  useLayoutEffect(() => {
-    const sync = (): void => {
-      const target = document.querySelector<HTMLElement>(TOGGLE_MOUNT)
-      setMount((current) => current === target ? current : target)
-    }
-    sync()
-    // Keep observing: the toolbar can move, for example into a side tab rail.
-    const observer = new MutationObserver(sync)
-    observer.observe(document.querySelector('.shell-kernel') ?? document.body, { childList: true, subtree: true })
-    return () => observer.disconnect()
-  }, [revision])
-  return mount
-}
-
 export function PullRequestsChrome({ host, ui }: { host: ClientHostService; ui: ClientUiService }): ReactNode {
-  const mount = useToggleMount(ui)
+  const mount = useContributionMount(ui, TOGGLE_MOUNT)
   const activeOverlay = useSyncExternalStore(ui.overlays.subscribe, ui.overlays.snapshot)
   const open = activeOverlay === PR_PANEL
   const buttonRef = useRef<HTMLButtonElement>(null)
