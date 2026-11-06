@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { JsonValue } from '../../src/shared/protocol.js'
+import type { GitPullRequestStack } from './git-support-api.js'
 import type { OpenPullRequest } from './pull-requests-api.js'
 
 export const PULL_REQUEST_PANE_KIND = 'pull-request'
@@ -55,10 +56,23 @@ export interface PullRequestDetails extends OpenPullRequest {
   comments: PullRequestComment[]
   moreComments: boolean
   threads: PullRequestThread[]
+  stack?: GitPullRequestStack | undefined
+  moreStackEntries?: boolean | undefined
+  stackUnavailable?: boolean | undefined
 }
 
 const authorSchema = z.object({ login: z.string(), url: z.string() })
 const commentSchema = z.object({ id: z.string(), body: z.string(), author: authorSchema.nullable(), createdAt: z.string(), url: z.string() })
+const stackSchema = z.object({
+  id: z.string(), number: z.number().int().positive(), baseBranch: z.string(), size: z.number().int().nonnegative(),
+  entries: z.array(z.object({
+    position: z.number().int().positive(),
+    pullRequest: z.object({
+      number: z.number().int().positive(), title: z.string(), url: z.string(), state: z.string(), draft: z.boolean(),
+      headBranch: z.string(), baseBranch: z.string(), checks: z.enum(['pending', 'passing', 'failing']).optional(),
+    }).transform(({ checks, ...member }) => ({ ...member, ...(checks ? { checks } : {}) })),
+  })).max(100),
+})
 const detailsSchema = z.object({
   id: z.string(), number: z.number().int().positive(), title: z.string(), url: z.string(),
   repository: z.string(), headRepository: z.string().nullable(), branch: z.string(), baseBranch: z.string(),
@@ -72,6 +86,7 @@ const detailsSchema = z.object({
     id: z.string(), path: z.string(), line: z.number().int().positive().nullable(), isResolved: z.boolean(), isOutdated: z.boolean(),
     url: z.string(), comments: z.array(commentSchema), moreComments: z.boolean(),
   })),
+  stack: stackSchema.optional(), moreStackEntries: z.boolean().optional(), stackUnavailable: z.boolean().optional(),
 })
 
 export function parsePullRequestDetails(value: JsonValue): PullRequestDetails {

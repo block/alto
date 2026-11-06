@@ -23,7 +23,7 @@ async function check() {
       import {PullRequestRow} from './program/plugins/pull-requests.client';
       const READ='pull-request.read',DIFF='pull-request.diff',base='https://github.com/example/repo/pull/';
       const account={login:'reviewer',url:'https://github.com/reviewer'};
-      let visible=false,mounted=true,resource=base+'42',metadataVersion=1,patchVersion=1,baseVersion=1,serial=0;
+      let visible=false,mounted=true,resource=base+'42',metadataVersion=1,patchVersion=1,baseVersion=1,serial=0,stackMode='none';
       const kinds=new Map(),hostListeners=new Set(),context=new Context(),ui=new ClientUiRegistry();
       const root=createRoot(document.getElementById('pane-mount'));
       const routingRoot=createRoot(document.getElementById('routing-mount'));
@@ -31,10 +31,17 @@ async function check() {
       window.openRequests=[];window.externalClicks=[];window.sent=[];window.focused=[];
       window.markdownReactClicks=[];window.dashboardReactClicks=[];window.reactClosed={markdown:0,dashboard:0};
       const comment=(id,body)=>({id,body,author:account,createdAt:'2026-11-01T12:00:00Z',url:base+'42#'+id});
+      const stackEntry=(number,position,state,draft,checks)=>({position,pullRequest:{number,url:base+number,title:'Native stack member '+number+' with a deliberately long title for narrow panes',state,draft,headBranch:'stack/'+number,baseBranch:position===1?'main':'stack/'+(number-1),...(checks?{checks}:{})}});
+      const stackFields=()=>stackMode==='none'?{}:stackMode==='unavailable'?{stackUnavailable:true}:{
+        stack:{id:'PRS_native',number:7,baseBranch:'main',size:stackMode==='partial'?7:4,entries:[
+          stackEntry(44,3,'OPEN',false,'pending'),stackEntry(45,4,'OPEN',true,undefined),
+          stackEntry(41,1,'MERGED',false,'passing'),stackEntry(42,2,'OPEN',false,'failing'),
+        ]},...(stackMode==='partial'?{moreStackEntries:true}:{}),
+      };
       const details=number=>({
         id:'PR_'+number,number,title:'Keep the glass light — PR '+number+' (revision '+metadataVersion+')',url:base+number,
         repository:'example/repo',headRepository:'contributor/repo',branch:'feature/glass-and-a-deliberately-long-branch-name-that-stays-within-the-pane',baseBranch:'main',
-        draft:false,state:'OPEN',author:account,createdAt:'2026-11-01T12:00:00Z',updatedAt:'2026-11-02T12:00:00Z',
+        draft:number===45,state:'OPEN',author:account,createdAt:'2026-11-01T12:00:00Z',updatedAt:'2026-11-02T12:00:00Z',
         review:'CHANGES_REQUESTED',checks:'FAILURE',mergeable:'MERGEABLE',mergeState:'BLOCKED',
         unresolvedThreads:1,moreThreads:false,additions:25,deletions:7,changedFiles:1,baseSha:'base-'+baseVersion,
         headSha:String(patchVersion).repeat(40),body:'# Context\\n\\n**Shared Markdown** keeps the glass light and preserves \`refresh()\`.\\n\\n- Review the updated surface.\\n- Keep existing keyboard behavior.',
@@ -44,7 +51,7 @@ async function check() {
           {id:'check-build',name:'Build release',status:'IN_PROGRESS',conclusion:null,url:null},
         ],moreChecks:false,comments:[comment('discussion-1','**Discussion note**: retain the \`window\` behavior.')],moreComments:false,
         threads:[{id:'thread-1',path:'src/glass.ts',line:1,isResolved:false,isOutdated:false,url:base+number+'/files#thread-1',moreComments:false,
-          comments:[comment('review-1','**Review note**: preserve the \`accent\` setting.')] }],
+          comments:[comment('review-1','**Review note**: preserve the \`accent\` setting.')] }],...stackFields(),
       });
       const diff=number=>({
         id:'github-pr:example/repo#'+number+':patch-'+patchVersion+':base-'+baseVersion,title:'example/repo #'+number,workspace:'/repo',createdAt:'2026-11-02T12:00:00Z',
@@ -105,6 +112,7 @@ async function check() {
       window.bumpMetadata=()=>metadataVersion++;
       window.bumpPatch=()=>patchVersion++;
       window.bumpBase=()=>baseVersion++;
+      window.setStackMode=value=>{stackMode=value};
       window.release=id=>{const index=window.pending.findIndex(request=>request.id===id);if(index<0)throw new Error('No pending request '+id);window.pending.splice(index,1)[0].resolve()};
       window.type=(selector,value)=>flushSync(()=>{
         const field=document.querySelector(selector),prototype=field instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
@@ -120,6 +128,7 @@ async function check() {
       window.clickLink=(id,options={})=>{
         const anchor=document.getElementById(id);anchor.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,button:0,...options}));
       };
+      window.clickStackMember=(number,options={})=>document.querySelector('.pull-request-stack-entry[href="'+base+number+'"]').dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,button:0,...options}));
       window.showDashboard=()=>ui.overlays.open('pull-requests');
       window.dashboardOpen=()=>ui.overlays.snapshot()==='pull-requests';
       document.addEventListener('click',event=>{
@@ -348,6 +357,66 @@ async function check() {
     assert.equal(await run('reactClosed.dashboard'), 1)
     assert.equal(await run('dashboardOpen()'), false, 'The PR dashboard closes after internal navigation')
     assert.equal(await run('externalClicks.length'), 7)
+
+    assert.equal(await run("!!document.querySelector('.pull-request-stack')"), false, 'A PR without a native stack does not show one')
+    const diffCountBeforeStack = await count('pull-request.diff')
+    await run("setStackMode('full')")
+    await click('[aria-label="Refresh pull request"]')
+    await until("!!document.querySelector('.pull-request-stack')")
+    assert.equal(await run("document.querySelector('.pull-request-stack').open"), true, 'Native stacks are expanded initially')
+    assert.equal(await run("(()=>{const stack=document.querySelector('.pull-request-stack');return !!(stack.compareDocumentPosition(document.querySelector('.pull-request-status-list'))&Node.DOCUMENT_POSITION_FOLLOWING)&&!!(stack.compareDocumentPosition(document.querySelector('.pull-request-description'))&Node.DOCUMENT_POSITION_FOLLOWING)})()"), true, 'The native stack precedes PR status and description')
+    assert.deepEqual(await run("[...document.querySelectorAll('.pull-request-stack-entry')].map(link=>Number(link.href.split('/').at(-1)))"), [41, 42, 44, 45], 'Native stack positions sort from the base branch')
+    assert.deepEqual(await run("[...document.querySelectorAll('.pull-request-stack li')].map(item=>item.value)"), [1, 2, 3, 4])
+    assert.equal(await run("document.querySelector('.pull-request-stack [aria-current=page]').getAttribute('href')"), 'https://github.com/example/repo/pull/44')
+    assert.match(await run("document.querySelector('.pull-request-stack').textContent"), /Stack #7.*4 pull requests.*into main/s)
+    assert.match(await run("document.querySelector('.pull-request-stack-entry[href$=\"/41\"]').textContent"), /Merged/)
+    assert.match(await run("document.querySelector('.pull-request-stack-entry[href$=\"/45\"]').textContent"), /Draft/)
+    assert.deepEqual(await run("[...document.querySelectorAll('.pull-request-stack-entry [role=img]')].map(icon=>icon.getAttribute('aria-label'))"), ['Checks passed', 'Checks failing', 'Checks running'])
+    assert.equal(await count('pull-request.diff'), diffCountBeforeStack, 'Stack-only metadata updates reuse the existing diff')
+    await click('.pull-request-stack > summary')
+    assert.equal(await run("document.querySelector('.pull-request-stack').open"), false)
+    await click('.pull-request-stack > summary')
+    const readsBeforeStackModifier = await count('pull-request.read')
+    await run("clickStackMember(45,{metaKey:true})")
+    assert.equal(await count('pull-request.read'), readsBeforeStackModifier, 'Command-clicking a stack member keeps the browser default')
+    assert.equal(await run('externalClicks.length'), 8)
+    assert.equal(await run('openRequests.length'), 8, 'A stack member modifier click does not create an Alto pane')
+    assert.match(await run("document.querySelector('.pull-request-heading').textContent"), /PR 44/)
+    await run("held.add('pull-request.diff');window.stackPane=document.querySelector('.pull-request-pane');clickStackMember(45)")
+    await until("document.querySelector('.pull-request-heading')?.textContent.includes('PR 45')&&pending.some(request=>request.method==='pull-request.diff'&&request.payload.resource.endsWith('/45'))")
+    assert.equal(await run("stackPane===document.querySelector('.pull-request-pane')"), true, 'Another stack member opens in the same PR pane')
+    assert.equal(await run("document.querySelector('.pull-request-stack [aria-current=page]').getAttribute('href')"), 'https://github.com/example/repo/pull/45')
+    assert.equal(await run("!!document.querySelector('.diff-viewer-code')"), false, 'The previous member patch is cleared while loading the selected member')
+    assert.equal(await count('pull-request.diff'), diffCountBeforeStack + 1)
+    assert.equal(await run("localStorage.getItem('alto.pull-request-pane.pr-pane')"), 'https://github.com/example/repo/pull/45')
+    assert.equal(await run('openRequests.length'), 8, 'Selecting a stack member does not create an extra pane')
+    assert.equal(await run('externalClicks.length'), 8, 'Selecting a stack member does not navigate the browser')
+    await run("held.clear();release(pending.find(request=>request.method==='pull-request.diff'&&request.payload.resource.endsWith('/45')).id)")
+    await until('!!diffRoot()')
+    await run('restore()')
+    await until("document.querySelector('.pull-request-heading')?.textContent.includes('PR 45')&&!!diffRoot()")
+    assert.equal(await run("document.querySelector('.pull-request-stack [aria-current=page]').getAttribute('href')"), 'https://github.com/example/repo/pull/45', 'The chosen member survives restoring the original pane resource')
+    const diffCountBeforeStackStates = await count('pull-request.diff')
+    await run("setStackMode('partial')")
+    await click('[aria-label="Refresh pull request"]')
+    await until("document.querySelector('.pull-request-stack > p')?.textContent.includes('Showing 4 of 7')")
+    await click('.pull-request-stack > p a')
+    assert.equal(await run('externalClicks.length'), 9, 'Partial native stacks disclose the GitHub continuation as an explicit external link')
+    assert.equal(await run('openRequests.length'), 8)
+    await run("setStackMode('unavailable')")
+    await click('[aria-label="Refresh pull request"]')
+    await until("!document.querySelector('.pull-request-stack')&&document.querySelector('.pull-request-summary').textContent.includes('Stack information is unavailable.')")
+    assert.match(await run("document.querySelector('.pull-request-heading').textContent"), /PR 45/)
+    assert.equal(await run('!!diffRoot()'), true, 'Unavailable stack metadata does not hide the PR or its changes')
+    await run("setStackMode('none')")
+    await click('[aria-label="Refresh pull request"]')
+    await until("!document.querySelector('[aria-label=\"Refresh pull request\"]').disabled")
+    assert.equal(await run("document.querySelector('.pull-request-summary').textContent.includes('Stack information is unavailable.')"), false, 'A later non-stack result removes the stale stack notice')
+    assert.equal(await run("!!document.querySelector('.pull-request-stack')"), false)
+    assert.equal(await count('pull-request.diff'), diffCountBeforeStackStates, 'Stack availability and completeness updates do not reload unchanged code')
+    await run("setStackMode('full')")
+    await click('[aria-label="Refresh pull request"]')
+    await until("!!document.querySelector('.pull-request-stack')")
 
     for (const theme of ['light', 'dark']) {
       for (const width of [1000, 420, 320]) {

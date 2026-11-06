@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { HarnessPlugin } from '../../src/server/plugin-api.js'
 import { isRecord, type JsonValue } from '../../src/shared/protocol.js'
 import type { DiffReviewDocument } from './diff-viewer-api.js'
+import type { GitCheckState, GitPullRequestStack } from './git-support-api.js'
 import type { ProcessRunnerService } from './process-runner-api.js'
 import {
   parsePullRequestReference,
@@ -16,12 +17,26 @@ import {
 
 const MAX_DIFF_BYTES = 20 * 1024 * 1024
 const COMMENT_FIELDS = 'id body createdAt url author { login url }'
+const STACK_FIELDS = `stack {
+  id number baseRefName size
+  entries(first: 100) {
+    nodes {
+      position
+      pullRequest {
+        number title url state isDraft headRefName baseRefName
+        commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+      }
+    }
+    pageInfo { hasNextPage }
+  }
+}`
 export const PULL_REQUEST_DETAILS_QUERY = `query AltoPullRequestPane($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       id number title url state isDraft body createdAt updatedAt headRefName baseRefName headRefOid baseRefOid
       mergeable mergeStateStatus reviewDecision additions deletions changedFiles
       author { login url } repository { nameWithOwner } headRepository { nameWithOwner }
+      ${STACK_FIELDS}
       commits(last: 1) { nodes { commit { statusCheckRollup {
         state contexts(first: 50) {
           nodes {
@@ -68,7 +83,65 @@ const pullRequestSchema = z.object({
     id: z.string(), path: z.string(), line: z.number().int().positive().nullable(), isResolved: z.boolean(), isOutdated: z.boolean(),
     comments: z.object({ nodes: z.array(commentSchema).max(10), pageInfo: nextPage }),
   })).max(30), pageInfo: nextPage }),
+  stack: z.unknown().optional(),
 })
+
+const nativeStackSchema = z.object({
+  id: z.string().min(1), number: z.number().int().positive().max(2_147_483_647), baseRefName: z.string().min(1), size: z.number().int().nonnegative(),
+  entries: z.object({ nodes: z.array(z.unknown()).max(100).nullable(), pageInfo: nextPage }).nullable(),
+})
+const nativeStackEntrySchema = z.object({
+  position: z.number().int().positive(),
+  pullRequest: z.object({
+    number: z.number().int().positive().max(2_147_483_647), title: z.string(), url: z.string(), state: z.enum(['OPEN', 'CLOSED', 'MERGED']),
+    isDraft: z.boolean(), headRefName: z.string().nullable(), baseRefName: z.string(),
+    commits: z.object({ nodes: z.array(z.object({ commit: z.object({ statusCheckRollup: z.object({ state: z.string() }).nullable() }) })).max(1) }).optional(),
+  }),
+})
+
+function pullRequestStack(value: unknown, reference: PullRequestReference): Pick<PullRequestDetails, 'stack' | 'moreStackEntries' | 'stackUnavailable'> {
+  if (value === null) return {}
+  const parsed = nativeStackSchema.safeParse(value)
+  if (!parsed.success) return { stackUnavailable: true }
+  const native = parsed.data
+  const entries: GitPullRequestStack['entries'] = []
+  const positions = new Set<number>()
+  const members = new Set<string>()
+  let incomplete = !native.entries?.nodes || native.entries.pageInfo.hasNextPage
+  for (const rawEntry of native.entries?.nodes ?? []) {
+    const parsedEntry = nativeStackEntrySchema.safeParse(rawEntry)
+    if (!parsedEntry.success) { incomplete = true; continue }
+    const { position, pullRequest: member } = parsedEntry.data
+    let location: PullRequestReference
+    try { location = parsePullRequestReference(member.url) } catch { incomplete = true; continue }
+    if (position > native.size || positions.has(position) || members.has(location.url)
+      || location.number !== member.number || location.repository !== reference.repository) { incomplete = true; continue }
+    positions.add(position)
+    members.add(location.url)
+    const state = member.commits?.nodes[0]?.commit.statusCheckRollup?.state
+    const checks: GitCheckState | undefined = state === 'SUCCESS' ? 'passing'
+      : state === 'FAILURE' || state === 'ERROR' ? 'failing'
+      : state === 'PENDING' || state === 'EXPECTED' ? 'pending' : undefined
+    entries.push({ position, pullRequest: {
+      number: member.number, title: member.title, url: location.url, state: member.state, draft: member.isDraft,
+      headBranch: member.headRefName ?? '', baseBranch: member.baseRefName, ...(checks ? { checks } : {}),
+    } })
+  }
+  return {
+    stack: { id: native.id, number: native.number, baseBranch: native.baseRefName, size: native.size, entries: entries.sort((a, b) => a.position - b.position) },
+    moreStackEntries: incomplete || entries.length !== native.size || !members.has(reference.url),
+  }
+}
+
+function unavailableStackFields(errors: unknown): boolean {
+  return Array.isArray(errors) && errors.length > 0 && errors.every((error) => {
+    if (!isRecord(error)) return false
+    const extensions = isRecord(error.extensions) ? error.extensions : undefined
+    if (extensions?.code === 'undefinedField' && ((extensions.typeName === 'PullRequest' && extensions.fieldName === 'stack')
+      || (typeof extensions.typeName === 'string' && extensions.typeName.startsWith('PullRequestStack')))) return true
+    return typeof error.message === 'string' && /(?:Field ['"]stack['"] doesn't exist on type ['"]PullRequest['"]|Cannot query field ['"]stack['"] on type ['"]PullRequest['"])/u.test(error.message)
+  })
+}
 
 function safeUrl(value: string | null): string | null {
   if (!value) return null
@@ -97,6 +170,15 @@ async function gh(runner: ProcessRunnerService, args: string[], signal: AbortSig
     return stdout
   } catch (error) {
     signal.throwIfAborted()
+    // gh exits nonzero for GraphQL field errors but still writes the structured
+    // response. Preserve only that response so the optional stack selection can
+    // be retried on older schemas; authentication and transport failures fail.
+    if (args[1] === 'graphql' && isRecord(error) && typeof error.stdout === 'string') {
+      try {
+        const response: unknown = JSON.parse(error.stdout)
+        if (isRecord(response) && Array.isArray(response.errors) && response.errors.length) return error.stdout
+      } catch { /* The usual actionable error below handles invalid responses. */ }
+    }
     if (isRecord(error) && error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
       throw new Error(`GitHub response exceeds the ${Math.floor(maxBuffer / 1024 / 1024)} MB limit. Open this pull request on GitHub.`)
     }
@@ -104,25 +186,29 @@ async function gh(runner: ProcessRunnerService, args: string[], signal: AbortSig
   }
 }
 
-async function graphql(reference: PullRequestReference, runner: ProcessRunnerService, signal: AbortSignal): Promise<z.infer<typeof pullRequestSchema>> {
+async function graphql(reference: PullRequestReference, runner: ProcessRunnerService, signal: AbortSignal, includeStack = true): Promise<{ pr: z.infer<typeof pullRequestSchema>; stackUnavailable: boolean }> {
   const [owner = '', name = ''] = reference.repository.split('/')
   const stdout = await gh(runner, ['api', 'graphql', '--hostname', 'github.com',
-    '-f', `query=${PULL_REQUEST_DETAILS_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${reference.number}`], signal)
+    '-f', `query=${includeStack ? PULL_REQUEST_DETAILS_QUERY : PULL_REQUEST_DETAILS_QUERY.replace(STACK_FIELDS, '')}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${reference.number}`], signal)
   let value: unknown
   try { value = JSON.parse(stdout) as unknown } catch { throw new Error('GitHub returned an invalid response') }
-  if (!isRecord(value) || (Array.isArray(value.errors) && value.errors.length)) throw new Error('GitHub returned incomplete pull request data')
+  if (!isRecord(value)) throw new Error('GitHub returned incomplete pull request data')
+  if (Array.isArray(value.errors) && value.errors.length) {
+    if (includeStack && unavailableStackFields(value.errors)) return graphql(reference, runner, signal, false)
+    throw new Error('GitHub returned incomplete pull request data')
+  }
   const result = z.object({ data: z.object({ repository: z.object({ pullRequest: pullRequestSchema.nullable() }).nullable() }) }).safeParse(value)
   if (!result.success) throw new Error('GitHub returned incomplete pull request data')
   const pr = result.data.data.repository?.pullRequest
   if (!pr) throw new Error('This pull request is unavailable. Check its URL and your GitHub access.')
   if (pr.repository.nameWithOwner.toLowerCase() !== reference.repository || pr.number !== reference.number
     || parsePullRequestReference(pr.url).url !== reference.url) throw new Error('GitHub returned a different pull request')
-  return pr
+  return { pr, stackUnavailable: !includeStack }
 }
 
 export async function readPullRequestDetails(resource: string, runner: ProcessRunnerService, signal: AbortSignal): Promise<PullRequestDetails> {
   const reference = parsePullRequestReference(resource)
-  const pr = await graphql(reference, runner, signal)
+  const { pr, stackUnavailable } = await graphql(reference, runner, signal)
   const rollup = pr.commits.nodes[0]?.commit.statusCheckRollup
   const threads = pr.reviewThreads.nodes.map((thread) => ({
     ...thread, url: safeUrl(thread.comments.nodes[0]?.url ?? null) ?? reference.url,
@@ -140,6 +226,7 @@ export async function readPullRequestDetails(resource: string, runner: ProcessRu
       : { id: check.id, name: check.context, status: ['SUCCESS', 'FAILURE', 'ERROR'].includes(check.state) ? 'COMPLETED' : 'PENDING', conclusion: check.state, url: safeUrl(check.targetUrl) }),
     moreChecks: rollup?.contexts.pageInfo.hasNextPage ?? false,
     comments: pr.comments.nodes.map((entry) => comment(entry, reference.url)), moreComments: pr.comments.pageInfo.hasPreviousPage, threads,
+    ...(stackUnavailable ? { stackUnavailable: true } : pullRequestStack(pr.stack, reference)),
   }
 }
 

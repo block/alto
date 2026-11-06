@@ -25,8 +25,17 @@ function pr(overrides: Record<string, unknown> = {}) {
     reviewThreads: page([
       { id: 'thread-1', path: 'src/glass.ts', line: 10, isResolved: false, isOutdated: false, comments: page([comment('inline-1')]) },
       { id: 'thread-2', path: 'src/old.ts', line: null, isResolved: true, isOutdated: true, comments: page([comment('inline-2')]) },
-    ]), ...overrides,
+    ]), stack: null, ...overrides,
   }
+}
+function stackEntry(number: number, position: number, overrides: Record<string, unknown> = {}) {
+  return { position, pullRequest: { number, title: `PR ${number}`, url: `https://github.com/example/repo/pull/${number}`,
+    state: 'OPEN', isDraft: false, headRefName: `feature-${number}`, baseRefName: 'main',
+    commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] }, ...overrides } }
+}
+function stack(overrides: Record<string, unknown> = {}) {
+  return { id: 'STACK_7', number: 7, baseRefName: 'main', size: 3,
+    entries: page([stackEntry(43, 3), stackEntry(41, 1), stackEntry(42, 2)]), ...overrides }
 }
 function fixture(value: unknown = { data: { repository: { pullRequest: pr() } } }) {
   const execFile = vi.fn(async (_file: string, _args: string[], _options?: ProcessOptions) => ({ stdout: typeof value === 'string' ? value : JSON.stringify(value), stderr: '' }))
@@ -130,6 +139,111 @@ describe('pull request GitHub reader', () => {
     const failed = fixture()
     failed.execFile.mockRejectedValueOnce(new Error('private token-like stderr should not leak'))
     await expect(readPullRequestDetails(URL, failed.runner, signal())).rejects.toThrow('gh auth status --hostname github.com')
+  })
+})
+
+describe('native GitHub pull request stacks', () => {
+  it('uses native membership and position, preserving PR state, draft status and aggregate checks', async () => {
+    const native = stack({ entries: page([
+      stackEntry(43, 3, { isDraft: true, commits: { nodes: [{ commit: { statusCheckRollup: { state: 'PENDING' } } }] } }),
+      stackEntry(41, 1, { state: 'MERGED', headRefName: null, commits: { nodes: [] } }),
+      stackEntry(42, 2, { commits: { nodes: [{ commit: { statusCheckRollup: { state: 'FAILURE' } } }] } }),
+    ]) })
+    const { runner, execFile } = fixture({ data: { repository: { pullRequest: pr({ stack: native }) } } })
+    const details = await readPullRequestDetails(URL, runner, signal())
+    expect(details).toMatchObject({ moreStackEntries: false, stack: {
+      id: 'STACK_7', number: 7, baseBranch: 'main', size: 3,
+      entries: [
+        { position: 1, pullRequest: { number: 41, state: 'MERGED', draft: false, headBranch: '' } },
+        { position: 2, pullRequest: { number: 42, checks: 'failing' } },
+        { position: 3, pullRequest: { number: 43, checks: 'pending', draft: true } },
+      ],
+    } })
+    expect(details.stack?.entries[0]?.pullRequest).not.toHaveProperty('checks')
+    expect(details.stackUnavailable).toBeUndefined()
+    expect(parsePullRequestDetails(details as unknown as JsonValue)).toEqual(details)
+    expect(execFile.mock.calls[0]?.[1].join(' ')).toContain('entries(first: 100)')
+    expect(execFile.mock.calls[0]?.[1].join(' ')).toContain('position')
+    expect(execFile).toHaveBeenCalledOnce()
+  })
+
+  it('does not infer native membership from matching branch names', async () => {
+    const { runner } = fixture({ data: { repository: { pullRequest: pr({ headRefName: 'feature/stack-7', baseRefName: 'feature/previous', stack: null }) } } })
+    const details = await readPullRequestDetails(URL, runner, signal())
+    expect(details.stack).toBeUndefined()
+    expect(details.moreStackEntries).toBeUndefined()
+    expect(details.stackUnavailable).toBeUndefined()
+  })
+
+  it('discloses pagination and inaccessible members rather than inventing complete membership', async () => {
+    for (const entries of [page([stackEntry(42, 2)], true), page([null, { position: 1, pullRequest: null }, stackEntry(42, 2)]),
+      { nodes: null, pageInfo: { hasNextPage: false } }, null]) {
+      const { runner } = fixture({ data: { repository: { pullRequest: pr({ stack: stack({ entries }) }) } } })
+      const details = await readPullRequestDetails(URL, runner, signal())
+      expect(details.stack?.id).toBe('STACK_7')
+      expect(details.moreStackEntries).toBe(true)
+      expect(details.stack?.entries.every((entry) => entry.pullRequest.number === 42)).toBe(true)
+    }
+  })
+
+  it('rejects unsafe member identities and ambiguous positions without exposing their links', async () => {
+    const bad = [
+      stackEntry(41, 0), stackEntry(41, 1.5), stackEntry(41, 4),
+      stackEntry(41, 1, { url: 'https://github.com.evil.test/example/repo/pull/41' }),
+      stackEntry(41, 1, { url: 'https://user@github.com/example/repo/pull/41' }),
+      stackEntry(41, 1, { url: 'https://github.com/other/repo/pull/41' }),
+      stackEntry(41, 1, { url: 'https://github.com/example/repo/pull/44' }),
+      stackEntry(43, 2), stackEntry(42, 3),
+    ]
+    const { runner } = fixture({ data: { repository: { pullRequest: pr({ stack: stack({ entries: page([stackEntry(42, 2), ...bad]) }) }) } } })
+    const details = await readPullRequestDetails(URL, runner, signal())
+    expect(details.moreStackEntries).toBe(true)
+    expect(details.stack?.entries).toEqual([{ position: 2, pullRequest: { number: 42, title: 'PR 42', url: URL,
+      state: 'OPEN', draft: false, headBranch: 'feature-42', baseBranch: 'main', checks: 'passing' } }])
+  })
+
+  it('keeps the PR summary readable when stack metadata is malformed', async () => {
+    const { runner } = fixture({ data: { repository: { pullRequest: pr({ stack: stack({ number: -1 }) }) } } })
+    expect(await readPullRequestDetails(URL, runner, signal())).toMatchObject({ number: 42, title: 'Improve the sidebar', stackUnavailable: true })
+  })
+
+  it.each([
+    { message: "Field 'stack' doesn't exist on type 'PullRequest'", extensions: { code: 'undefinedField', typeName: 'PullRequest', fieldName: 'stack' } },
+    { message: 'Cannot query field "stack" on type "PullRequest".' },
+    { message: 'Unknown stack entry field', extensions: { code: 'undefinedField', typeName: 'PullRequestStackEntry', fieldName: 'position' } },
+  ])('retries only without stack fields when the host schema lacks native stack support', async (error) => {
+    const { runner, execFile } = fixture()
+    execFile.mockRejectedValueOnce(Object.assign(new Error('gh GraphQL request failed'), { stdout: JSON.stringify({ errors: [error] }) }))
+    const details = await readPullRequestDetails(URL, runner, signal())
+    expect(details).toMatchObject({ number: 42, stackUnavailable: true })
+    expect(execFile).toHaveBeenCalledTimes(2)
+    expect(execFile.mock.calls[0]?.[1].join(' ')).toContain('stack {')
+    expect(execFile.mock.calls[1]?.[1].join(' ')).not.toContain('stack {')
+  })
+
+  it('does not hide authentication, transport, mixed or unrelated GraphQL errors behind a stack fallback', async () => {
+    const stackError = { message: "Field 'stack' doesn't exist on type 'PullRequest'" }
+    for (const errors of [[{ message: 'Resource not accessible', type: 'FORBIDDEN' }],
+      [stackError, { message: 'Authentication required' }], [{ message: "Field 'body' doesn't exist on type 'PullRequest'" }]]) {
+      const { runner, execFile } = fixture({ errors, data: { repository: { pullRequest: pr() } } })
+      await expect(readPullRequestDetails(URL, runner, signal())).rejects.toThrow('incomplete pull request data')
+      expect(execFile).toHaveBeenCalledOnce()
+    }
+    const { runner, execFile } = fixture()
+    execFile.mockRejectedValueOnce(new Error('Network unavailable'))
+    await expect(readPullRequestDetails(URL, runner, signal())).rejects.toThrow('Check your connection')
+    expect(execFile).toHaveBeenCalledOnce()
+  })
+
+  it('honors cancellation before retrying an unsupported stack selection', async () => {
+    const controller = new AbortController()
+    const { runner, execFile } = fixture()
+    execFile.mockImplementationOnce(async () => {
+      controller.abort(new Error('Pane closed'))
+      return { stdout: JSON.stringify({ errors: [{ message: 'Cannot query field "stack" on type "PullRequest".' }] }), stderr: '' }
+    })
+    await expect(readPullRequestDetails(URL, runner, controller.signal)).rejects.toThrow('Pane closed')
+    expect(execFile).toHaveBeenCalledOnce()
   })
 })
 

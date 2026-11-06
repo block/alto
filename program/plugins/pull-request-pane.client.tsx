@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { ArrowRight, ArrowUpRight, Check, ChevronDown, CircleAlert, CircleDot, Clock3, GitMerge, GitPullRequest, Link2, MessageSquare, RefreshCw } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Check, ChevronDown, CircleAlert, CircleDot, Clock3, GitMerge, GitPullRequest, Layers, Link2, MessageSquare, RefreshCw } from 'lucide-react'
 import { clientStyles, type BrowserPlugin, type ClientHostService, type ClientUiService } from '../../src/client/plugin-api.js'
 import type { JsonValue } from '../../src/shared/protocol.js'
 import { DIFF_CONTENT_COMPONENT, parseDiffReviewDocument, type DiffContentProps, type DiffReviewDocument } from './diff-viewer-api.js'
@@ -108,7 +108,37 @@ function PullRequestCommentView({ comment, ui, pr }: { comment: PullRequestComme
   </article>
 }
 
-function PullRequestSummary({ pr, ui, children }: { pr: PullRequestDetails; ui: ClientUiService; children: ReactNode }): ReactNode {
+function PullRequestStackView({ pr, onSelect }: { pr: PullRequestDetails; onSelect: (url: string) => void }): ReactNode {
+  const stack = pr.stack
+  if (!stack) return pr.stackUnavailable ? <p className="pull-request-muted">Stack information is unavailable. <ExternalLink href={pr.url}>View on GitHub</ExternalLink></p> : null
+  return <details className="pull-request-stack" open>
+    <summary><span><Layers size={14} /><strong>Stack #{stack.number}</strong><small>{stack.size} {stack.size === 1 ? 'pull request' : 'pull requests'} · into <code>{stack.baseBranch}</code></small></span><ChevronDown size={12} /></summary>
+    <ol aria-label="Stack pull requests, starting at the base branch">
+      {stack.entries.toSorted((left, right) => left.position - right.position).map(({ position, pullRequest: member }) => {
+        const current = member.url === pr.url
+        const state = member.state === 'MERGED' ? 'Merged' : member.state === 'CLOSED' ? 'Closed' : member.draft ? 'Draft' : 'Open'
+        const checkTone = member.checks === 'passing' ? 'success' : member.checks === 'failing' ? 'failure' : 'pending'
+        const checkLabel = member.checks === 'passing' ? 'Checks passed' : member.checks === 'failing' ? 'Checks failing' : 'Checks running'
+        return <li value={position} key={member.url}>
+          <a href={member.url} className={`${uiStyles.row} pull-request-stack-entry`} aria-current={current ? 'page' : undefined} data-pull-request-select
+            onClick={event => {
+              if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+              event.preventDefault()
+              if (!current) onSelect(member.url)
+            }}>
+            <span className="pull-request-stack-position" aria-label={`Position ${position}`}>{position}</span>
+            <span className={`pull-request-stack-icon is-${member.state.toLowerCase()}${member.draft ? ' is-draft' : ''}`} aria-hidden="true">{member.state === 'MERGED' ? <GitMerge size={14} /> : <GitPullRequest size={14} />}</span>
+            <span className="pull-request-stack-copy"><span>{member.title}</span><small>#{member.number} · {state}{current ? ' · Current' : ''}</small></span>
+            {member.checks && <span className={`pull-request-status-icon is-${checkTone}`} role="img" aria-label={checkLabel} title={checkLabel}><StatusIcon tone={checkTone} /></span>}
+          </a>
+        </li>
+      })}
+    </ol>
+    {(pr.moreStackEntries || stack.entries.length < stack.size) && <p className="pull-request-muted">{stack.entries.length < stack.size ? `Showing ${stack.entries.length} of ${stack.size} pull requests.` : 'Some stack information is unavailable.'} <ExternalLink href={pr.url}>View on GitHub</ExternalLink></p>}
+  </details>
+}
+
+function PullRequestSummary({ pr, ui, onSelect, children }: { pr: PullRequestDetails; ui: ClientUiService; onSelect: (url: string) => void; children: ReactNode }): ReactNode {
   const Markdown = ui.component<MarkdownContentProps>('markdown.content')
   const failed = pr.checksList.filter(check => pullRequestCheckTone(check) === 'failure')
   const pending = pr.checksList.filter(check => pullRequestCheckTone(check) === 'pending')
@@ -126,6 +156,7 @@ function PullRequestSummary({ pr, ui, children }: { pr: PullRequestDetails; ui: 
       <div><dt>Changes</dt><dd className="pull-request-delta"><span>+{pr.additions ?? 0}</span><span>−{pr.deletions ?? 0}</span></dd></div>
       <div><dt>Last updated</dt><dd><time dateTime={pr.updatedAt} title={new Date(pr.updatedAt).toLocaleString()}>{pullRequestAge(pr.updatedAt)}</time></dd></div>
     </dl>
+    <PullRequestStackView pr={pr} onSelect={onSelect} />
     <div className="pull-request-status-list">
       <details className="pull-request-status-detail"><summary><span className={`pull-request-status-icon is-${checkTone}`}><StatusIcon tone={checkTone} /></span><span>Checks</span><strong>{checksText}</strong><ChevronDown size={12} /></summary>
         <div className="pull-request-checks">{pr.checksList.map(check => <div className="pull-request-check" key={check.id}><span className={`pull-request-status-icon is-${pullRequestCheckTone(check)}`}><StatusIcon tone={pullRequestCheckTone(check)} /></span>{check.url ? <ExternalLink href={check.url}>{check.name}<ArrowUpRight size={11} /></ExternalLink> : <span>{check.name}</span>}<small>{(check.conclusion ?? check.status).toLowerCase().replaceAll('_', ' ')}</small></div>)}{(!pr.checksList.length || pr.moreChecks) && <ExternalLink href={`${pr.url}/checks`}>View checks on GitHub <ArrowUpRight size={11} /></ExternalLink>}</div>
@@ -209,7 +240,7 @@ export function PullRequestPane({ pane, workspaceId, visible, host, ui }: Worksp
     }).catch((error: unknown) => { if (current) setDiffProblem(error instanceof Error ? error.message : String(error)) })
       .finally(() => { if (current) setDiffLoading(false) })
     return () => { current = false; controller.abort() }
-  }, [host, resource, details?.headSha, details?.baseBranch, details?.baseSha, visible, pane.workspace, diffRefresh])
+  }, [host, resource, details?.url, details?.headSha, details?.baseBranch, details?.baseSha, visible, pane.workspace, diffRefresh])
 
   const choose = (value: string): void => {
     let reference
@@ -240,7 +271,7 @@ export function PullRequestPane({ pane, workspaceId, visible, host, ui }: Worksp
       {problem && <div className="pull-request-error" role="alert"><CircleAlert size={15} /><span>{problem}{details && ' Showing the last loaded version.'}</span><button type="button" className={uiStyles.button} onClick={() => setRefresh(value => value + 1)}>Retry</button></div>}
       {!details && loading && <div className="pull-request-loading" role="status"><RefreshCw className="pull-request-spinning" size={17} />Loading pull request…</div>}
       {details && <div className="pull-request-summary-scroll" tabIndex={0} aria-label="Pull request overview and changes">
-        <PullRequestSummary pr={details} ui={ui}>
+        <PullRequestSummary pr={details} ui={ui} onSelect={choose}>
           <section className="pull-request-changes" aria-label="Pull request changes">
             <h2>Changes <span className="pull-request-delta"><span>+{details.additions}</span><span>−{details.deletions}</span></span></h2>
             <div className="pull-request-diff">
@@ -270,7 +301,7 @@ const pullRequestPane: BrowserPlugin = ctx => {
     const open = (event: MouseEvent): void => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
       const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : undefined
-      if (!anchor || anchor.hasAttribute('download') || anchor.hasAttribute('data-pull-request-external')) return
+      if (!anchor || anchor.hasAttribute('download') || anchor.hasAttribute('data-pull-request-external') || anchor.hasAttribute('data-pull-request-select')) return
       const resource = pullRequestLinkResource(anchor.href)
       if (!resource || !layout.available()) return
       event.preventDefault()
