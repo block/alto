@@ -4,7 +4,8 @@ import { isRecord, type LocalProject, type LocalProjectInput, type PermissionMod
 import type { ClientSessionService, ClientSessionSnapshot } from './session-api.js'
 import { AGENT_CHATS_STATE, agentChatStateKey, isAgentChatId, type AgentChat, type AgentChatCatalog, agentPromptInput } from './agent-chats-api.js'
 import { configuredDefaults } from './session-defaults.js'
-import { MODEL_DEFAULTS_STATE, modelDefaults } from './model-defaults-api.js'
+import type { ModelDefaultsUpdate } from './model-defaults-api.js'
+import { beginModelChoice, failModelChoice, rememberedModelDefaults, rememberModelChoice, saveModelDefaults, type ModelChoiceIntent } from './model-defaults-memory.client.js'
 import { draftAgentConfig, resolveDraftConfigValue } from './agent-model-options.js'
 import { projectForWorkspace } from './ui/history-model.js'
 import type { ActivityItem } from './ui/transcript.js'
@@ -133,7 +134,7 @@ export class AgentSessionService implements ClientSessionService {
     const catalog = this.catalog()
     if (!this.providerSelectionChanged && !this.pendingRestore && !this.threadId && !native.threadId
       && !this.creating && !this.sending && native.turn.tag === 'idle' && !native.activities.length) {
-      const defaults = modelDefaults(this.host.snapshot().snapshot?.extensions[MODEL_DEFAULTS_STATE])
+      const defaults = rememberedModelDefaults(this.host)
       const preferred = defaults?.providerId ?? 'codex'
       const available = preferred === 'codex' || catalog.providers.some((provider) => provider.id === preferred)
       if (defaults && available && this.providerId !== preferred) {
@@ -317,12 +318,13 @@ export class AgentSessionService implements ClientSessionService {
     // Remote Codex must use only its own supported providers.
     const nativeModels = (!chat && remoteCodex ? native.harness?.codex.models?.length ? native.harness.codex.models : native.models ?? [] : [])
       .filter((model) => !model.modelProvider)
-    const inherited = !chat && remoteCodex ? structuredClone(configuredDefaults(native.harness)) : undefined
+    const preferences = rememberedModelDefaults(this.host)
+    const inherited = !chat && remoteCodex ? structuredClone(configuredDefaults(native.harness, preferences)) : undefined
     if (inherited?.model && !nativeModels.some((model) => model.id === inherited.model)) {
       delete inherited.model
       delete inherited.effort
     }
-    const saved = modelDefaults(this.host.snapshot().snapshot?.extensions[MODEL_DEFAULTS_STATE])?.choices[this.providerId]
+    const saved = preferences?.choices[this.providerId]
     const defaults = { ...inherited, ...saved }
     const configurationKey = liveKey
       ?? JSON.stringify([this.providerId, this.threadId, provider?.configOptions, remoteCodex ? nativeModels : [], defaults, [...this.draftConfig]])
@@ -382,39 +384,61 @@ export class AgentSessionService implements ClientSessionService {
   async loadModels(): Promise<void> {
     if (this.providerId === 'codex') await this.native.loadModels?.()
   }
-  setModel(model: string | undefined): void {
+  saveModelDefaults(update: ModelDefaultsUpdate): Promise<void> { return saveModelDefaults(this.host, update) }
+  setModel(model: string | undefined): void | Promise<void> {
     this.providerSelectionChanged = true
-    if (this.providerId === 'codex') this.native.setModel(model)
-    else { const option = this.configuration.find((option) => option.category === 'model'); if (option && model) this.setAgentConfig(option.id, model) }
+    if (this.providerId === 'codex') return this.native.setModel(model)
+    const option = this.configuration.find((option) => option.category === 'model')
+    if (option && model) return this.setAgentConfig(option.id, model)
   }
   setEffort(effort: string | undefined): void {
     this.providerSelectionChanged = true
     if (this.providerId === 'codex') this.native.setEffort(effort)
     else { const option = this.configuration.find((option) => option.category === 'thought_level'); if (option && effort) this.setAgentConfig(option.id, effort) }
   }
-  setAgentConfig(configId: string, value: string): void {
+  setAgentConfig(configId: string, value: string): void | Promise<void> {
     this.providerSelectionChanged = true
     const id = this.threadId
+    const providerId = this.providerId
+    const option = this.configuration.find((option) => option.id === configId)
+    const remember = option?.category === 'model' || option?.category === 'thought_level'
+    const intent = remember ? beginModelChoice(this.host, providerId) : undefined
     if (!id) {
-      if (this.creating || this.sending) return
-      const option = this.configuration.find((option) => option.id === configId)
-      if (!option?.options.some((candidate) => candidate.value === value)) return
+      if (this.creating || this.sending || !option?.options.some((candidate) => candidate.value === value)) {
+        if (intent) failModelChoice(intent)
+        return
+      }
       this.draftConfig.set(configId, value)
       this.sync()
       for (const option of this.configuration) {
         const selected = this.draftConfig.get(option.id)
         if (selected && !option.options.some((candidate) => candidate.value === selected)) this.draftConfig.delete(option.id)
       }
+      if (remember) this.rememberModelChoice(this.configuration, providerId, intent)
       return
     }
     const generation = this.generation
     this.configuring = this.configuring.catch(() => {}).then(async () => {
-      await this.host.call('agent-chats.configure', { id, configId, value })
+      const result = await this.host.call('agent-chats.configure', { id, configId, value })
+      if (remember && isRecord(result) && Array.isArray(result.configOptions)) {
+        this.rememberModelChoice(result.configOptions as unknown as AgentConfigOption[], providerId, intent)
+      } else if (intent) failModelChoice(intent)
     }).catch((error: unknown) => {
+      if (intent) failModelChoice(intent)
       if (generation === this.generation) { this.problem = String(error); this.sync() }
       throw error
     })
     void this.configuring.catch(() => {})
+    return this.configuring
+  }
+
+  private rememberModelChoice(config: AgentConfigOption[], providerId = this.providerId, intent?: ModelChoiceIntent): void {
+    const choice = (category: string): string | null => {
+      const option = config.find((candidate) => candidate.category === category)
+      const selected = option?.options.find((candidate) => candidate.value === option.currentValue)
+      return selected && !(selected.value === 'default' && selected.name === 'Agent default') ? selected.value : null
+    }
+    rememberModelChoice(this.host, { providerId, model: choice('model'), effort: choice('thought_level') }, intent)
   }
   setPermissionMode(mode: PermissionMode): void {
     if (this.providerId === 'codex') this.native.setPermissionMode(mode)
@@ -431,7 +455,7 @@ export class AgentSessionService implements ClientSessionService {
     const provider = this.catalog().providers.find((provider) => provider.id === providerId)
     const agentId = provider?.agentId ?? providerId
     const remoteCodex = agentId === 'codex'
-    const saved = modelDefaults(this.host.snapshot().snapshot?.extensions[MODEL_DEFAULTS_STATE])?.choices[providerId]
+    const saved = rememberedModelDefaults(this.host)?.choices[providerId]
     const modelOption = this.configuration.find((option) => option.category === 'model')
     const explicitModel = modelOption && this.draftConfig.has(modelOption.id)
     const defaultModel = modelOption?.currentValue === 'default'
@@ -557,7 +581,7 @@ export class AgentSessionService implements ClientSessionService {
     this.requestedState = undefined
     this.draftConfig.clear()
     this.providerSelectionChanged = false
-    const defaults = modelDefaults(this.host.snapshot().snapshot?.extensions[MODEL_DEFAULTS_STATE])
+    const defaults = rememberedModelDefaults(this.host)
     if (defaults) this.providerId = defaults.providerId === 'codex' || this.catalog().providers.some((provider) => provider.id === defaults.providerId)
       ? defaults.providerId : 'codex'
     this.configuring = Promise.resolve()

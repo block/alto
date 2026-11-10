@@ -10,6 +10,7 @@ import {
   MODEL_DEFAULTS_STATE,
   MODEL_DEFAULTS_STATUS,
   modelDefaults,
+  modelDefaultsSaveFence,
   type ModelDefaultsPreferences,
 } from '../program/plugins/model-defaults-api.js'
 import * as preferenceStore from '../program/plugins/model-defaults-store.js'
@@ -146,6 +147,28 @@ describe('model defaults preferences', () => {
     await f.fiber.dispose()
     await f.mount()
     await vi.waitFor(() => expect(f.preferences()).toEqual(expected))
+  })
+
+  it('remembers one provider without changing the default agent or another provider across restart', async () => {
+    const saved: ModelDefaultsPreferences = { providerId: 'gemini', choices: {
+      gemini: { model: 'gemini-4-argon' }, claude: { model: 'opus', effort: 'high' }, codex: { model: 'old-native' },
+    } }
+    const f = await fixture({ saved: JSON.stringify({ version: 1, ...saved }) })
+    const receipt = await f.ctx.clientExtensions.call(MODEL_DEFAULTS_SET, { providerId: 'codex', model: 'native-model', effort: 'medium', selectProvider: false })
+    const fence = modelDefaultsSaveFence(receipt)!
+    expect(fence.saveRevision).toBe(1)
+    expect(modelDefaultsSaveFence(f.ctx.clientExtensions.snapshot()[MODEL_DEFAULTS_STATE])).toEqual(fence)
+    const expected: ModelDefaultsPreferences = { ...saved, choices: { ...saved.choices, codex: { model: 'native-model', effort: 'medium' } } }
+    expect(f.preferences()).toEqual(expected)
+    expect(JSON.parse(await readFile(f.file, 'utf8'))).toEqual({ version: 1, ...expected })
+    for (const provider of f.providers) expect(provider.createSession).not.toHaveBeenCalled()
+    await f.fiber.dispose()
+    await f.mount()
+    await vi.waitFor(() => expect(f.preferences()).toEqual(expected))
+    const restarted = modelDefaultsSaveFence(f.ctx.clientExtensions.snapshot()[MODEL_DEFAULTS_STATE])!
+    expect(restarted.saveEpoch).not.toBe(fence.saveEpoch)
+    expect(restarted.saveRevision).toBe(0)
+    await expect(f.ctx.clientExtensions.call(MODEL_DEFAULTS_SET, { providerId: 'codex', selectProvider: 'no' })).rejects.toThrow('must be a boolean')
   })
 
   it.each(['{broken json', JSON.stringify({ version: 1, providerId: 'gemini', choices: { gemini: { effort: [] } } })])(

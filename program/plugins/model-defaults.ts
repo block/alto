@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import type { HarnessPlugin } from '../../src/server/plugin-api.js'
 import type { AgentProviderSnapshot } from '../../src/server/services/agent-registry.js'
 import { isRecord, type JsonValue } from '../../src/shared/protocol.js'
@@ -7,6 +8,7 @@ import {
   MODEL_DEFAULTS_SET,
   MODEL_DEFAULTS_STATE,
   MODEL_DEFAULTS_STATUS,
+  applyModelDefaultsUpdate,
   validDefaultChoice,
   validDefaultProviderId,
   type ModelDefaultsPreferences,
@@ -27,6 +29,9 @@ const modelDefaults: HarnessPlugin = (ctx) => {
   const extensions = ctx.clientExtensions
   const preferencesState = extensions.registerState(ctx, MODEL_DEFAULTS_STATE, null)
   let preferences: ModelDefaultsPreferences = { providerId: 'codex', choices: {} }
+  const saveEpoch = randomUUID()
+  let saveRevision = 0
+  const publication = () => ({ ...preferences, saveEpoch, saveRevision })
   let ready = Promise.resolve()
   const file = path.join(ctx.program.projectRoot, '.codex-cordis', 'model-defaults.json')
   const enabledProvider = (id: string) => id === 'codex' || agents.snapshot().some((provider) => provider.id === id)
@@ -34,13 +39,14 @@ const modelDefaults: HarnessPlugin = (ctx) => {
     ready = readModelDefaults(file).then((saved) => {
       if (!active) return
       preferences = enabledProvider(saved.providerId) ? saved : { ...saved, providerId: 'codex' }
-      preferencesState.update(preferences as unknown as JsonValue)
+      preferencesState.update(publication() as unknown as JsonValue)
     })
     return () => ready.catch(() => {})
   }, 'modelDefaults.load')
 
   extensions.registerMethod(ctx, MODEL_DEFAULTS_SET, (payload) => {
     if (!isRecord(payload) || !validDefaultProviderId(payload.providerId)) throw new Error('An enabled providerId is required')
+    if (payload.selectProvider !== undefined && typeof payload.selectProvider !== 'boolean') throw new Error('selectProvider must be a boolean')
     for (const key of ['model', 'effort'] as const) {
       if (payload[key] !== undefined && payload[key] !== null && !validDefaultChoice(payload[key])) {
         throw new Error(`${key} must be a nonempty string or null`)
@@ -51,21 +57,14 @@ const modelDefaults: HarnessPlugin = (ctx) => {
       await ready
       if (!active) throw new Error('Model defaults are unavailable')
       if (!enabledProvider(update.providerId)) throw new Error('The default agent is no longer enabled')
-      const choice = { ...preferences.choices[update.providerId] }
-      for (const key of ['model', 'effort'] as const) {
-        if (update[key] === null) delete choice[key]
-        else if (typeof update[key] === 'string') choice[key] = update[key]
-      }
-      const next: ModelDefaultsPreferences = {
-        providerId: update.providerId,
-        choices: { ...preferences.choices, [update.providerId]: choice },
-      }
+      const next = applyModelDefaultsUpdate(preferences, update)
       await writeModelDefaults(file, next)
+      saveRevision++
       if (active) {
         preferences = next
-        preferencesState.update(preferences as unknown as JsonValue)
+        preferencesState.update(publication() as unknown as JsonValue)
       }
-      return next as unknown as JsonValue
+      return { ...next, saveEpoch, saveRevision } as unknown as JsonValue
     })
     saving = operation.then(() => {}, () => {})
     return operation

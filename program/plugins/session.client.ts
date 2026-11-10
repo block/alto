@@ -16,6 +16,8 @@ import type {
 } from '../../src/client/plugin-api.js'
 import { SESSION_CODEX_START, SESSION_THREAD_RENAME } from './session-api.js'
 import { configuredDefaults, defaultWorkspace } from './session-defaults.js'
+import type { ModelDefaultsPreferences, ModelDefaultsUpdate } from './model-defaults-api.js'
+import { beginModelChoice, rememberedModelDefaults, rememberModelChoice, saveModelDefaults, type ModelChoiceIntent } from './model-defaults-memory.client.js'
 import { AgentSessionService } from './agent-session.client.js'
 import { isAgentChatId } from './agent-chats-api.js'
 import type {
@@ -113,8 +115,9 @@ function withEffort(current: SessionOptions, effort: string | undefined): Sessio
 function sessionDefaults(
   harness: HarnessSnapshot | undefined,
   workspace = '',
+  preferences?: ModelDefaultsPreferences,
 ): SessionOptions {
-  const defaults = configuredDefaults(harness)
+  const defaults = configuredDefaults(harness, preferences)
   const model = defaults?.model
     ?? harness?.codex.models.find((candidate) => candidate.isDefault)?.id
   const selected = harness?.codex.models.find((candidate) => candidate.id === model)
@@ -435,13 +438,14 @@ export class SessionService implements ClientSessionService {
     const harness = withAstraModel(hostState.snapshot)
     const codexState = harness?.codex.status ?? 'starting'
     this.link = hostState.connected ? { tag: 'online' } : initialLink
-    const session = sessionDefaults(harness, options.initialWorkspace)
+    const preferences = rememberedModelDefaults(host)
+    const session = sessionDefaults(harness, options.initialWorkspace, preferences)
     this.projectSelection = options.initialProjectId === undefined && !options.initialWorkspace
       ? null : options.initialProjectId
     this.pendingRestoreThreadId = options.restoreActiveThread === false
       ? undefined
       : readActiveThreadId()
-    const configured = configuredDefaults(harness)
+    const configured = configuredDefaults(harness, preferences)
     this.defaultsKey = configured ? JSON.stringify(configured) : undefined
     this.state = {
       revision: 0,
@@ -480,6 +484,8 @@ export class SessionService implements ClientSessionService {
     await this.host.call(SESSION_CODEX_START, {})
   }
 
+  saveModelDefaults(update: ModelDefaultsUpdate): Promise<void> { return saveModelDefaults(this.host, update) }
+
   setModel(model: string | undefined): void {
     const selected = this.state.harness?.codex.models.find((candidate) => candidate.id === model)
       ?? this.state.harness?.codex.models.find((candidate) => candidate.isDefault)
@@ -488,17 +494,28 @@ export class SessionService implements ClientSessionService {
       && (selected?.modelProvider ?? nativeProvider) !== (this.state.session.modelProvider ?? nativeProvider)) {
       throw new Error('Start a new chat to use a different model provider')
     }
+    const intent = beginModelChoice(this.host, 'codex')
     const session = withModel(this.state.session, model, selected?.modelProvider)
     this.modelSelectionChanged = true
     this.effortSelectionChanged = true
-    this.set({
-      session: withEffort(session, selected?.defaultReasoningEffort),
-    })
+    const effort = model === this.state.session.model ? this.state.session.effort : selected?.defaultReasoningEffort
+    this.set({ session: withEffort(session, effort) })
+    this.rememberModelChoice(intent)
   }
 
   setEffort(effort: string | undefined): void {
+    const selected = this.state.harness?.codex.models.find((model) => model.id === this.state.session.model)
+    if (effort && selected?.supportedReasoningEfforts?.length
+      && !selected.supportedReasoningEfforts.some((option) => option.reasoningEffort === effort)) return
+    const intent = beginModelChoice(this.host, 'codex')
     this.effortSelectionChanged = true
     this.set({ session: withEffort(this.state.session, effort) })
+    this.rememberModelChoice(intent)
+  }
+
+  private rememberModelChoice(intent: ModelChoiceIntent): void {
+    const { model, effort } = this.state.session
+    rememberModelChoice(this.host, { providerId: 'codex', model: model ?? null, effort: effort ?? null }, intent)
   }
 
   setPermissionMode(permissionMode: PermissionMode): void {
@@ -660,7 +677,7 @@ export class SessionService implements ClientSessionService {
     const active = project ?? null
     this.projectSelection = active?.id ?? null
     const workspace = active?.primaryRoot ?? defaultWorkspace(this.state.harness)
-    const session = { ...sessionDefaults(this.state.harness, workspace), permissionMode: this.state.session.permissionMode }
+    const session = { ...sessionDefaults(this.state.harness, workspace, rememberedModelDefaults(this.host)), permissionMode: this.state.session.permissionMode }
     this.modelSelectionChanged = false
     this.effortSelectionChanged = false
     this.clearThread(session)
@@ -994,7 +1011,8 @@ export class SessionService implements ClientSessionService {
     let session = this.state.session
     if (harness) {
       const workspace = session.workspace || defaultWorkspace(harness)
-      const configured = configuredDefaults(harness)
+      const preferences = rememberedModelDefaults(this.host)
+      const configured = configuredDefaults(harness, preferences)
       const defaultsKey = configured ? JSON.stringify(configured) : undefined
       const untouchedDraft = !this.state.threadId && !this.pendingRestoreThreadId
         && this.state.turn.tag === 'idle' && !this.state.activities.length
@@ -1002,7 +1020,7 @@ export class SessionService implements ClientSessionService {
       // drafts that have begun a turn keep the settings with which they started.
       if (defaultsKey !== this.defaultsKey && configured && untouchedDraft) {
         const previous = session
-        session = sessionDefaults(harness, workspace)
+        session = sessionDefaults(harness, workspace, preferences)
         if (this.modelSelectionChanged) session = withModel(session, previous.model, previous.modelProvider)
         if (this.effortSelectionChanged) session = withEffort(session, previous.effort)
         if (this.permissionSelectionChanged) session.permissionMode = previous.permissionMode
@@ -1490,9 +1508,10 @@ export class RoutedSessionService implements ClientSessionService, ClientSession
 
   hasSurface(id: string): boolean { return this.activeSession().hasSurface(id) }
   async loadModels(): Promise<void> { await this.activeSession().loadModels?.() }
-  setAgentConfig(id: string, value: string): void { this.activeSession().setAgentConfig?.(id, value) }
+  async saveModelDefaults(update: ModelDefaultsUpdate): Promise<void> { await this.base.saveModelDefaults?.(update) }
+  setAgentConfig(id: string, value: string): void | Promise<void> { return this.activeSession().setAgentConfig?.(id, value) }
   setProvider(id: string): void { this.activeSession().setProvider?.(id) }
-  setModel(model: string | undefined): void { this.activeSession().setModel(model) }
+  setModel(model: string | undefined): void | Promise<void> { return this.activeSession().setModel(model) }
   setEffort(effort: string | undefined): void { this.activeSession().setEffort(effort) }
   setPermissionMode(mode: PermissionMode): void { this.activeSession().setPermissionMode(mode) }
   send(draft: ClientDraft): Promise<void> { return this.activeSession().send(draft) }

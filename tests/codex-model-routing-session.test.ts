@@ -173,15 +173,20 @@ describe('native Codex model routing in sessions', () => {
     }))
   })
 
-  it('uses a routed model as a new-chat default only when that model is explicitly saved', () => {
+  it('starts with a saved routed model and remembers later explicit model choices', () => {
     const snapshot = harness()
     snapshot.extensions['model-defaults'] = {
       providerId: 'codex', choices: { codex: { model: CUSTOM_MODEL, effort: 'high' } },
     }
-    const { session } = fixture(snapshot)
+    const { session, host } = fixture(snapshot)
     expect(session.snapshot().session).toMatchObject({ model: CUSTOM_MODEL, modelProvider: CUSTOM_PROVIDER })
 
     session.setModel('native-primary')
+    session.newThread(null)
+    expect(session.snapshot().session.model).toBe('native-primary')
+    expect(session.snapshot().session.modelProvider).toBeUndefined()
+    expect(host.call).toHaveBeenCalledWith('model-defaults.set', { providerId: 'codex', model: 'native-primary', effort: 'medium', selectProvider: false })
+    session.setModel(CUSTOM_MODEL)
     session.newThread(null)
     expect(session.snapshot().session).toMatchObject({ model: CUSTOM_MODEL, modelProvider: CUSTOM_PROVIDER })
   })

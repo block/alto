@@ -795,7 +795,8 @@ async function check() {
           const label = theme + ': ' + name + ' ' + orientation
           const glass = await material()
           assertNativeMaterial(glass, label)
-          assert.ok(Math.abs(glass.root.alpha - .34) < .01, label + ': glass keeps 66% native material visible with a theme-colored backing')
+          const materialAlpha = theme === 'dark' ? .93 : .34
+          assert.ok(Math.abs(glass.root.alpha - materialAlpha) < .01, label + ': glass uses the theme backing while remaining translucent')
           assert.equal(glass.root.image, 'none', label + ': accent wash adds no gradient')
           if (nativeColor) assert.deepEqual(glass.root.rgba, nativeColor, label + ': both orientations share one tinted material')
           else nativeColor = glass.root.rgba

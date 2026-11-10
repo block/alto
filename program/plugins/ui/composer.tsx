@@ -3,12 +3,9 @@ import {
   Check,
   Cloud,
   Laptop,
-  ChevronLeft,
-  ChevronRight,
   FileText,
   Folder,
   Plus,
-  RotateCcw,
   Shield,
   ShieldAlert,
   ShieldCheck,
@@ -41,6 +38,7 @@ import type { ClientSubmitMode } from '../../../src/client/plugin-api.js'
 import { requestConversationFollowLatest } from './conversation-scroll.js'
 import { focusComposerEditor } from './composer-focus.js'
 import { agentSelection } from './agent-selection.js'
+import { ComposerModelPicker } from './composer-model-picker.js'
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -614,12 +612,6 @@ function imageError(file: File): string | undefined {
   return undefined
 }
 
-function effortLabel(effort: string | undefined): string {
-  if (!effort) return 'Default'
-  if (effort.toLocaleLowerCase() === 'xhigh') return 'XHigh'
-  return `${effort.charAt(0).toLocaleUpperCase()}${effort.slice(1)}`
-}
-
 const permissionOptions: Array<{
   mode: PermissionMode
   label: string
@@ -725,7 +717,7 @@ export function Composer({
   onImagesChange: (images: ChatImage[]) => void
   onAttachmentsChange: (attachments: ChatAttachment[]) => void
   onAttachFile: (file: File) => Promise<ChatAttachment>
-  onModelChange: (model: string | undefined) => void
+  onModelChange: (model: string | undefined) => void | Promise<void>
   onModelsRequest?: () => Promise<void>
   onEffortChange: (effort: string | undefined) => void
   onPermissionModeChange: (mode: PermissionMode) => void
@@ -737,7 +729,6 @@ export function Composer({
   const editorMeasure = useRef<HTMLDivElement>(null)
   const pendingCaret = useRef<number | undefined>(undefined)
   const fileInput = useRef<HTMLInputElement>(null)
-  const modelControl = useRef<HTMLDivElement>(null)
   const permissionControl = useRef<HTMLDivElement>(null)
   const workspaceControl = useRef<HTMLDivElement>(null)
   const locationControl = useRef<HTMLDivElement>(null)
@@ -746,6 +737,13 @@ export function Composer({
   const liveValue = useRef(value)
   const receivedValue = useRef(value)
   const receivedValueRevision = useRef(valueRevision)
+  const modelPickerSelection = useRef<{
+    value: string
+    anchor: Node
+    anchorOffset: number
+    focus: Node
+    focusOffset: number
+  } | undefined>(undefined)
   const projectionInitialized = useRef(false)
   const [, setCaretRevision] = useState(0)
   const [hasMessage, setHasMessage] = useState(() => Boolean(value.trim()))
@@ -756,26 +754,11 @@ export function Composer({
   const [editorOverflowing, setEditorOverflowing] = useState(false)
   const [instantFocus, setInstantFocus] = useState(false)
   const [attachmentError, setAttachmentError] = useState<string>()
-  const [modelPickerPage, setModelPickerPage] = useState<string>()
-  const [modelsLoading, setModelsLoading] = useState(false)
-  const [modelsError, setModelsError] = useState<string>()
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [permissionPickerOpen, setPermissionPickerOpen] = useState(false)
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
   const selection = agentSelection(providers, providerId)
-
-  const requestModels = async (): Promise<void> => {
-    if (!onModelsRequest || modelsLoading) return
-    setModelsLoading(true)
-    setModelsError(undefined)
-    try {
-      await onModelsRequest()
-    } catch (error) {
-      setModelsError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setModelsLoading(false)
-    }
-  }
 
   const updateLiveValue = (nextValue: string): void => {
     const hadMessage = Boolean(liveValue.current.trim())
@@ -783,6 +766,37 @@ export function Composer({
     syncComposerMeasurement(editorMeasure.current, nextValue)
     const nextHasMessage = Boolean(nextValue.trim())
     if (hadMessage !== nextHasMessage) setHasMessage(nextHasMessage)
+  }
+
+  const changeModelPickerOpen = (open: boolean): void => {
+    const input = editor.current
+    const selection = input?.ownerDocument.getSelection()
+    if (open) {
+      modelPickerSelection.current = input && selection?.anchorNode && selection.focusNode
+        && input.contains(selection.anchorNode) && input.contains(selection.focusNode)
+        ? { value: liveValue.current, anchor: selection.anchorNode, anchorOffset: selection.anchorOffset,
+            focus: selection.focusNode, focusOffset: selection.focusOffset }
+        : undefined
+      setLocationPickerOpen(false)
+      setPermissionPickerOpen(false)
+      setWorkspacePickerOpen(false)
+    } else {
+      const saved = modelPickerSelection.current
+      modelPickerSelection.current = undefined
+      if (input && selection && saved && saved.value === liveValue.current
+        && input.contains(saved.anchor) && input.contains(saved.focus)) {
+        const active = input.ownerDocument.activeElement
+        try { selection.setBaseAndExtent(saved.anchor, saved.anchorOffset, saved.focus, saved.focusOffset) }
+        catch { /* An external edit may have invalidated the saved range. */ }
+        // Chromium focuses contenteditable when restoring a range. Keep the
+        // menu's focus destination; the editor retains this range on return.
+        if (active instanceof HTMLElement && active !== input) {
+          active.focus({ preventScroll: true })
+          if (input.ownerDocument.activeElement === input) input.blur()
+        }
+      }
+    }
+    setModelPickerOpen(open)
   }
 
   const capabilitySet = useMemo(() => new Set(capabilities), [capabilities])
@@ -800,13 +814,7 @@ export function Composer({
     [capabilitySet, skills],
   )
   const canSend = hasMessage || Boolean(images.length || attachments.length)
-  const selectedModel = models.find((option) => option.id === model)
-    ?? models.find((option) => option.isDefault)
-    ?? models[0]
-  const reasoningEffort = effort ?? selectedModel?.defaultReasoningEffort
-  const reasoningOptions = selectedModel?.supportedReasoningEfforts ?? []
   const agentModes = agentConfig.filter((option) => option.category === 'mode')
-  const modelSummary = [selectedModel?.displayName ?? `${selection.label} default`, effortLabel(reasoningEffort)].join(' ')
 
   const wasAutoFocused = useRef(false)
   const autoFocusCurrent = useRef(autoFocus && !readOnly)
@@ -897,22 +905,6 @@ export function Composer({
   }, [maxHeight])
 
   useEffect(() => setActiveSkill(0), [query?.query])
-
-  useEffect(() => {
-    if (!modelPickerPage) return
-    const closeOnPointerDown = (event: PointerEvent): void => {
-      if (!modelControl.current?.contains(event.target as Node)) setModelPickerPage(undefined)
-    }
-    const closeOnEscape = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape') setModelPickerPage(undefined)
-    }
-    document.addEventListener('pointerdown', closeOnPointerDown)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('pointerdown', closeOnPointerDown)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [modelPickerPage])
 
   useEffect(() => {
     if (!permissionPickerOpen) return
@@ -1251,7 +1243,8 @@ export function Composer({
             aria-autocomplete="list"
             aria-expanded={pickerOpen}
             aria-controls={pickerOpen ? 'composer-skill-picker' : undefined}
-            onFocus={() => setEditing(true)}
+            onPointerDown={() => { modelPickerSelection.current = undefined }}
+            onFocus={() => { if (modelPickerOpen) changeModelPickerOpen(false); setEditing(true) }}
             onInput={(event: FormEvent<HTMLDivElement>) => {
               const nextValue = serializeEditor(event.currentTarget)
               updateCaret(caretOffset(event.currentTarget), true, nextValue)
@@ -1369,7 +1362,7 @@ export function Composer({
               disabled={disabled || (activeTurn && !agentModes.length)}
               onClick={() => {
                 setPermissionPickerOpen((open) => !open)
-                setModelPickerPage(undefined)
+                changeModelPickerOpen(false)
                 setWorkspacePickerOpen(false)
                 setLocationPickerOpen(false)
               }}
@@ -1437,7 +1430,7 @@ export function Composer({
                   setLocationPickerOpen((open) => !open)
                   setPermissionPickerOpen(false)
                   setWorkspacePickerOpen(false)
-                  setModelPickerPage(undefined)
+                  changeModelPickerOpen(false)
                 }}
               >
                 {selection.locationId === 'local' ? <Laptop size={14} strokeWidth={1.7} /> : <Cloud size={14} strokeWidth={1.7} />}
@@ -1491,7 +1484,7 @@ export function Composer({
                   setWorkspacePickerOpen((open) => !open)
                   setPermissionPickerOpen(false)
                   setLocationPickerOpen(false)
-                  setModelPickerPage(undefined)
+                  changeModelPickerOpen(false)
                 }}
               >
                 <Folder size={14} strokeWidth={1.7} />
@@ -1533,169 +1526,23 @@ export function Composer({
         </div>
 
         <div className="composer-toolbar-model">
-        <div className="composer-model-control" ref={modelControl}>
-          <button
-            className="composer-model-trigger"
-            type="button"
-            aria-label={`Model and reasoning: ${modelSummary}`}
-            aria-haspopup="menu"
-            aria-expanded={modelPickerPage !== undefined}
-            disabled={(disabled && (providerLocked || providers.length < 2)) || (models.length === 0 && providers.length === 0 && !onModelsRequest)}
-            onClick={() => {
-              setModelPickerPage((page) => page ? undefined : 'root')
-              setLocationPickerOpen(false)
-              setPermissionPickerOpen(false)
-              setWorkspacePickerOpen(false)
-            }}
-          >
-            {providerId === 'codex' ? modelSummary : [selection.label, selectedModel?.displayName, effortLabel(reasoningEffort)].filter(Boolean).join(' · ')}
-          </button>
-
-          {modelPickerPage && (
-            <div className="composer-model-picker" role="menu" aria-label="Model and reasoning">
-              {modelPickerPage === 'root' && (
-                <>
-                  {providers.length > 0 && <button className="composer-picker-row" type="button"
-                    disabled={providerLocked} title={providerLocked ? 'Start a new chat to change agent' : 'Choose an agent'}
-                    onClick={() => setModelPickerPage('agent')}>
-                    <span>Agent</span>
-                    <span>{selection.label}</span>
-                    <ChevronRight size={16} />
-                  </button>}
-                  <button className="composer-picker-row" type="button" disabled={models.length === 0 && !onModelsRequest} onClick={() => {
-                    setModelPickerPage('model')
-                    void requestModels()
-                  }}>
-                    <span>Model</span>
-                    <span>{selectedModel?.displayName ?? 'Agent default'}</span>
-                    <ChevronRight size={16} />
-                  </button>
-                  <button
-                    className="composer-picker-row"
-                    type="button"
-                    disabled={reasoningOptions.length === 0}
-                    onClick={() => setModelPickerPage('effort')}
-                  >
-                    <span>Reasoning</span>
-                    <span>{effortLabel(reasoningEffort)}</span>
-                    <ChevronRight size={16} />
-                  </button>
-                  {agentConfig.filter((option) => option.category !== 'model' && option.category !== 'thought_level' && option.category !== 'mode').map((option) => (
-                    <button className="composer-picker-row" type="button" key={option.id} onClick={() => setModelPickerPage('config:' + option.id)}>
-                      <span>{option.name}</span><span>{option.options.find((value) => value.value === option.currentValue)?.name}</span><ChevronRight size={16} />
-                    </button>
-                  ))}
-                  {providerId === 'codex' && <><div className="composer-picker-separator" />
-                  <button
-                    className="composer-picker-row reset"
-                    type="button"
-                    disabled={models.length === 0}
-                    onClick={() => {
-                      onModelChange(undefined)
-                      onEffortChange(undefined)
-                      setModelPickerPage(undefined)
-                    }}
-                  >
-                    <span>Reset to default</span>
-                    <RotateCcw size={15} />
-                  </button></>}
-                </>
-              )}
-
-              {modelPickerPage.startsWith('config:') && agentConfig.filter((option) => option.category !== 'mode' && 'config:' + option.id === modelPickerPage).map((option) => (
-                <div key={option.id}>
-                  <header className="composer-picker-header"><button type="button" aria-label="Back" onClick={() => setModelPickerPage('root')}><ChevronLeft size={16} /></button><strong>{option.name}</strong></header>
-                  <div className="composer-picker-options">{option.options.map((value) => <button type="button" key={value.value} role="menuitemradio"
-                    aria-checked={value.value === option.currentValue} title={value.description}
-                    onClick={() => { onAgentConfigChange?.(option.id, value.value); setModelPickerPage('root') }}>
-                    <span>{value.name}</span>{value.value === option.currentValue && <Check size={15} />}
-                  </button>)}</div>
-                </div>
-              ))}
-              {modelPickerPage === 'agent' && (
-                <>
-                  <header className="composer-picker-header">
-                    <button type="button" aria-label="Back" onClick={() => setModelPickerPage('root')}><ChevronLeft size={16} /></button>
-                    <span>Agent</span>
-                  </header>
-                  {selection.agents.map((provider) => <button key={provider.id} className="composer-picker-row" type="button"
-                    role="menuitemradio" aria-checked={provider.id === providerId} disabled={providerLocked}
-                    onClick={() => { onProviderChange?.(provider.id); setModelPickerPage(undefined) }}>
-                    <span>{provider.label}</span>
-                    {provider.id === providerId && <Check size={14} />}
-                  </button>)}
-                </>
-              )}
-
-              {modelPickerPage === 'model' && (
-                <>
-                  <header className="composer-picker-header">
-                    <button type="button" aria-label="Back" onClick={() => setModelPickerPage('root')}>
-                      <ChevronLeft size={17} />
-                    </button>
-                    <strong>Model</strong>
-                  </header>
-                  <div className="composer-picker-options">
-                    {onModelsRequest && modelsLoading && <p role="status">Loading models…</p>}
-                    {onModelsRequest && modelsError && <>
-                      <p role="alert">{modelsError}</p>
-                      <button type="button" disabled={modelsLoading} onClick={() => { void requestModels() }}>Retry</button>
-                    </>}
-                    {models.map((option) => {
-                      const selected = option.id === selectedModel?.id
-                      return (
-                        <button
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={selected}
-                          key={option.id}
-                          onClick={() => {
-                            onModelChange(option.id)
-                            setModelPickerPage('root')
-                          }}
-                        >
-                          <span>{option.displayName}</span>
-                          {selected && <Check size={15} />}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
-
-              {modelPickerPage === 'effort' && (
-                <>
-                  <header className="composer-picker-header">
-                    <button type="button" aria-label="Back" onClick={() => setModelPickerPage('root')}>
-                      <ChevronLeft size={17} />
-                    </button>
-                    <strong>Reasoning</strong>
-                  </header>
-                  <div className="composer-picker-options">
-                    {reasoningOptions.map((option) => {
-                      const selected = option.reasoningEffort === reasoningEffort
-                      return (
-                        <button
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={selected}
-                          key={option.reasoningEffort}
-                          onClick={() => {
-                            onEffortChange(option.reasoningEffort)
-                            setModelPickerPage('root')
-                          }}
-                        >
-                          <span>{effortLabel(option.reasoningEffort)}</span>
-                          {selected && <Check size={15} />}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
+        <ComposerModelPicker
+          models={models}
+          model={model}
+          effort={effort}
+          providers={providers}
+          providerId={providerId}
+          providerLocked={providerLocked}
+          agentConfig={agentConfig}
+          disabled={disabled}
+          open={modelPickerOpen}
+          onOpenChange={changeModelPickerOpen}
+          onModelChange={onModelChange}
+          onEffortChange={onEffortChange}
+          onProviderChange={onProviderChange}
+          onAgentConfigChange={onAgentConfigChange}
+          onModelsRequest={onModelsRequest}
+        />
 
         {activeTurn && (!allowSubmitDuringTurn || !canSend) ? (
           <button

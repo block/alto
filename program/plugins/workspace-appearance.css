@@ -30,9 +30,16 @@
   font-family: var(--sans);
 }
 
-/* Preserve the dark chrome's depth while sharing its accent-colored fallback. */
+/* Dark glass needs its own backing: native material can remain bright when
+   the app's theme differs from macOS or a light window sits behind it. */
 html[data-alto-theme='dark'] .workspace-layout-root {
   --workspace-chrome-neutral: color-mix(in srgb, var(--workspace-surface-sheet) 55%, var(--bg));
+  --workspace-surface-chrome: color-mix(in srgb, var(--accent) 10%, var(--workspace-chrome-neutral));
+  --workspace-material-tint: color-mix(in srgb, var(--workspace-surface-chrome) 93%, transparent);
+  --workspace-chrome-ink: var(--text);
+  --workspace-control-hover: color-mix(in srgb, var(--workspace-chrome-ink) 7%, transparent);
+  --workspace-control-selected: color-mix(in srgb, var(--workspace-chrome-ink) 14%, transparent);
+  --workspace-control-pressed: color-mix(in srgb, var(--workspace-chrome-ink) 18%, transparent);
   --workspace-chrome: var(--workspace-surface-chrome);
 }
 

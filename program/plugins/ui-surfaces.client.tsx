@@ -404,7 +404,8 @@ function SettingsWorkspace({
           )}
 
           {section === 'model' && (
-            <ModelDefaultsSettings host={host} workspace={state.session.workspace} />
+            <ModelDefaultsSettings host={host} workspace={state.session.workspace}
+              saveDefaults={session.saveModelDefaults ? (update) => session.saveModelDefaults!(update) : undefined} />
           )}
 
           {section === 'plugins' && (

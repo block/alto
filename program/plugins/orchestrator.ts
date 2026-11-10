@@ -7,7 +7,8 @@ import type { JsonValue } from '../../src/shared/protocol.js'
 import { EMPTY_ORCHESTRATOR, ORCHESTRATOR_OPEN, ORCHESTRATOR_REFRESH, ORCHESTRATOR_STATE, ORCHESTRATOR_STOP } from './orchestrator-api.js'
 import { NativeAgentMonitor, type NativeAgentRuntime } from './orchestrator-model.js'
 
-const json = (value: unknown): JsonValue => value as JsonValue
+// Clearing optional fields must remove them from the published JSON value.
+const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value)) as JsonValue
 const scope = z.object({ parentThreadId: z.string().min(1), id: z.string().min(1) })
 const orchestrator: HarnessPlugin = (ctx) => {
   ctx.ui.register(ctx, { id: 'orchestrator-toggle', slot: 'header-right', order: 990, nodes: [] })

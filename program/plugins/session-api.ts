@@ -54,13 +54,14 @@ export interface ClientSessionSnapshot {
 }
 
 export interface ClientSessionService {
+  saveModelDefaults?(update: import('./model-defaults-api.js').ModelDefaultsUpdate): Promise<void>
   loadModels?(): Promise<void>
   setProvider?(id: string): void
-  setAgentConfig?(id: string, value: string): void
+  setAgentConfig?(id: string, value: string): void | Promise<void>
   subscribe(listener: () => void): () => void
   snapshot(): ClientSessionSnapshot
   hasSurface(id: string): boolean
-  setModel(model: string | undefined): void
+  setModel(model: string | undefined): void | Promise<void>
   setEffort(effort: string | undefined): void
   setPermissionMode(mode: PermissionMode): void
   send(draft: ClientDraft): Promise<void>
@@ -121,12 +122,13 @@ export interface ClientApprovalsService {
 }
 
 export interface ClientPreferencesService {
+  saveModelDefaults?(update: import('./model-defaults-api.js').ModelDefaultsUpdate): Promise<void>
   loadModels?(): Promise<void>
   setProvider?(id: string): void
-  setAgentConfig?(id: string, value: string): void
+  setAgentConfig?(id: string, value: string): void | Promise<void>
   subscribe(listener: () => void): () => void
   snapshot(): ClientSessionSnapshot
-  setModel(model: string | undefined): void
+  setModel(model: string | undefined): void | Promise<void>
   setEffort(effort: string | undefined): void
   setPermissionMode(mode: PermissionMode): void
 }

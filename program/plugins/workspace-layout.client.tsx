@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   memo,
@@ -1281,6 +1282,7 @@ function WorkspacePane({
   fullscreen,
   onlyPane,
   factory,
+  acquireSession,
   renderers,
   split,
   close,
@@ -1301,6 +1303,7 @@ function WorkspacePane({
   fullscreen: boolean
   onlyPane: boolean
   factory: ClientSessionFactoryService
+  acquireSession: (pane: WorkspacePaneNode) => ClientSessionHandle
   renderers: ChatRenderers
   split: (direction: WorkspaceSplitDirection, state: ClientSessionSnapshot) => void
   close: () => void
@@ -1313,31 +1316,19 @@ function WorkspacePane({
   draftStore: PaneDraftStore
   tabDropEdge?: WorkspaceTabDropEdge
 }): ReactNode {
-  const initialPane = useRef(pane)
+  const paneRef = useRef(pane)
   const readyRef = useRef(ready)
   const [handle, setHandle] = useState<ClientSessionHandle>()
 
+  paneRef.current = pane
   readyRef.current = ready
 
   useEffect(() => {
-    const initial = initialPane.current
-    const next = factory.create({
-      // Empty projectless panes should adopt the current default, including
-      // panes saved when that default was the Alto checkout.
-      ...(!initial.unscoped || initial.thread ? { initialWorkspace: initial.workspace } : {}),
-      ...(initial.unscoped
-        ? { initialProjectId: null }
-        : initial.projectId ? { initialProjectId: initial.projectId } : {}),
-    })
-    const unsubscribe = restoreWorkspacePaneSession(next.session, initial)
+    const next = acquireSession(paneRef.current)
     setHandle(next)
     readyRef.current(next.session)
-    return () => {
-      readyRef.current(undefined)
-      unsubscribe()
-      next.dispose()
-    }
-  }, [factory, pane.id])
+    return () => readyRef.current(undefined)
+  }, [acquireSession, factory, pane.id])
 
   if (!handle) return <section className={`workspace-chat-pane${focused ? ' is-focused' : ''}${tabDropEdge ? ` is-tab-drop-${tabDropEdge}` : ''}`} />
   return (
@@ -1492,6 +1483,7 @@ function SplitDivider({
 
 interface TreeActions {
   factory: ClientSessionFactoryService
+  acquireSession(pane: WorkspacePaneNode): ClientSessionHandle
   renderers: ChatRenderers
   focusedPaneId: string
   maximizedPaneId?: string
@@ -1526,6 +1518,7 @@ function keepTreeActions(slot: TreeActionSlot | undefined, next: TreeActions): T
     const created: TreeActionSlot = { current: next, actions: next }
     created.actions = {
       ...next,
+      acquireSession: (...args) => created.current.acquireSession(...args),
       split: (...args) => created.current.split(...args),
       close: (...args) => created.current.close(...args),
       focus: (...args) => created.current.focus(...args),
@@ -1597,6 +1590,7 @@ const LayoutTree = memo(function LayoutTreeContent({ workspaceId, node, actions 
         fullscreen={node.id === actions.maximizedPaneId}
         onlyPane={actions.paneCount === 1}
         factory={actions.factory}
+        acquireSession={actions.acquireSession}
         renderers={actions.renderers}
         split={(direction, state) => actions.split(node.id, direction, state)}
         close={() => actions.close(node.id)}
@@ -2210,6 +2204,22 @@ function WorkspaceLayout({
   const layoutChangedBeforeRestore = useRef(false)
   layoutRef.current = layout
   const sessions = useRef(new Map<string, ClientSessionService>())
+  const sessionHandles = useRef(new Map<string, {
+    factory: ClientSessionFactoryService
+    handle: ClientSessionHandle
+  }>())
+  useEffect(() => {
+    const ids = new Set(layout.views.flatMap((view) => workspacePaneIds(view.root)))
+    for (const [id, entry] of sessionHandles.current) {
+      if (ids.has(id)) continue
+      sessionHandles.current.delete(id)
+      entry.handle.dispose()
+    }
+  }, [layout.views])
+  useEffect(() => () => {
+    for (const entry of sessionHandles.current.values()) entry.handle.dispose()
+    sessionHandles.current.clear()
+  }, [])
   const treeActions = useRef(new Map<string, TreeActionSlot>())
   useEffect(() => {
     const ids = new Set(layout.views.map((view) => view.id))
@@ -2402,6 +2412,31 @@ function WorkspaceLayout({
     })
   }
 
+  // Splitting or docking reparents React panes. Their sessions belong to the
+  // pane IDs and survive until the pane closes or its factory is replaced.
+  const acquireSession = useCallback((pane: WorkspacePaneNode): ClientSessionHandle => {
+    const existing = sessionHandles.current.get(pane.id)
+    if (existing?.factory === factory) return existing.handle
+    if (existing) {
+      sessionHandles.current.delete(pane.id)
+      existing.handle.dispose()
+    }
+    const next = factory.create({
+      // Empty projectless panes adopt the current default workspace.
+      ...(!pane.unscoped || pane.thread ? { initialWorkspace: pane.workspace } : {}),
+      ...(pane.unscoped
+        ? { initialProjectId: null }
+        : pane.projectId ? { initialProjectId: pane.projectId } : {}),
+    })
+    const unsubscribe = restoreWorkspacePaneSession(next.session, pane)
+    const handle: ClientSessionHandle = {
+      session: next.session,
+      dispose: () => { unsubscribe(); next.dispose() },
+    }
+    sessionHandles.current.set(pane.id, { factory, handle })
+    return handle
+  }, [factory])
+
   const draftStoreFor = (paneId: string): PaneDraftStore => {
     const existing = draftStores.current.get(paneId)
     if (existing) return existing
@@ -2591,6 +2626,7 @@ function WorkspaceLayout({
   const actionsFor = (view: WorkspaceView): TreeActions => {
     const next: TreeActions = {
       factory,
+      acquireSession,
       renderers,
       focusedPaneId: view.focusedPaneId,
       ...(view.maximizedPaneId ? { maximizedPaneId: view.maximizedPaneId } : {}),

@@ -20,6 +20,32 @@ export interface ModelDefaultsUpdate {
   providerId: string
   model?: string | null
   effort?: string | null
+  /** Remember this provider's choices without changing the default agent. */
+  selectProvider?: boolean
+}
+
+export interface ModelDefaultsSaveFence {
+  saveEpoch: string
+  saveRevision: number
+}
+
+/** Publication metadata is separate from the persisted preference format. */
+export function modelDefaultsSaveFence(value: unknown): ModelDefaultsSaveFence | undefined {
+  if (!isRecord(value) || typeof value.saveEpoch !== 'string' || !value.saveEpoch
+    || typeof value.saveRevision !== 'number' || !Number.isSafeInteger(value.saveRevision) || value.saveRevision < 0) return undefined
+  return { saveEpoch: value.saveEpoch, saveRevision: value.saveRevision }
+}
+
+export function applyModelDefaultsUpdate(preferences: ModelDefaultsPreferences, update: ModelDefaultsUpdate): ModelDefaultsPreferences {
+  const choice = { ...preferences.choices[update.providerId] }
+  for (const key of ['model', 'effort'] as const) {
+    if (update[key] === null) delete choice[key]
+    else if (typeof update[key] === 'string') choice[key] = update[key]
+  }
+  return {
+    providerId: update.selectProvider === false ? preferences.providerId : update.providerId,
+    choices: { ...preferences.choices, [update.providerId]: choice },
+  }
 }
 
 export interface ModelDefaultsDiscovery {

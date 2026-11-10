@@ -1,5 +1,5 @@
 import { isRecord, type CodexSessionDefaults, type HarnessSnapshot, type PermissionMode } from '../../src/shared/protocol.js'
-import { MODEL_DEFAULTS_STATE, modelDefaults } from './model-defaults-api.js'
+import { MODEL_DEFAULTS_STATE, modelDefaults, type ModelDefaultsPreferences } from './model-defaults-api.js'
 import { SESSION_WORKSPACE_STATE } from './session-api.js'
 
 export function defaultWorkspace(harness: HarnessSnapshot | undefined): string {
@@ -9,6 +9,7 @@ export function defaultWorkspace(harness: HarnessSnapshot | undefined): string {
 
 export function configuredDefaults(
   harness: HarnessSnapshot | undefined,
+  preferences?: ModelDefaultsPreferences,
 ): CodexSessionDefaults | undefined {
   const extension = harness?.extensions['session.defaults']
   let defaults: CodexSessionDefaults | undefined
@@ -24,7 +25,7 @@ export function configuredDefaults(
     }
   }
   defaults ??= harness?.codex.defaults
-  const saved = modelDefaults(harness?.extensions[MODEL_DEFAULTS_STATE])?.choices.codex
+  const saved = (preferences ?? modelDefaults(harness?.extensions[MODEL_DEFAULTS_STATE]))?.choices.codex
   if (!saved?.model && !saved?.effort) return defaults
   const selected = harness?.codex.models.find((model) => model.id === saved.model)
   const model = saved.model ?? defaults?.model

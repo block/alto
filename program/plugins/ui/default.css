@@ -2072,6 +2072,8 @@ details pre {
 
 .composer.composer-focus-continuity { transition: none; }
 
+.composer:has(.composer-model-picker) { z-index: 13; }
+
 .composer.is-editing {
   border-color: transparent;
   box-shadow: var(--composer-editing-shadow);
@@ -2613,9 +2615,12 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   z-index: 9;
   right: calc(-1 * (var(--composer-action-size) + 2 * var(--composer-action-inset)) - 2px);
   bottom: calc(100% + 10px);
-  width: min(300px, calc(100cqw - 2 * var(--composer-content-gutter)));
+  width: min(320px, calc(100cqw - 2 * var(--composer-content-gutter)));
+  max-height: min(calc(13 * var(--control-default)), calc(100dvh - 8 * var(--space-4)));
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  padding: 7px;
+  padding: var(--space-1);
   color: var(--ui-text);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-panel-radius);
@@ -2625,14 +2630,47 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   backdrop-filter: none;
 }
 
+.composer-model-picker > :not(.composer-picker-models) { flex-shrink: 0; }
+.composer-picker-models { min-height: 0; flex: 1 1 auto; }
+.composer-picker-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+.composer-picker-toolbar > .composer-picker-row { min-width: 0; flex: 1; }
+.composer-picker-toolbar > .alto-icon-button { width: var(--control-compact); min-height: var(--control-compact); flex-shrink: 0; }
+.composer-picker-reasoning {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+}
+.composer-picker-reasoning > span, .composer-picker-note { color: var(--ui-text-secondary); font-size: var(--type-supporting); }
+.composer-picker-reasoning > div { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.composer-picker-reasoning button {
+  min-height: var(--control-compact);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--ui-text);
+  background: transparent;
+  font: var(--ui-weight) var(--type-supporting)/var(--ui-line) var(--sans);
+  cursor: pointer;
+}
+.composer-picker-reasoning button:hover:not(:disabled) { background: var(--ui-hover); }
+.composer-picker-reasoning button:disabled { color: var(--ui-text-secondary); cursor: wait; }
+.composer-picker-reasoning button[aria-pressed='true'] { color: var(--ui-text-strong); background: var(--ui-selected); box-shadow: var(--ui-glass-control-edge, none); }
+.composer-picker-note { margin: var(--space-2) var(--ui-row-inline-padding); text-align: left; }
+
 .composer-picker-row {
   width: 100%;
-  min-height: 43px;
+  min-height: var(--control-default);
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr) 16px;
   align-items: center;
-  gap: 9px;
-  padding: 7px 10px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   color: var(--ui-text);
   border: 0;
   border-radius: var(--ui-row-radius);
@@ -2674,21 +2712,24 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   cursor: pointer;
 }
 .composer-picker-header button:hover { color: var(--text); background: var(--ui-hover); }
+.composer-model-picker .composer-picker-header { min-height: var(--control-default); padding-inline: var(--control-default); }
+.composer-model-picker .composer-picker-header button { width: var(--control-compact); height: var(--control-compact); }
+.composer-model-picker .composer-picker-separator { margin: var(--space-1) var(--space-2); }
 
 .composer-picker-options {
-  max-height: min(300px, 40vh);
+  max-height: min(280px, 40vh);
   overflow-y: auto;
   scrollbar-width: none;
 }
 .composer-picker-options::-webkit-scrollbar { display: none; }
 .composer-picker-options > button {
   width: 100%;
-  min-height: 39px;
+  min-height: var(--control-default);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 18px;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  padding: var(--space-1) var(--space-2);
   color: var(--ui-text);
   border: 0;
   border-radius: var(--ui-row-radius);
@@ -2697,7 +2738,9 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
   cursor: pointer;
   transition: none;
 }
-.composer-picker-options > button:hover { background: var(--ui-hover); }
+.composer-picker-options > button:hover:not(:disabled) { background: var(--ui-hover); }
+.composer-picker-options > button:focus-visible { outline-offset: -2px; }
+.composer-picker-options > button > span { min-width: 0; overflow-wrap: anywhere; }
 .composer-picker-options > button > svg { color: var(--ui-action); }
 
 .send-button {

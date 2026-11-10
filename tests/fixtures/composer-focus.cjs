@@ -230,8 +230,8 @@ async function check() {
       assert.equal((await run('focusState()')).offset, 2)
     }
 
-    // Opening the agent menu must work before Codex starts. Only opening its
-    // model list requests the CLI, and a failed request remains retryable.
+    // Opening the agent menu must work before Codex starts. Only explicitly
+    // loading models requests the CLI, and a failed request remains retryable.
     await run(`updateSession({providerId:'codex',providers:[
       {id:'codex',label:'Codex'},{id:'claude',label:'Claude'}
     ],harness:{codex:{status:'stopped',models:[]}}})`)
@@ -242,8 +242,9 @@ async function check() {
     await run("clickPicker('Claude')")
     assert.equal(await run('modelRequests'), 0)
     assert.equal((await run('focusState()')).sendDisabled, false)
-    await run("updateSession({providerId:'codex'}); document.querySelector('.composer-model-trigger').click()")
-    await run("clickPicker('Model')")
+    assert.equal(await run("!!document.querySelector('.composer-model-picker')"), true)
+    await run("clickPicker('Agent'); clickPicker('Codex')")
+    await run("clickPicker('Load models')")
     assert.equal(await run('modelRequests'), 1)
     assert.equal(await run("document.querySelector('[role=alert]')?.textContent"), 'Codex CLI is not installed')
     await run("clickPicker('Retry')")

@@ -11,6 +11,7 @@ import {
   MODEL_DEFAULTS_STATE,
   modelDefaults,
   type ModelDefaultsChoice,
+  type ModelDefaultsUpdate,
 } from '../model-defaults-api.js'
 import type { ClientSessionSnapshot } from '../session-api.js'
 import { SettingsRow } from './settings.js'
@@ -115,9 +116,10 @@ function SelectShell({ children }: { children: ReactNode }): ReactNode {
   </span>
 }
 
-export function ModelDefaultsSettings({ host, workspace }: {
+export function ModelDefaultsSettings({ host, workspace, saveDefaults }: {
   host: ClientHostService
   workspace: string
+  saveDefaults?: ((update: ModelDefaultsUpdate) => Promise<void>) | undefined
 }): ReactNode {
   const hostState = useSyncExternalStore(host.subscribe, host.snapshot, host.snapshot)
   const snapshot = hostState.snapshot
@@ -146,7 +148,8 @@ export function ModelDefaultsSettings({ host, workspace }: {
     setProblem(undefined)
     setSaving(true)
     try {
-      await host.call(MODEL_DEFAULTS_SET, change)
+      if (saveDefaults) await saveDefaults(change)
+      else await host.call(MODEL_DEFAULTS_SET, change)
     } catch (error) {
       if (mounted.current) setProblem(error instanceof Error ? error.message : String(error))
     } finally {
