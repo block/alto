@@ -15,15 +15,21 @@ import type {
   ClientSettingsIconProps,
 } from '../../src/client/plugin-api.js'
 import { SettingsRow } from './ui/settings.js'
+import { uiStyles } from './ui/appearance.js'
 import {
   DEFAULT_THEME,
   THEME_STORAGE_KEY,
   normalizeAccent,
+  parseOuterPanePreference,
   parseThemePreference,
+  resolveOuterPaneColors,
+  resolveOuterPaneTexture,
   resolveThemeMode,
   themeDefaults,
   type ChromeTheme,
   type CodeTheme,
+  type OuterPanePreference,
+  type OuterPaneTexture,
   type ResolvedThemeMode,
   type ThemeConfig,
   type ThemeMode,
@@ -54,6 +60,7 @@ const chromeThemes: ReadonlyArray<Readonly<{
   { id: 'paper', label: 'Paper' },
   { id: 'graphite', label: 'Graphite' },
   { id: 'ink', label: 'Ink' },
+  { id: 'black', label: 'Black' },
 ]
 
 const codeThemes: ReadonlyArray<Readonly<{
@@ -66,6 +73,14 @@ const codeThemes: ReadonlyArray<Readonly<{
   { id: 'muted', label: 'Muted' },
 ]
 
+const outerPaneTextures: ReadonlyArray<Readonly<{ id: OuterPaneTexture; label: string }>> = [
+  { id: 'auto', label: 'Automatic' },
+  { id: 'none', label: 'None' },
+  { id: 'dots', label: 'Dots' },
+  { id: 'grid', label: 'Grid' },
+  { id: 'lines', label: 'Diagonal lines' },
+]
+
 const accentPresets = [
   { id: 'purple', label: 'Purple', value: '#7c3aed' },
   { id: 'blue', label: 'Blue', value: '#2563eb' },
@@ -75,6 +90,13 @@ const accentPresets = [
   { id: 'rose', label: 'Rose', value: '#e11d48' },
   { id: 'graphite', label: 'Graphite', value: '#525252' },
 ] as const
+
+function sameOuterPane(left: OuterPanePreference, right: OuterPanePreference): boolean {
+  return left.material === right.material
+    && left.background === right.background
+    && left.text === right.text
+    && left.texture === right.texture
+}
 
 export class ThemeController {
   private readonly listeners = new Set<() => void>()
@@ -115,7 +137,13 @@ export class ThemeController {
       delete root.dataset.altoTheme
       delete root.dataset.altoChromeTheme
       delete root.dataset.altoCodeTheme
+      delete root.dataset.altoOuterMaterial
+      delete root.dataset.altoOuterBackground
+      delete root.dataset.altoOuterText
+      delete root.dataset.altoOuterTexture
       root.style.removeProperty('--alto-theme-accent')
+      root.style.removeProperty('--alto-outer-background')
+      root.style.removeProperty('--alto-outer-text')
     }
   }
 
@@ -126,8 +154,12 @@ export class ThemeController {
   }
 
   setChrome(chrome: ChromeTheme): void {
-    if (this.preference.chrome === chrome) return
-    this.preference = { ...this.preference, chrome }
+    if (this.preference.chrome === chrome && this.preference.outerPane.background === null) return
+    this.preference = {
+      ...this.preference,
+      chrome,
+      outerPane: { ...this.preference.outerPane, background: null },
+    }
     this.changed()
   }
 
@@ -144,14 +176,24 @@ export class ThemeController {
     this.changed()
   }
 
+  setOuterPane(update: Partial<OuterPanePreference>): void {
+    const outerPane = parseOuterPanePreference({ ...this.preference.outerPane, ...update }, this.preference.outerPane)
+    if (sameOuterPane(outerPane, this.preference.outerPane)) return
+    this.preference = { ...this.preference, outerPane }
+    this.changed()
+  }
+
+  resetOuterPane(): void {
+    this.setOuterPane(this.defaults.outerPane)
+  }
+
+  isOuterPaneDefault(): boolean {
+    return sameOuterPane(this.preference.outerPane, this.defaults.outerPane)
+  }
+
   reset(): void {
-    if (
-      this.preference.mode === this.defaults.mode
-      && this.preference.accent === this.defaults.accent
-      && this.preference.chrome === this.defaults.chrome
-      && this.preference.code === this.defaults.code
-    ) return
-    this.preference = { ...this.defaults }
+    if (this.isDefault()) return
+    this.preference = { ...this.defaults, outerPane: { ...this.defaults.outerPane } }
     this.changed()
   }
 
@@ -160,6 +202,7 @@ export class ThemeController {
       && this.preference.accent === this.defaults.accent
       && this.preference.chrome === this.defaults.chrome
       && this.preference.code === this.defaults.code
+      && this.isOuterPaneDefault()
   }
 
   private changed(): void {
@@ -176,6 +219,24 @@ export class ThemeController {
     root.dataset.altoChromeTheme = this.preference.chrome
     root.dataset.altoCodeTheme = this.preference.code
     root.style.setProperty('--alto-theme-accent', this.preference.accent)
+    const { outerPane } = this.preference
+    const { background, text } = resolveOuterPaneColors(this.preference)
+    root.dataset.altoOuterMaterial = outerPane.material
+    root.dataset.altoOuterTexture = resolveOuterPaneTexture(outerPane)
+    if (background !== null) {
+      root.dataset.altoOuterBackground = 'custom'
+      root.style.setProperty('--alto-outer-background', background)
+    } else {
+      delete root.dataset.altoOuterBackground
+      root.style.removeProperty('--alto-outer-background')
+    }
+    if (text !== null) {
+      root.dataset.altoOuterText = 'custom'
+      root.style.setProperty('--alto-outer-text', text)
+    } else {
+      delete root.dataset.altoOuterText
+      root.style.removeProperty('--alto-outer-text')
+    }
   }
 
   private emit(): void {
@@ -194,9 +255,9 @@ export class ThemeController {
   private read(): ThemePreference {
     try {
       const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
-      return stored ? parseThemePreference(JSON.parse(stored), this.defaults) : { ...this.defaults }
+      return parseThemePreference(stored ? JSON.parse(stored) : undefined, this.defaults)
     } catch {
-      return { ...this.defaults }
+      return parseThemePreference(undefined, this.defaults)
     }
   }
 
@@ -223,8 +284,31 @@ function PalettePreview({ kind }: { kind: 'chrome' | 'code' }): ReactNode {
   )
 }
 
+function ThemeColorPicker({
+  label,
+  value,
+  onChange,
+  selected = false,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  selected?: boolean
+}): ReactNode {
+  return (
+    <label className="theme-color-picker" title={label}>
+      <input type="color" value={value} aria-label={label} onChange={(event) => onChange(event.target.value)} />
+      <span className="theme-color-swatch" style={{ backgroundColor: value }} aria-hidden="true">
+        {selected && <Check size={12} />}
+      </span>
+      <code>{value.toLocaleUpperCase()}</code>
+    </label>
+  )
+}
+
 function ThemeSettings({ controller }: { controller: ThemeController }): ReactNode {
   const theme = useSyncExternalStore(controller.subscribe, controller.snapshot)
+  const outerColors = resolveOuterPaneColors(theme)
   return (
     <div className="settings-page theme-settings-page">
       <section className="settings-section">
@@ -253,14 +337,14 @@ function ThemeSettings({ controller }: { controller: ThemeController }): ReactNo
           </SettingsRow>
 
           <SettingsRow
-            label="Chrome"
-            description="Choose the gray and black surfaces used by Alto's application chrome."
+            label="Theme"
+            description="Choose Alto's color palette."
           >
             <span className="theme-palette-control">
               <PalettePreview kind="chrome" />
               <select
                 value={theme.chrome}
-                aria-label="Chrome palette"
+                aria-label="Theme palette"
                 onChange={(event) => controller.setChrome(event.target.value as ChromeTheme)}
               >
                 {chromeThemes.map((palette) => (
@@ -304,18 +388,7 @@ function ThemeSettings({ controller }: { controller: ThemeController }): ReactNo
                   />
                 ))}
               </div>
-              <label className="theme-color-picker" title="Choose a custom accent">
-                <input
-                  type="color"
-                  value={theme.accent}
-                  aria-label="Custom accent color"
-                  onChange={(event) => controller.setAccent(event.target.value)}
-                />
-                <span className="theme-color-swatch" style={{ backgroundColor: theme.accent }}>
-                  <Check size={12} />
-                </span>
-                <code>{theme.accent.toLocaleUpperCase()}</code>
-              </label>
+              <ThemeColorPicker label="Custom accent color" value={theme.accent} onChange={(value) => controller.setAccent(value)} selected />
             </div>
           </SettingsRow>
 
@@ -329,6 +402,80 @@ function ThemeSettings({ controller }: { controller: ThemeController }): ReactNo
               <RotateCcw size={13} />
               Reset
             </span>
+          </SettingsRow>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>Outer pane</h2>
+        <div className="settings-card theme-settings-card theme-outer-pane-card">
+          <SettingsRow label="Surface" description="Sidebar, tabs, and title bar. Composer glass stays independent.">
+            <div className="theme-mode-picker theme-outer-material-picker" role="radiogroup" aria-label="Outer pane surface">
+              {(['glass', 'solid'] as const).map((material) => (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={theme.outerPane.material === material}
+                  className={theme.outerPane.material === material ? 'active' : ''}
+                  onClick={() => controller.setOuterPane({ material })}
+                  key={material}
+                >
+                  {material === 'glass' ? 'Glass' : 'Solid'}
+                </button>
+              ))}
+            </div>
+          </SettingsRow>
+          <SettingsRow label="Texture" description="Automatic keeps glass clear and adds dots to solid surfaces.">
+            <span className="theme-palette-control">
+              <select
+                value={theme.outerPane.texture}
+                aria-label="Outer pane texture"
+                onChange={(event) => controller.setOuterPane({ texture: event.target.value as OuterPaneTexture })}
+              >
+                {outerPaneTextures.map((texture) => <option value={texture.id} key={texture.id}>{texture.label}</option>)}
+              </select>
+            </span>
+          </SettingsRow>
+          <SettingsRow label="Background" description="Customize the theme's window color.">
+            <div className="theme-outer-color-control">
+              <ThemeColorPicker
+                label="Outer pane background color"
+                value={outerColors.background ?? (theme.resolved === 'dark' ? '#181a20' : '#eef0f3')}
+                onChange={(background) => controller.setOuterPane({ background })}
+              />
+              <button
+                type="button"
+                className={uiStyles.iconButton}
+                aria-label="Reset outer pane background"
+                title="Restore the theme's background"
+                disabled={theme.outerPane.background === null}
+                onClick={() => controller.setOuterPane({ background: null })}
+              ><RotateCcw size={14} /></button>
+            </div>
+          </SettingsRow>
+          <SettingsRow label="Text color" description="Automatic chooses light or dark text for your background.">
+            <div className="theme-outer-color-control">
+              <button
+                type="button"
+                className={uiStyles.button}
+                aria-label="Automatic outer pane text color"
+                aria-pressed={theme.outerPane.text === null}
+                onClick={() => controller.setOuterPane({ text: null })}
+              >Automatic</button>
+              <ThemeColorPicker
+                label="Outer pane text color"
+                value={outerColors.text ?? (theme.resolved === 'dark' ? '#c8ccd8' : '#353a4e')}
+                onChange={(text) => controller.setOuterPane({ text })}
+              />
+            </div>
+          </SettingsRow>
+          <SettingsRow
+            label="Reset outer pane"
+            description="Restore the theme's outer appearance."
+            disabled={controller.isOuterPaneDefault()}
+            onClick={() => controller.resetOuterPane()}
+          >
+            <span className="theme-reset-action"><RotateCcw size={13} />Reset</span>
           </SettingsRow>
         </div>
       </section>
@@ -348,6 +495,7 @@ const themeClient: BrowserPlugin<ThemeConfig> = (ctx, config) => {
     group: 'Personal',
     keywords: [
       'appearance',
+      'theme',
       'dark',
       'light',
       'system',
@@ -357,6 +505,18 @@ const themeClient: BrowserPlugin<ThemeConfig> = (ctx, config) => {
       'code',
       'syntax',
       'diff',
+      'outer',
+      'background',
+      'black',
+      'glass',
+      'solid',
+      'transparency',
+      'text',
+      'font',
+      'texture',
+      'dots',
+      'grid',
+      'pattern',
     ],
     order: 30,
     icon: ThemeIcon,

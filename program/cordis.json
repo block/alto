@@ -386,14 +386,15 @@
             {
               "id": "theme",
               "name": "Color Themes",
-              "description": "Controls Alto's appearance mode, chrome palette, shared code colors, and accent.",
+              "description": "Controls Alto's theme, background textures, code colors, and accent.",
               "client": "plugins/theme.client.tsx",
               "enabled": true,
               "config": {
                 "defaultMode": "system",
                 "defaultAccent": "#7c3aed",
                 "defaultChrome": "alto",
-                "defaultCode": "alto"
+                "defaultCode": "alto",
+                "defaultOuterPane": { "texture": "auto" }
               }
             },
             {

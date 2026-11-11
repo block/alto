@@ -21,7 +21,8 @@
        antialiased again by the corner cutout. */
     --workspace-sheet-edge: 0px;
     --workspace-sheet-shadow: 0 1px 12px rgb(0 0 0 / 8%), 0 0 3px rgb(0 0 0 / 4%);
-    background: var(--workspace-material-tint, color-mix(in srgb, var(--panel-solid) 16%, transparent));
+    --workspace-chrome-texture-image: none;
+    background-color: var(--workspace-material-tint, color-mix(in srgb, var(--panel-solid) 16%, transparent));
   }
 
   html[data-desktop-platform='darwin'] :is(.workspace-tabbar, .vertical-tab-rail) {

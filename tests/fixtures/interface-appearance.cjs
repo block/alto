@@ -95,6 +95,8 @@ async function check() {
       window.click=selector=>flushSync(()=>document.querySelector(selector).click());
       window.input=(selector,value)=>flushSync(()=>{const element=document.querySelector(selector);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(element,value);element.dispatchEvent(new Event('input',{bubbles:true}))});
       window.nav=label=>flushSync(()=>[...document.querySelectorAll('.program-modal-nav-item')].find(element=>element.textContent===label).click());
+      window.selectTheme=value=>flushSync(()=>{const select=document.querySelector('select[aria-label="Theme palette"]');select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}))});
+      window.selectTexture=value=>flushSync(()=>{const select=document.querySelector('select[aria-label="Outer pane texture"]');select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}))});
       window.setTheme=(mode,accent)=>{document.documentElement.dataset.altoTheme=mode;document.documentElement.style.setProperty('--alto-theme-accent',accent)};
       window.disableWorkspaceAppearance=()=>flushSync(()=>workspaceOwner.dispose());
       window.styleIds=()=>[...styles.keys()];
@@ -111,13 +113,17 @@ async function check() {
           shell:token(document.getElementById('root'),'--accent'),body:token(document.getElementById('accent-body-portal'),'--accent'),
           material:token(document.querySelector('.workspace-layout-root'),'--workspace-material-tint'),chrome:token(document.querySelector('.workspace-layout-root'),'--workspace-chrome'),
           focus:token(composer,'--composer-focus-outline'),runtime:document.getElementById('accent-body-portal').dataset.theme,
-          native:[...document.querySelectorAll('#accent-body-portal input,select[aria-label="Chrome palette"],input[aria-label="Custom accent color"]')].map(element=>getComputedStyle(element).accentColor==='auto'?'auto':rgba(getComputedStyle(element).accentColor)),
+          native:[...document.querySelectorAll('#accent-body-portal input,select[aria-label="Theme palette"],input[aria-label="Custom accent color"]')].map(element=>getComputedStyle(element).accentColor==='auto'?'auto':rgba(getComputedStyle(element).accentColor)),
           selection:rgba(getComputedStyle(document.querySelector('#accent-body-portal a'),'::selection').backgroundColor),
           stored:JSON.parse(localStorage.getItem(THEME_STORAGE_KEY)),restored:new ThemeController().snapshot(),
           caret:getSelection().anchorNode===accentCaret.text&&getSelection().focusNode===accentCaret.text&&getSelection().anchorOffset===accentCaret.start&&getSelection().focusOffset===accentCaret.end,
           focusApplied:getComputedStyle(composer).boxShadow.includes(getComputedStyle(probe).color)};
         probe.remove();return result;
       };
+      window.outerPreferences=()=>({stored:JSON.parse(localStorage.getItem(THEME_STORAGE_KEY)),restored:new ThemeController().snapshot(),
+        material:document.documentElement.dataset.altoOuterMaterial,background:document.documentElement.dataset.altoOuterBackground,text:document.documentElement.dataset.altoOuterText,
+        texture:document.documentElement.dataset.altoOuterTexture,
+        backgroundColor:document.documentElement.style.getPropertyValue('--alto-outer-background'),textColor:document.documentElement.style.getPropertyValue('--alto-outer-text')});
       window.samples=selectors=>{
         const canvas=document.createElement('canvas'),context=canvas.getContext('2d');canvas.width=canvas.height=1;
         const rgba=color=>{context.clearRect(0,0,1,1);context.fillStyle=color;context.fillRect(0,0,1,1);const value=[...context.getImageData(0,0,1,1).data];value[3]/=255;return value};
@@ -130,13 +136,13 @@ async function check() {
           const foreground=rgba(style.color);foreground[3]*=chain.reduce((result,current)=>result*Number(current.opacity),1);
           const outside=(parseFloat(style.outlineOffset)>=0?chain.slice(0,-1):chain).reduce((result,current)=>over(rgba(current.backgroundColor),result),[255,255,255,1]);
           const box=element.getBoundingClientRect();return[selector,{color:rgba(style.color),fill:rgba(style.backgroundColor),border:rgba(style.borderTopColor),outline:rgba(style.outlineColor),
-            radius:style.borderTopLeftRadius,shadow:style.boxShadow,font:style.fontFamily,size:style.fontSize,weight:style.fontWeight,opacity:style.opacity,
+            radius:style.borderTopLeftRadius,shadow:style.boxShadow,backdrop:style.backdropFilter,font:style.fontFamily,size:style.fontSize,weight:style.fontWeight,opacity:style.opacity,
             contrast:contrast(over(foreground,background),background),borderWidth:parseFloat(style.borderTopWidth),borderContrast:contrast(over(rgba(style.borderTopColor),outside),outside),outlineWidth:parseFloat(style.outlineWidth),outlineStyle:style.outlineStyle,outlineContrast:contrast(over(rgba(style.outlineColor),outside),outside),
             x:box.x,right:box.right,width:box.width,backgroundImage:style.backgroundImage}]}));
       };
       window.bounds=selector=>{const box=document.querySelector(selector).getBoundingClientRect(),workspace=document.querySelector('.fixture-workspace>main').getBoundingClientRect();return{left:box.left,right:box.right,top:box.top,bottom:box.bottom,width:innerWidth,height:innerHeight,scroll:document.documentElement.scrollWidth,workspaceLeft:workspace.left,workspaceRight:workspace.right,workspaceWidth:workspace.width}};
       window.geometry=selector=>{const element=document.querySelector(selector),style=getComputedStyle(element);return{padding:[style.paddingTop,style.paddingRight,style.paddingBottom,style.paddingLeft],gap:style.columnGap,minHeight:style.minHeight,height:element.getBoundingClientRect().height,direction:style.flexDirection}};
-      window.settingsRowBounds=()=>[...document.querySelectorAll('.settings-row')].map(row=>{const copy=row.querySelector('.settings-row-copy'),control=row.querySelector('.settings-row-control'),style=getComputedStyle(row);return{label:copy.querySelector('strong').textContent,row:row.getBoundingClientRect().toJSON(),inset:[parseFloat(style.paddingLeft),parseFloat(style.paddingRight)],copy:copy.getBoundingClientRect().toJSON(),control:control.getBoundingClientRect().toJSON(),fields:[...control.querySelectorAll('select,textarea,input:not([type=color]),.theme-mode-picker,.theme-palette-control,.theme-accent-control,.theme-accent-presets,.theme-color-picker')].map(field=>({name:field.className||field.tagName,box:field.getBoundingClientRect().toJSON()})),direction:style.flexDirection,interactive:row.classList.contains('is-interactive'),copyWidth:copy.clientWidth,copyScroll:copy.scrollWidth}});
+      window.settingsRowBounds=()=>[...document.querySelectorAll('.settings-row')].map(row=>{const copy=row.querySelector('.settings-row-copy'),control=row.querySelector('.settings-row-control'),style=getComputedStyle(row);return{label:copy.querySelector('strong').textContent,row:row.getBoundingClientRect().toJSON(),inset:[parseFloat(style.paddingLeft),parseFloat(style.paddingRight)],copy:copy.getBoundingClientRect().toJSON(),control:control.getBoundingClientRect().toJSON(),fields:[...control.querySelectorAll('select,textarea,input:not([type=color]),.theme-mode-picker,.theme-palette-control,.theme-accent-control,.theme-accent-presets,.theme-color-picker,.theme-outer-color-control')].map(field=>({name:field.className||field.tagName,box:field.getBoundingClientRect().toJSON()})),direction:style.flexDirection,interactive:row.classList.contains('is-interactive'),copyWidth:copy.clientWidth,copyScroll:copy.scrollWidth}});
       window.reach=(selector,scroll=true)=>{const element=document.querySelector(selector);if(scroll){element.scrollIntoView({block:'end',inline:'nearest'});for(let parent=element.parentElement;parent;parent=parent.parentElement)if(/auto|scroll/.test(getComputedStyle(parent).overflowY))parent.scrollTop=parent.scrollHeight;}const box=element.getBoundingClientRect(),clips=[];
         for(let parent=element.parentElement;parent;parent=parent.parentElement){const style=getComputedStyle(parent);if(/auto|scroll|hidden|clip/.test(style.overflowY)){const clip=parent.getBoundingClientRect();clips.push({top:clip.top,bottom:clip.bottom,scroll:parent.scrollTop,max:parent.scrollHeight-parent.clientHeight})}}
         return{top:box.top,bottom:box.bottom,height:innerHeight,clips};};
@@ -259,7 +265,7 @@ async function check() {
     for (const mode of ['light', 'dark']) {
       await run(`click('.theme-mode-picker button:nth-child(${mode === 'light' ? 2 : 3})')`)
       for (const [label, accent, channel, chrome] of [['Green', '#16a34a', 1, 'alto'], ['Orange', '#ea580c', 0, 'ink']]) {
-        await run(`click('button[aria-label="${label} accent"]');(()=>{const select=document.querySelector('select[aria-label="Chrome palette"]');select.value=${JSON.stringify(chrome)};select.dispatchEvent(new Event('change',{bubbles:true}))})()`)
+        await run(`click('button[aria-label="${label} accent"]');selectTheme(${JSON.stringify(chrome)})`)
         await settleGeometry()
         const values = await run('accentValues()')
         const expected = accent.slice(1).match(/../g).map(value => parseInt(value, 16)).concat(1)
@@ -293,8 +299,113 @@ async function check() {
       await run(`input('.program-modal-search input','appearance');remember('.program-modal-search input','accentSettings');rememberAccentCaret()`)
       await settleGeometry()
     }
+
+    await run(`selectTheme('alto')`)
+    await settleGeometry()
+    assert.equal(await run(`document.querySelector('select[aria-label="Theme palette"]').closest('.settings-row').querySelector('strong').textContent`), 'Theme', 'The palette is presented as a theme choice')
+    assert.equal(await run(`document.querySelector('button[aria-label="Black outer pane"],button[aria-label="Theme outer pane background"]')===null`), true, 'Background controls do not duplicate the theme choices')
+    const innerSelectors = ['.composer', '[data-cordis-composer-editor]', '.send-button', '#accent-body-portal a', '#accent-body-portal button']
+    const innerPaint = measured => Object.fromEntries(innerSelectors.map(selector => [selector,
+      Object.fromEntries(['color', 'fill', 'border', 'outline', 'shadow', 'backdrop', 'radius', 'font', 'size', 'width'].map(property => [property, measured[selector][property]]))]))
+    const originalInnerPaint = innerPaint(await sample(innerSelectors))
+    const originalTheme = (await run('outerPreferences()')).restored
+    const defaultOuter = { material: 'glass', background: null, text: null, texture: 'auto' }
+    const assertOuterStored = async (expected, palette = 'black') => {
+      const values = await run('outerPreferences()')
+      assert.deepEqual(values.stored.outerPane, expected, 'Actual outer controls persist their preferences')
+      assert.deepEqual(values.restored.outerPane, expected, 'A fresh controller restores the same outer preferences')
+      const renderedTexture = expected.texture === 'auto' ? { glass: 'none', solid: 'dots' }[expected.material] : expected.texture
+      assert.equal(values.texture, renderedTexture, 'The effective texture follows the surface without rewriting the saved choice')
+      assert.deepEqual([values.stored.chrome, values.restored.chrome], [palette, palette], 'A fresh controller restores the selected theme palette')
+      assert.deepEqual([values.restored.mode, values.restored.accent, values.restored.code],
+        [originalTheme.mode, originalTheme.accent, originalTheme.code], 'Outer controls preserve mode, accent, and syntax preferences')
+      assert.deepEqual(innerPaint(await sample(innerSelectors)), originalInnerPaint, 'Outer appearance leaves Composer glass, controls, text, and portal content unchanged')
+      assert.ok((await run('accentValues()')).caret && await run(`preserved('[data-cordis-composer-editor]','originalEditor')`), 'Outer appearance preserves the mounted Composer, draft, and selection')
+      return values
+    }
+    await run(`selectTheme('black')`)
+    await settleGeometry()
+    let outer = await assertOuterStored(defaultOuter)
+    assert.deepEqual([outer.material, outer.background, outer.text, outer.backgroundColor, outer.textColor],
+      ['glass', 'custom', 'custom', '#000000', '#ffffff'], 'Black theme supplies black and automatic light text without changing the surface choice')
+    await run(`click('[aria-label="Outer pane surface"] button:nth-child(2)')`)
+    await settleGeometry()
+    await assertOuterStored({ ...defaultOuter, material: 'solid' })
+    await run(`click('[aria-label="Outer pane surface"] button:first-child')`)
+    await settleGeometry()
+    await assertOuterStored(defaultOuter)
+    await run(`click('[aria-label="Outer pane surface"] button:nth-child(2)')`)
+    await settleGeometry()
+    await assertOuterStored({ ...defaultOuter, material: 'solid' })
+    const blackPaint = await run('accentValues()')
+    assert.deepEqual([blackPaint.chrome, blackPaint.material], [[0, 0, 0, 1], [0, 0, 0, 1]], 'Black theme with a solid surface supplies opaque black chrome and material colors')
+    await artifact('settings-outer-solid-black')
+
+    await run(`input('input[aria-label="Outer pane text color"]','#cceeff');input('input[aria-label="Outer pane background color"]','#234456')`)
+    await settleGeometry()
+    outer = await assertOuterStored({ ...defaultOuter, material: 'solid', background: '#234456', text: '#cceeff' })
+    assert.equal(outer.textColor, '#cceeff', 'The custom outer text color is published')
+    await run(`selectTheme('alto')`)
+    await settleGeometry()
+    outer = await assertOuterStored({ ...defaultOuter, material: 'solid', text: '#cceeff' }, 'alto')
+    assert.equal(outer.background, undefined, 'Selecting another theme clears a custom background override')
+    await run(`selectTheme('black');key('.program-modal-search input','Escape');openSettings();nav('Appearance');rememberAccentCaret()`)
+    await settleGeometry()
+    await assertOuterStored({ ...defaultOuter, material: 'solid', text: '#cceeff' })
+    assert.equal(await run(`document.querySelector('select[aria-label="Theme palette"]').value`), 'black', 'Reopening Settings retains Black as the selected theme')
+    assert.equal(await run(`document.querySelector('input[aria-label="Outer pane background color"]').value`), '#000000', 'The background picker displays the resolved theme color')
+    assert.equal(await run(`document.querySelector('input[aria-label="Outer pane text color"]').value`), '#cceeff', 'Reopening Settings retains the custom outer text color')
+    assert.equal(await run(`document.querySelector('[aria-label="Outer pane surface"] button:nth-child(2)').getAttribute('aria-checked')`), 'true', 'Reopening Settings retains the solid surface selection')
+
+    await run(`click('button[aria-label="Automatic outer pane text color"]');click('[aria-label="Outer pane surface"] button:first-child')`)
+    await settleGeometry()
+    await assertOuterStored(defaultOuter)
+    await run(`input('input[aria-label="Outer pane background color"]','#ffffff')`)
+    await settleGeometry()
+    outer = await assertOuterStored({ ...defaultOuter, background: '#ffffff' })
+    assert.equal(outer.textColor, '#000000', 'Automatic text follows an explicit background override')
+    await run(`click('button[aria-label="Reset outer pane background"]')`)
+    await settleGeometry()
+    outer = await assertOuterStored(defaultOuter)
+    assert.deepEqual([outer.material, outer.background, outer.text, outer.backgroundColor, outer.textColor],
+      ['glass', 'custom', 'custom', '#000000', '#ffffff'], 'Resetting the background restores Black from the theme')
+
+    await run(`click('[aria-label="Outer pane surface"] button:nth-child(2)');input('input[aria-label="Outer pane text color"]','#cceeff');click('.theme-outer-pane-card .settings-row:last-child')`)
+    await settleGeometry()
+    await assertOuterStored(defaultOuter)
+    assert.equal(await run(`document.querySelector('.theme-outer-pane-card .settings-row:last-child').disabled`), true, 'Resetting only the outer pane returns its controls to default')
+    assert.deepEqual(await run(`Array.from(document.querySelector('select[aria-label="Outer pane texture"]').options,option=>[option.value,option.textContent])`),
+      [['auto', 'Automatic'], ['none', 'None'], ['dots', 'Dots'], ['grid', 'Grid'], ['lines', 'Diagonal lines']], 'The texture control distinguishes automatic and explicit choices')
+    for (const texture of ['grid', 'lines', 'dots']) {
+      await run(`selectTexture(${JSON.stringify(texture)})`)
+      await settleGeometry()
+      await assertOuterStored({ ...defaultOuter, texture })
+    }
+    await run(`key('.program-modal-search input','Escape');openSettings();nav('Appearance');rememberAccentCaret()`)
+    await settleGeometry()
+    assert.equal(await run(`document.querySelector('select[aria-label="Outer pane texture"]').value`), 'dots', 'Reopening Settings retains explicit dots on glass')
+    await run(`click('[aria-label="Outer pane surface"] button:nth-child(2)')`)
+    await settleGeometry()
+    await assertOuterStored({ ...defaultOuter, material: 'solid', texture: 'dots' })
+    await run(`click('[aria-label="Outer pane surface"] button:first-child')`)
+    await settleGeometry()
+    await assertOuterStored({ ...defaultOuter, texture: 'dots' })
+    await run(`selectTheme('alto')`)
+    await settleGeometry()
+    await assertOuterStored({ ...defaultOuter, texture: 'dots' }, 'alto')
+    await run(`selectTexture('none');click('[aria-label="Outer pane surface"] button:nth-child(2)')`)
+    await settleGeometry()
+    await assertOuterStored({ ...defaultOuter, material: 'solid', texture: 'none' }, 'alto')
+    await run(`click('[aria-label="Outer pane surface"] button:first-child')`)
+    await settleGeometry()
+    await assertOuterStored({ ...defaultOuter, texture: 'none' }, 'alto')
+    await run(`click('.theme-outer-pane-card .settings-row:last-child')`)
+    await settleGeometry()
+    outer = await assertOuterStored(defaultOuter, 'alto')
+    assert.equal(await run(`document.querySelector('select[aria-label="Outer pane texture"]').value`), 'auto', 'Resetting outer appearance restores Automatic')
+    assert.deepEqual([outer.background, outer.text, outer.backgroundColor, outer.textColor], [undefined, undefined, '', ''], 'An automatic normal theme removes its resolved color overrides')
     await run(`click('.theme-settings-card .settings-row:last-child');key('.program-modal-search input','Escape')`)
-    console.log('Real Settings accent propagation, persistence, and Composer retention checks passed')
+    console.log('Real Settings accent and outer pane propagation, persistence, and Composer retention checks passed')
 
     await setSentinels(true)
     for (const [property, token] of [['color', '--ui-text'], ['fill', '--ui-control-fill'], ['radius', '--ui-control-radius'], ['font', '--ui-font'], ['size', '--ui-size'], ['weight', '--ui-weight']]) await assertRole('#menu-trigger', property, token)
@@ -404,7 +515,7 @@ async function check() {
         }
       }
       await run(`nav('Appearance')`)
-      await contrast(['.settings-row-copy strong', '.settings-row-copy small', 'select[aria-label="Chrome palette"]', '.theme-mode-picker button.active'], 4.5, mode + ' real Appearance settings')
+      await contrast(['.settings-row-copy strong', '.settings-row-copy small', 'select[aria-label="Theme palette"]', '.theme-mode-picker button.active'], 4.5, mode + ' real Appearance settings')
       for (const width of [1100, 390]) {
         win.setContentSize(width, 800)
         await settle()
@@ -527,7 +638,7 @@ async function check() {
       await assertDialogFits('.program-modal')
       await assertFieldsFit('.program-modal', '.program-modal-search,.settings-row select,.theme-mode-picker')
       await assertSettingsClearance(width < 480)
-      await assertReachable('.theme-settings-card .settings-row:last-child')
+      await assertReachable('.theme-outer-pane-card .settings-row:last-child')
       await artifact(`settings-short-${width}x${height}`)
       await run(`nav('Workspaces');click('button[aria-label="Add workspace"]')`)
       await settleGeometry()

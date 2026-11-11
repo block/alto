@@ -128,6 +128,7 @@ describe('program profile metadata', () => {
       defaultAccent: '#7c3aed',
       defaultChrome: 'alto',
       defaultCode: 'alto',
+      defaultOuterPane: { texture: 'auto' },
     })
   })
 })

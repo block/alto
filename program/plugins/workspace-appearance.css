@@ -14,9 +14,13 @@
   --workspace-control-pressed: var(--ui-glass-control-pressed, color-mix(in srgb, var(--panel-solid) 55%, transparent));
   --workspace-chrome: var(--workspace-surface-chrome);
   /* Keep the accent wash stable while the neutral backing softens dark
-     backdrops. About 53% of the native material remains visible. */
+     backdrops. About 26% of the native material remains visible. */
   --workspace-material-tint: color-mix(in srgb, var(--accent) 12%,
-    color-mix(in srgb, var(--workspace-surface-raised) 40%, transparent));
+    color-mix(in srgb, var(--workspace-surface-raised) 70%, transparent));
+  --workspace-outer-texture-ink: color-mix(in srgb, var(--workspace-chrome-ink) 6%, transparent);
+  --workspace-outer-texture-image: none;
+  --workspace-outer-texture-size: var(--space-4) var(--space-4);
+  --workspace-chrome-texture-image: var(--workspace-outer-texture-image);
   --workspace-column-width: var(--composer-content-width);
   --workspace-column-gutter: var(--composer-content-gutter);
   --workspace-column-inset: max(var(--workspace-column-gutter), calc((100% - var(--workspace-column-width)) / 2));
@@ -36,10 +40,97 @@ html[data-alto-theme='dark'] .workspace-layout-root {
   --workspace-surface-chrome: color-mix(in srgb, var(--accent) 10%, var(--workspace-chrome-neutral));
   --workspace-material-tint: color-mix(in srgb, var(--workspace-surface-chrome) 95%, transparent);
   --workspace-chrome-ink: var(--text);
-  --workspace-control-hover: color-mix(in srgb, var(--workspace-chrome-ink) 7%, transparent);
-  --workspace-control-selected: color-mix(in srgb, var(--workspace-chrome-ink) 14%, transparent);
-  --workspace-control-pressed: color-mix(in srgb, var(--workspace-chrome-ink) 18%, transparent);
+  --workspace-control-hover: color-mix(in srgb, var(--text) 7%, transparent);
+  --workspace-control-selected: color-mix(in srgb, var(--text) 14%, transparent);
+  --workspace-control-pressed: color-mix(in srgb, var(--text) 18%, transparent);
   --workspace-chrome: var(--workspace-surface-chrome);
+}
+
+/* Outer-pane choices change the frame paint, leaving the content palette and
+   the Composer's independent glass material intact. */
+html[data-alto-outer-background='custom'] .workspace-layout-root {
+  --workspace-surface-chrome: var(--alto-outer-background);
+}
+
+html[data-alto-outer-material='glass'][data-alto-outer-background='custom'] .workspace-layout-root {
+  --workspace-material-tint: color-mix(in srgb, var(--workspace-surface-chrome) 73.6%, transparent);
+}
+
+html[data-alto-theme='dark'][data-alto-outer-material='glass'][data-alto-outer-background='custom'] .workspace-layout-root {
+  --workspace-material-tint: color-mix(in srgb, var(--workspace-surface-chrome) 95%, transparent);
+}
+
+html[data-alto-outer-material='solid'] .workspace-layout-root {
+  --workspace-material-tint: var(--workspace-surface-chrome);
+}
+
+html[data-alto-outer-text='custom'] .workspace-layout-root {
+  --workspace-chrome-ink: var(--alto-outer-text);
+  /* Floating menus can be children of a title bar. Preserve their content
+     roles before the outer controls receive the chosen foreground. */
+  --workspace-content-text: var(--text);
+  --workspace-content-strong: var(--text-strong);
+  --workspace-content-muted: var(--muted);
+  --workspace-content-dim: var(--dim);
+  --workspace-content-ui-text: var(--ui-text);
+  --workspace-content-ui-strong: var(--ui-text-strong);
+  --workspace-content-ui-secondary: var(--ui-text-secondary);
+  --workspace-content-ui-focus: var(--ui-focus);
+  --workspace-content-control-hover: var(--workspace-control-hover);
+  --workspace-content-control-selected: var(--workspace-control-selected);
+  --workspace-content-control-pressed: var(--workspace-control-pressed);
+}
+
+/* Static marks share one viewport origin. Opaque fallback chrome repeats the
+   same paint; native transparent chrome exposes the root's single layer. */
+@media (forced-colors: none) {
+  html[data-alto-outer-texture='dots'] .workspace-layout-root {
+    --workspace-outer-texture-ink: color-mix(in srgb, var(--workspace-chrome-ink) 14%, transparent);
+    --workspace-outer-texture-image: radial-gradient(circle,
+      var(--workspace-outer-texture-ink) calc(var(--space-1) / 4),
+      transparent calc(var(--space-1) / 3));
+  }
+
+  html[data-alto-outer-texture='grid'] .workspace-layout-root {
+    --workspace-outer-texture-image:
+      linear-gradient(var(--workspace-outer-texture-ink) calc(var(--space-1) / 4), transparent calc(var(--space-1) / 4)),
+      linear-gradient(90deg, var(--workspace-outer-texture-ink) calc(var(--space-1) / 4), transparent calc(var(--space-1) / 4));
+    --workspace-outer-texture-size: calc(4 * var(--space-2)) calc(4 * var(--space-2));
+  }
+
+  html[data-alto-outer-texture='lines'] .workspace-layout-root {
+    --workspace-outer-texture-image: repeating-linear-gradient(135deg,
+      var(--workspace-outer-texture-ink) 0 calc(var(--space-1) / 4),
+      transparent calc(var(--space-1) / 4) var(--space-4));
+    --workspace-outer-texture-size: auto;
+  }
+
+  html:is([data-alto-outer-texture='dots'], [data-alto-outer-texture='grid'], [data-alto-outer-texture='lines']) .workspace-layout-root {
+    background-image: var(--workspace-outer-texture-image);
+    background-size: var(--workspace-outer-texture-size);
+    background-attachment: fixed;
+  }
+
+  html:is([data-alto-outer-texture='dots'], [data-alto-outer-texture='grid'], [data-alto-outer-texture='lines']) :is(.workspace-tabbar, .vertical-tab-rail),
+  html:is([data-alto-outer-texture='dots'], [data-alto-outer-texture='grid'], [data-alto-outer-texture='lines']) .workspace-body[data-tab-orientation='vertical'] :is(
+    .workspace-chat-pane:not(.workspace-typed-pane) > .workspace-pane-header,
+    .workspace-typed-pane-content > .alto-pane > .alto-pane-header,
+    .workspace-typed-pane:not(:has(.alto-pane-header)) > .workspace-pane-header
+  ):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) {
+    background-image: var(--workspace-chrome-texture-image);
+    background-size: var(--workspace-outer-texture-size);
+    background-attachment: fixed;
+  }
+
+  /* Retain the fallback corner's existing inverse circle while the pattern
+     crosses it. Native material suppresses this overlay with content: none. */
+  html:is([data-alto-outer-texture='dots'], [data-alto-outer-texture='grid'], [data-alto-outer-texture='lines']) .workspace-body[data-tab-orientation='vertical'] > .workspace-views > .workspace-view::after {
+    background: var(--workspace-chrome);
+    background-image: var(--workspace-chrome-texture-image);
+    background-size: var(--workspace-outer-texture-size);
+    background-attachment: fixed;
+    mask-image: radial-gradient(circle at 100% 100%, transparent calc(var(--workspace-sheet-radius) - 0.5px), #000 var(--workspace-sheet-radius));
+  }
 }
 
 .workspace-layout-root .activity-user:not(.activity-source-edit) {
@@ -127,6 +218,56 @@ html[data-alto-theme='dark'] .workspace-layout-root {
   .alto-pane-header
 ):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) :is(button, a):focus-visible {
   outline-color: var(--workspace-chrome-ink);
+}
+
+/* Keep every tab state and outer title/control readable on a custom frame.
+   The same small foreground overlays work on black and pale backgrounds. */
+html[data-alto-outer-text='custom'] :is(.workspace-tabbar, .vertical-tab-rail),
+html[data-alto-outer-text='custom'] .workspace-body[data-tab-orientation='vertical'] :is(
+  .workspace-pane-header,
+  .alto-pane-header
+):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) {
+  --text: var(--workspace-chrome-ink);
+  --text-strong: var(--workspace-chrome-ink);
+  --workspace-control-hover: color-mix(in srgb, var(--workspace-chrome-ink) 7%, transparent);
+  --workspace-control-selected: color-mix(in srgb, var(--workspace-chrome-ink) 14%, transparent);
+  --workspace-control-pressed: color-mix(in srgb, var(--workspace-chrome-ink) 18%, transparent);
+  color: var(--workspace-chrome-ink);
+}
+
+html[data-alto-outer-text='custom'] :is(.workspace-tabbar, .vertical-tab-rail) .workspace-tab-name-input,
+html[data-alto-outer-text='custom'] .workspace-body[data-tab-orientation='vertical'] :is(
+  .workspace-pane-header,
+  .alto-pane-header
+):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) .workspace-pane-title-input {
+  --ui-field-border: color-mix(in srgb, var(--workspace-chrome-ink) 24%, transparent);
+  color: var(--workspace-chrome-ink);
+  background: color-mix(in srgb, var(--workspace-chrome-ink) 6%, transparent);
+}
+
+html[data-alto-outer-text='custom'] :is(.workspace-tabbar, .vertical-tab-rail) :is([role='menu'], [role='dialog'], .alto-floating-panel),
+html[data-alto-outer-text='custom'] .workspace-body[data-tab-orientation='vertical'] :is(
+  .workspace-pane-header,
+  .alto-pane-header
+):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) :is([role='menu'], [role='dialog'], .alto-floating-panel) {
+  --workspace-chrome-ink: var(--workspace-content-ui-text);
+  --text: var(--workspace-content-text);
+  --text-strong: var(--workspace-content-strong);
+  --muted: var(--workspace-content-muted);
+  --dim: var(--workspace-content-dim);
+  --text-muted: var(--workspace-content-muted);
+  --text-secondary: var(--workspace-content-ui-secondary);
+  --text-supporting: var(--workspace-content-ui-secondary);
+  --alto-button-color: var(--workspace-content-ui-text);
+  --accent-focus: var(--workspace-content-ui-focus);
+  --ui-text: var(--workspace-content-ui-text);
+  --ui-text-strong: var(--workspace-content-ui-strong);
+  --ui-text-secondary: var(--workspace-content-ui-secondary);
+  --ui-focus: var(--workspace-content-ui-focus);
+  --workspace-control-hover: var(--workspace-content-control-hover);
+  --workspace-control-selected: var(--workspace-content-control-selected);
+  --workspace-control-pressed: var(--workspace-content-control-pressed);
+  color: var(--workspace-content-ui-text);
 }
 
 /* The composer's existing round geometry guides surfaces and controls.

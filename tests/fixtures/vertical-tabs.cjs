@@ -22,6 +22,7 @@ async function check() {
       import interfaceAppearancePlugin from './program/plugins/interface-appearance.client';
       import verticalHotkeysPlugin from './program/plugins/hotkeys-vertical-tabs.client';
       import {HotkeysService} from './program/plugins/hotkeys.client';
+      import {ThemeController} from './program/plugins/theme.client';
       import {parseWorkspaceLayout} from './program/plugins/workspace-layout-state';
       let saved={version:2,activeViewId:'a',views:['Alto','Incident review with a long name','Design','Review','Shell'].map((name,i)=>{
         const id=String.fromCharCode(97+i);return {id,name,workspace:'/repo',focusedPaneId:'pane-'+id,root:{type:'pane',id:'pane-'+id,workspace:'/repo',kind:id==='e'?'terminal':'test'}};
@@ -146,6 +147,7 @@ async function check() {
           minimap:{display:getComputedStyle(pane.querySelector('.scrollback-minimap')).display,box:box('.scrollback-minimap'),track:box('.scrollback-track'),tick:box('.scrollback-tick'),fill:{left:fillLeft,right:fillLeft+parseFloat(fill.width)}}};
       });
       window.teardown=()=>{hotkeys.dispose();flushSync(()=>root.unmount());controls.disable()};
+      window.beginOuterAppearance=()=>{window.outerTheme=new ThemeController();window.endOuterAppearance=outerTheme.activate()};
       window.boot();
     ` },
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
@@ -163,10 +165,10 @@ async function check() {
     await run("document.querySelectorAll('.vertical-tab-rail, .workspace-tabs, .pane-tabs').forEach(el=>el.getAnimations({subtree:true}).forEach(animation=>animation.finish()))")
     await settle()
   }
-  const capture = async name => {
-    if (!process.env.ALTO_VERTICAL_TABS_ARTIFACT_DIR) return
-    await fs.mkdir(process.env.ALTO_VERTICAL_TABS_ARTIFACT_DIR, { recursive: true })
-    await fs.writeFile(path.join(process.env.ALTO_VERTICAL_TABS_ARTIFACT_DIR, name + '.png'), (await window.webContents.capturePage()).toPNG())
+  const capture = async (name, directory = process.env.ALTO_VERTICAL_TABS_ARTIFACT_DIR) => {
+    if (!directory) return
+    await fs.mkdir(directory, { recursive: true })
+    await fs.writeFile(path.join(directory, name + '.png'), (await window.webContents.capturePage()).toPNG())
   }
   const assertTabGeometry = async label => {
     const measured = await run('tabGeometry()')
@@ -364,6 +366,28 @@ async function check() {
         label + ': title band and lower split header colors ' + JSON.stringify({ header, expectedHeader }))
       assert.deepEqual(pixel(pane.body), pane.expected, label + ': opaque content body ' + JSON.stringify(pane))
     }
+  }
+  const assertSolidOuterPixels = async (orientation, label) => {
+    const points = await run(`(() => {
+      const host=document.querySelector(${JSON.stringify(orientation === 'vertical' ? '.vertical-tab-rail' : '.workspace-tabbar')}),rect=host.getBoundingClientRect();
+      const points={chrome:[rect.left+2,rect.top+2]};
+      if(${JSON.stringify(orientation === 'vertical')}){const header=document.querySelector('.workspace-view:not([hidden]) .workspace-pane-header').getBoundingClientRect();points.title=[header.left+2,header.top+2]}
+      return{viewport:[innerWidth,innerHeight],points};
+    })()`)
+    const shot = await window.webContents.capturePage(), size = shot.getSize(), bitmap = shot.toBitmap()
+    for (const [name, [x, y]] of Object.entries(points.points)) {
+      const offset = (Math.floor(y * size.height / points.viewport[1]) * size.width + Math.floor(x * size.width / points.viewport[0])) * 4
+      assert.deepEqual([...bitmap.subarray(offset, offset + 4)], [0, 0, 0, 255], label + ': ' + name + ' paints exact opaque black')
+    }
+  }
+  const outerSurfacePixels = async orientation => {
+    const bounds = await run(`(() => {const rect=document.querySelector(${JSON.stringify(orientation === 'vertical' ? '.vertical-tab-rail' : '.workspace-tabbar')}).getBoundingClientRect();return{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,width:innerWidth,height:innerHeight}})()`)
+    const shot = await window.webContents.capturePage(), size = shot.getSize(), bitmap = shot.toBitmap(), rows = []
+    const left = Math.floor(bounds.left * size.width / bounds.width), right = Math.floor(bounds.right * size.width / bounds.width)
+    for (let y = Math.floor(bounds.top * size.height / bounds.height); y < Math.floor(bounds.bottom * size.height / bounds.height); y++) {
+      rows.push(bitmap.subarray((y * size.width + left) * 4, (y * size.width + right) * 4))
+    }
+    return Buffer.concat(rows)
   }
   const readTabsContrast = (theme, orientation) => {
     // Place representative desktop colors beneath the entire painted DOM
@@ -795,7 +819,7 @@ async function check() {
           const label = theme + ': ' + name + ' ' + orientation
           const glass = await material()
           assertNativeMaterial(glass, label)
-          const materialAlpha = theme === 'dark' ? .95 : .472
+          const materialAlpha = theme === 'dark' ? .95 : .736
           assert.ok(Math.abs(glass.root.alpha - materialAlpha) < .01, label + ': glass uses the theme backing while remaining translucent')
           assert.equal(glass.root.image, 'none', label + ': accent wash adds no gradient')
           if (nativeColor) assert.deepEqual(glass.root.rgba, nativeColor, label + ': both orientations share one tinted material')
@@ -1027,6 +1051,180 @@ async function check() {
       if (shape === 'nested') await run('closePane()')
     }
     assert.equal(await run("originalDraft===document.getElementById('draft-pane-a') && originalDraft.value==='Keep this draft'"), true, 'Split alignment checks retain the original draft')
+
+    // Outer appearance uses the real preference publisher while preserving
+    // the same mounted conversation and actual Composer underneath it.
+    window.setContentSize(1200, 760)
+    await transparencyPreference('no-preference')
+    await run("document.documentElement.dataset.desktopPlatform='darwin';click('[data-workspace-tab=a]');if(!document.querySelector('.vertical-tab-rail'))commandB(true);mountPreview();beginOuterAppearance();window.outerEditor=document.querySelector('[data-cordis-composer-editor]');outerEditor.focus();window.outerDraftText=outerEditor.textContent;window.outerTextNode=document.createTreeWalker(outerEditor,NodeFilter.SHOW_TEXT).nextNode();getSelection().setBaseAndExtent(outerTextNode,3,outerTextNode,8)")
+    const innerAppearance = async () => {
+      await run('document.getAnimations().filter(animation=>Number.isFinite(animation.effect?.getComputedTiming().iterations)).forEach(animation=>animation.finish())')
+      return run(`(() => {
+      const selectors=['.activity-user','.activity-agent .activity-content','.workspace-pane-conversation','.composer','[data-cordis-composer-editor]','.send-button'];
+      return selectors.map(selector=>{const element=document.querySelector(selector),style=getComputedStyle(element);return{selector,
+        paint:[style.color,style.backgroundColor,style.backgroundImage,style.borderColor,style.boxShadow,style.backdropFilter],
+        type:[style.fontFamily,style.fontSize,style.fontWeight],radius:style.borderRadius}});
+      })()`)
+    }
+    const assertOuterInk = async (theme, orientation, color, label) => {
+      const measured = await readTabsContrast(theme, orientation)
+      for (const name of ['normal', 'selected', 'group', 'tool', 'icon']) {
+        if (!measured[name]) continue
+        assert.deepEqual(measured[name].color, color, label + ': ' + name + ' follows the outer text color')
+        assert.ok(measured[name].ratio >= (name === 'icon' ? 3 : 4.5), label + ': readable ' + name)
+      }
+      for (const header of measured.headers) {
+        const expected = header.chrome ? color : header.expectedTitle
+        assert.deepEqual(header.title.color, expected, label + ': titles use their outer or inner text color')
+      }
+    }
+    for (const theme of ['light', 'dark']) {
+      for (const orientation of ['vertical', 'horizontal']) {
+        const label = 'outer-' + theme + '-' + orientation
+        await run(`outerTheme.setMode(${JSON.stringify(theme)});outerTheme.setChrome('alto');outerTheme.resetOuterPane()`)
+        await finishMotion()
+        const baseline = await innerAppearance()
+        await run("outerTheme.setChrome('black')")
+        await finishMotion()
+        assert.deepEqual(await run('outerTheme.snapshot().outerPane'), { material: 'glass', background: null, text: null, texture: 'auto' }, label + ': Black comes from the theme without changing the outer choices')
+        assertNativeMaterial(await material(), label + ': Black retains the chosen glass surface')
+        assert.deepEqual(await innerAppearance(), baseline, label + ': Black keeps the original content and Composer palette')
+        await run("outerTheme.setOuterPane({material:'solid',texture:'none'})")
+        await finishMotion()
+        const solid = await material()
+        assert.deepEqual(solid.root.rgba, [0, 0, 0, 255], label + ': solid black has no accent tint or native transparency')
+        assert.equal(solid.root.image, 'none', label + ': no background image brightens the configured color')
+        await assertOuterInk(theme, orientation, [255, 255, 255, 1], label + ' automatic')
+        for (const backdrop of ['#000000', '#ffffff']) {
+          window.setBackgroundColor(backdrop)
+          await settle()
+          await assertSolidOuterPixels(orientation, label + ' over ' + backdrop)
+        }
+        await run("outerTheme.setOuterPane({text:'#cceeff'})")
+        await finishMotion()
+        await assertOuterInk(theme, orientation, [204, 238, 255, 1], label + ' custom')
+        assert.deepEqual(await innerAppearance(), baseline, label + ': solid/custom text leaves inner glass, fills, text, and shape unchanged')
+        assert.equal(await run("outerEditor===document.querySelector('[data-cordis-composer-editor]')&&outerEditor.textContent===outerDraftText&&getSelection().anchorNode===outerTextNode&&getSelection().anchorOffset===3&&getSelection().focusNode===outerTextNode&&getSelection().focusOffset===8"), true, label + ': the draft and editor selection survive outer changes')
+        await capture(label + '-solid-black')
+        await run("outerTheme.setOuterPane({material:'glass',background:'#234456'})")
+        await finishMotion()
+        const glass = await material()
+        assertNativeMaterial(glass, label + ' custom glass')
+        assert.ok(Math.abs(glass.root.alpha - (theme === 'dark' ? .95 : .736)) < .01, label + ': custom glass keeps the shared theme opacity')
+        assert.deepEqual(await innerAppearance(), baseline, label + ': restoring outer glass leaves the Composer unchanged')
+        await run('commandB(true)')
+        await finishMotion()
+      }
+    }
+    for (const [preference, platform] of [['reduce', 'darwin'], ['no-preference', 'linux']]) {
+      const label = 'solid outer ' + preference + ' ' + platform
+      await transparencyPreference(preference)
+      await run(`document.documentElement.dataset.desktopPlatform=${JSON.stringify(platform)};outerTheme.setChrome('alto');outerTheme.resetOuterPane()`)
+      await settle()
+      const baseline = await innerAppearance()
+      await run("outerTheme.setChrome('black');outerTheme.setOuterPane({material:'solid',texture:'none'})")
+      await settle()
+      assert.deepEqual((await material()).root.rgba, [0, 0, 0, 255], label + ': fallback retains the exact configured color')
+      await assertSolidOuterPixels('vertical', label)
+      assert.deepEqual(await innerAppearance(), baseline, label + ': outer setting preserves the existing accessibility treatment of inner elements')
+    }
+    await transparencyPreference('no-preference')
+    await run("document.documentElement.dataset.desktopPlatform='darwin';outerTheme.setChrome('alto');outerTheme.resetOuterPane();unmountPreview();click('[data-workspace-tab=c]');window.outerSplit=document.querySelector('.workspace-view:not([hidden]) > .workspace-split');outerSplit.classList.replace('workspace-split-horizontal','workspace-split-vertical');mountPreview(true)")
+    await settle()
+    const lowerInk = (await readTabsContrast('dark', 'vertical')).headers.find(header => !header.chrome).title.color
+    await run("outerTheme.setChrome('black');outerTheme.setOuterPane({material:'solid',text:'#cceeff',texture:'none'})")
+    await settle()
+    const splitInk = await readTabsContrast('dark', 'vertical')
+    assert.deepEqual(splitInk.headers.find(header => !header.chrome).title.color, lowerInk, 'Custom outer text does not recolor the lower content header')
+    assert.deepEqual(splitInk.headers.find(header => header.chrome).title.color, [204, 238, 255, 1], 'The top split title uses the custom outer text')
+    await capture('outer-dark-stacked-headers')
+
+    const textureContent = async () => ({
+      inner: await innerAppearance(),
+      lowerHeaders: await run(`Array.from(document.querySelectorAll('.workspace-view:not([hidden]) .workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second :is(.workspace-pane-header,.alto-pane-header)'),element=>{const style=getComputedStyle(element);return[style.color,style.backgroundColor,style.backgroundImage]})`),
+    })
+    await run("outerTheme.setOuterPane({material:'glass',texture:'auto'})")
+    await finishMotion()
+    const clearGlass = await material(), autoContent = await textureContent()
+    assert.equal(clearGlass.root.image, 'none', 'Automatic keeps the glass frame clear')
+    await run("outerTheme.setOuterPane({material:'solid'})")
+    await finishMotion()
+    const automaticDots = await material()
+    assert.notEqual(automaticDots.root.image, 'none', 'Automatic puts visible dots on a solid frame')
+    assert.equal(await run('outerTheme.snapshot().outerPane.texture'), 'auto', 'Changing material preserves the raw Automatic preference')
+    assert.deepEqual(await textureContent(), autoContent, 'Automatic textures preserve the inner surfaces')
+    await run("outerTheme.setOuterPane({material:'glass'})")
+    await finishMotion()
+    const restoredGlass = await material()
+    assert.equal(restoredGlass.root.image, 'none', 'Returning to glass clears the automatic texture')
+    assert.deepEqual(restoredGlass.root.rgba, clearGlass.root.rgba, 'Automatic restores the same glass material')
+    for (const [orientation, surface] of [['vertical', 'solid'], ['horizontal', 'glass']]) {
+      await run(`outerTheme.setOuterPane({material:${JSON.stringify(surface)},texture:'none'})`)
+      await finishMotion()
+      const baseline = await material(), content = await textureContent(), plain = await outerSurfacePixels(orientation), patterns = new Set()
+      for (const texture of ['dots', 'grid', 'lines']) {
+        const label = texture + ' ' + orientation + ' ' + surface
+        await run(`outerTheme.setOuterPane({texture:${JSON.stringify(texture)}})`)
+        await finishMotion()
+        const painted = await material()
+        assert.notEqual(painted.root.image, 'none', label + ': the shared outer surface paints a pattern')
+        if (orientation === 'vertical' && texture === 'dots') assert.equal(painted.root.image, automaticDots.root.image, 'Automatic solid and explicit Dots share the same paint')
+        patterns.add(painted.root.image)
+        assert.deepEqual(painted.root.rgba, baseline.root.rgba, label + ': texture preserves the original material color and opacity')
+        assert.equal((painted.rail ?? painted.bar).image, 'none', label + ': native chrome reveals one shared pattern without duplicating it')
+        assert.ok(!(await outerSurfacePixels(orientation)).equals(plain), label + ': the pattern is visible in the rendered outer pixels')
+        assert.deepEqual(await textureContent(), content, label + ': texture leaves conversation, Composer glass, and lower content headers unchanged')
+        await capture('texture-dark-' + orientation + '-' + texture + '-' + surface)
+      }
+      assert.equal(patterns.size, 3, orientation + ': each texture has distinct paint')
+      await run("outerTheme.setOuterPane({texture:'none'})")
+      await settle()
+      assert.equal((await material()).root.image, 'none', orientation + ': None removes the pattern')
+      await run('commandB(true)')
+      await finishMotion()
+    }
+    await run("window.nestedTextureHeader=document.createElement('section');nestedTextureHeader.hidden=true;nestedTextureHeader.className='alto-pane';nestedTextureHeader.innerHTML='<div class=alto-pane-header>Embedded diff header</div>';document.querySelector('.workspace-view:not([hidden]) .test-terminal .test-pane').append(nestedTextureHeader)")
+    for (const [preference, platform] of [['reduce', 'darwin'], ['no-preference', 'linux']]) {
+      const label = 'texture fallback ' + preference + ' ' + platform
+      await transparencyPreference(preference)
+      await run(`document.documentElement.dataset.desktopPlatform=${JSON.stringify(platform)};outerTheme.setOuterPane({texture:'none'})`)
+      await settle()
+      const baseline = await material(), content = await textureContent(), plain = await outerSurfacePixels('vertical')
+      await run("outerTheme.setOuterPane({texture:'dots'})")
+      await settle()
+      const painted = await material()
+      assert.notEqual((painted.rail ?? painted.bar).image, 'none', label + ': opaque chrome retains its texture')
+      assert.deepEqual(painted.root.rgba, baseline.root.rgba, label + ': texture preserves fallback opacity')
+      assert.ok(!(await outerSurfacePixels('vertical')).equals(plain), label + ': fallback texture is actually rendered')
+      assert.equal(await run("getComputedStyle(nestedTextureHeader.querySelector('.alto-pane-header')).backgroundImage"), 'none', label + ': embedded pane headers retain an untextured content surface')
+      assert.deepEqual(await textureContent(), content, label + ': texture preserves the existing inner accessibility treatment')
+    }
+    await run('nestedTextureHeader.remove()')
+    await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: 'active' }] })
+    await settle()
+    const forced = await material()
+    assert.equal(forced.root.image, 'none', 'Forced colors suppresses decorative outer textures')
+    assert.equal((forced.rail ?? forced.bar).image, 'none', 'Forced colors also suppresses fallback face textures')
+    assert.equal(await run('outerTheme.snapshot().outerPane.texture'), 'dots', 'Accessibility rendering preserves the saved texture choice')
+    if (process.env.ALTO_TEXTURE_ARTIFACT_DIR) {
+      await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: 'none' }, { name: 'prefers-reduced-transparency', value: 'no-preference' }] })
+      await run("document.documentElement.dataset.desktopPlatform='darwin';unmountPreview();click('[data-workspace-tab=a]');mountPreview()")
+      for (const [name, mode, palette, texture, orientation, surface] of [
+        ['light', 'light', 'alto', 'dots', 'vertical', 'solid'],
+        ['dark', 'dark', 'alto', 'auto', 'horizontal', 'glass'],
+        ['black', 'light', 'black', 'dots', 'vertical', 'solid'],
+      ]) {
+        await run(`outerTheme.setMode(${JSON.stringify(mode)});outerTheme.setChrome(${JSON.stringify(palette)});outerTheme.resetOuterPane();outerTheme.setOuterPane({material:${JSON.stringify(surface)},texture:${JSON.stringify(texture)}});if(!!document.querySelector('.vertical-tab-rail')!==${JSON.stringify(orientation === 'vertical')})commandB(true)`)
+        for (const width of [1200, 600]) {
+          window.setContentSize(width, 760)
+          await settle()
+          await finishMotion()
+          await innerAppearance()
+          await capture('texture-' + name + '-' + texture + '-' + orientation + '-' + surface + '-' + width, process.env.ALTO_TEXTURE_ARTIFACT_DIR)
+        }
+      }
+    }
+    await run('unmountPreview();endOuterAppearance()')
     await run('teardown()')
     console.log('Vertical tab browser checks passed')
   } finally {
