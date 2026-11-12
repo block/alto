@@ -1,12 +1,28 @@
 import type { Context } from 'cordis'
 
-export type ThreadWorkStatus = 'running' | 'finished'
+/**
+ * `blocked` means the chat is waiting for the user. `failed` is an
+ * unacknowledged completion whose turn ended with an error.
+ */
+export type ThreadWorkStatus = 'running' | 'blocked' | 'finished' | 'failed'
+
+/** What a blocked chat or program is waiting for. */
+export type ThreadBlockedKind = 'permission' | 'question' | 'auth'
 
 export interface ClientThreadStatusSnapshot {
   revision: number
   running: readonly string[]
   /** Unacknowledged completions, newest first. */
   finished: readonly string[]
+  /** Chats waiting on an approval or answer. Blocked chats also appear in `running`. */
+  blocked?: Readonly<Record<string, ThreadBlockedKind>>
+  /** The subset of `finished` whose last turn failed. */
+  failed?: readonly string[]
+  /**
+   * The subset of `finished` whose outcome has not been reported yet. Each
+   * entry either becomes failed or settles as finished within about a second.
+   */
+  settling?: readonly string[]
 }
 
 export interface ClientThreadStatusService {
@@ -19,12 +35,17 @@ export interface ClientThreadStatusService {
 const statusIndexes = new WeakMap<ClientThreadStatusSnapshot, {
   running: ReadonlySet<string>
   finished: ReadonlySet<string>
+  failed: ReadonlySet<string>
 }>()
 
 function statusIndex(snapshot: ClientThreadStatusSnapshot) {
   let index = statusIndexes.get(snapshot)
   if (!index) {
-    index = { running: new Set(snapshot.running), finished: new Set(snapshot.finished) }
+    index = {
+      running: new Set(snapshot.running),
+      finished: new Set(snapshot.finished),
+      failed: new Set(snapshot.failed ?? []),
+    }
     statusIndexes.set(snapshot, index)
   }
   return index
@@ -94,41 +115,89 @@ export class OptionalThreadStatusService implements ClientThreadStatusService {
   }
 }
 
+export function threadBlockedKind(
+  snapshot: ClientThreadStatusSnapshot,
+  threadId: string,
+): ThreadBlockedKind | undefined {
+  return snapshot.blocked && Object.hasOwn(snapshot.blocked, threadId) ? snapshot.blocked[threadId] : undefined
+}
+
 export function threadWorkStatus(
   snapshot: ClientThreadStatusSnapshot,
   threadId: string,
 ): ThreadWorkStatus | undefined {
+  if (threadBlockedKind(snapshot, threadId)) return 'blocked'
   const index = statusIndex(snapshot)
   if (index.running.has(threadId)) return 'running'
+  if (index.failed.has(threadId)) return 'failed'
   if (index.finished.has(threadId)) return 'finished'
   return undefined
+}
+
+// A tab shows whichever of its chats most needs attention. Waiting chats come
+// first because nothing else proceeds until the user responds; a failure
+// outranks ongoing work so that one error among several busy chats stays visible.
+const AGGREGATE_PRIORITY: Readonly<Record<ThreadWorkStatus, number>> = {
+  blocked: 4,
+  failed: 3,
+  running: 2,
+  finished: 1,
+}
+
+export function mostUrgentWorkStatus(
+  statuses: Iterable<ThreadWorkStatus | undefined>,
+): ThreadWorkStatus | undefined {
+  let result: ThreadWorkStatus | undefined
+  for (const status of statuses) {
+    if (status && (!result || AGGREGATE_PRIORITY[status] > AGGREGATE_PRIORITY[result])) result = status
+    if (result === 'blocked') break
+  }
+  return result
 }
 
 export function aggregateThreadWorkStatus(
   snapshot: ClientThreadStatusSnapshot,
   threadIds: readonly string[],
 ): ThreadWorkStatus | undefined {
-  let finished = false
-  for (const threadId of threadIds) {
-    const status = threadWorkStatus(snapshot, threadId)
-    if (status === 'running') return 'running'
-    if (status === 'finished') finished = true
-  }
-  return finished ? 'finished' : undefined
+  return mostUrgentWorkStatus(threadIds.map((threadId) => threadWorkStatus(snapshot, threadId)))
+}
+
+export interface ThreadWorkStatusCounts {
+  running: number
+  blocked: number
+  finished: number
+  failed: number
 }
 
 export function threadWorkStatusCounts(
   snapshot: ClientThreadStatusSnapshot,
   threadIds: readonly string[],
-): { running: number; finished: number } {
-  const index = statusIndex(snapshot)
-  let running = 0
-  let finished = 0
+): ThreadWorkStatusCounts {
+  const counts: ThreadWorkStatusCounts = { running: 0, blocked: 0, finished: 0, failed: 0 }
   for (const threadId of new Set(threadIds)) {
-    if (index.running.has(threadId)) running += 1
-    else if (index.finished.has(threadId)) finished += 1
+    const status = threadWorkStatus(snapshot, threadId)
+    if (status) counts[status] += 1
   }
-  return { running, finished }
+  return counts
+}
+
+export function blockedStatusLabel(kind: ThreadBlockedKind | undefined): string {
+  if (kind === 'permission') return 'Waiting for approval'
+  if (kind === 'question') return 'Waiting for your answer'
+  if (kind === 'auth') return 'Waiting for sign-in'
+  return 'Waiting for you'
+}
+
+/** The blocked kind of the first waiting chat, for labeling an aggregate badge. */
+export function aggregateBlockedKind(
+  snapshot: ClientThreadStatusSnapshot,
+  threadIds: readonly string[],
+): ThreadBlockedKind | undefined {
+  for (const threadId of threadIds) {
+    const kind = threadBlockedKind(snapshot, threadId)
+    if (kind) return kind
+  }
+  return undefined
 }
 
 declare module 'cordis' {

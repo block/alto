@@ -11,7 +11,7 @@ import type {
   ClientUiService,
 } from '../../src/client/plugin-api.js'
 import { clientStyles } from '../../src/client/plugin-api.js'
-import { TerminalLaunchers } from './terminal-launchers.js'
+import { TerminalLaunchers, TerminalTabAccessories } from './terminal-launchers.js'
 import type { ClientNativeTerminal } from '../../src/client/native-terminals.js'
 import type { NativeTerminalBounds, NativeTerminalOverlay } from '../../src/shared/native-terminals.js'
 import type {
@@ -321,10 +321,14 @@ const ghosttyTerminal: Plugin<GhosttyTerminalConfig> = (ctx, config) => {
       />
     )
   }
+  const accessories = new TerminalTabAccessories()
   const service: ClientGhosttyTerminalService = {
     renderer: Renderer,
     registerLauncher: (owner, launcher) => launchers.register(owner, launcher),
     close: (identity) => launchers.close(identity),
+    registerTabAccessory: (owner, accessory) => accessories.register(owner, accessory),
+    tabAccessories: accessories.snapshot,
+    subscribeTabAccessories: accessories.subscribe,
   }
   ctx.provide('clientGhosttyTerminal', service)
   ctx.clientUi.registerStyle(ctx, 'ghostty-terminal', String(styles))

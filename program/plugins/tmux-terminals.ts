@@ -61,6 +61,16 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`
 }
 
+// tmux 3.6 replaces control characters such as tabs in format output with
+// underscores, so fields are separated by a printable character. Free-form
+// values come last and are rejoined, since they may contain it.
+const FIELD = '|'
+
+function fields(line: string, count: number): string[] {
+  const parts = line.split(FIELD)
+  return [...parts.slice(0, count - 1), parts.slice(count - 1).join(FIELD)]
+}
+
 function absentSession(error: unknown): boolean {
   return isRecord(error) && typeof error.stderr === 'string'
     && /no server running|no sessions|no such session:|can't find session:|error connecting to .*No such file or directory/u.test(error.stderr)
@@ -171,10 +181,10 @@ export class TmuxTerminals {
 
   async list(): Promise<Array<{ sessionId: string; attached: boolean; identity: TerminalIdentity }>> {
     let output: string
-    try { output = await this.run('list-sessions', '-F', '#{session_name}\t#{session_attached}\t#{@alto-identity}') }
+    try { output = await this.run('list-sessions', '-F', ['#{session_name}', '#{session_attached}', '#{@alto-identity}'].join(FIELD)) }
     catch (error) { if (absentSession(error)) return []; throw error }
     return output.split('\n').flatMap((line) => {
-      const [sessionId, attached, identity] = line.split('\t')
+      const [sessionId, attached, identity] = fields(line, 3)
       try {
         const request = terminalLaunchRequest({ identity: JSON.parse(identity ?? '') })
         return sessionId === tmuxSessionName(request.identity)

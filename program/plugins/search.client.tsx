@@ -308,7 +308,10 @@ function OpenSearchSurface({
       },
     }
   })
-  const unread = (item: SearchItem): boolean => item.status === 'finished' && !item.active
+  // Chats that are waiting, failed, or finished unseen are listed first.
+  const unread = (item: SearchItem): boolean => (
+    item.status === 'finished' || item.status === 'failed' || item.status === 'blocked'
+  ) && !item.active
   const label = surface.label ?? 'Search'
   const placeholder = surface.kind === 'search'
     ? surface.placeholder ?? 'Search conversations…'

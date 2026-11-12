@@ -218,6 +218,7 @@ function PaneTabs({
               >
                 {Icon ? <Icon className="pane-tab-icon" size={13} /> : null}
                 <span>{tab.title}</span>
+                {tab.accessory ? <span className="pane-tab-accessory">{tab.accessory}</span> : null}
               </button>
               {(tabs.length > minimumTabs || closeLast) && (
                 <button

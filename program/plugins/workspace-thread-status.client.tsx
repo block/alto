@@ -1,6 +1,14 @@
 import type { Plugin } from 'cordis'
 import { memo, useCallback } from 'react'
-import { aggregateThreadWorkStatus, threadWorkStatusCounts, type ClientThreadStatusSnapshot } from './thread-status-api.js'
+import {
+  aggregateBlockedKind,
+  aggregateThreadWorkStatus,
+  threadWorkStatusCounts,
+  type ClientThreadStatusSnapshot,
+  type ThreadBlockedKind,
+  type ThreadWorkStatus,
+  type ThreadWorkStatusCounts,
+} from './thread-status-api.js'
 import { ThreadStatusIndicator } from './ui/thread-status.js'
 import { useStoreSelector } from './ui/store-selector.js'
 import type { WorkspaceTabAddonProps, WorkspaceTabGroupAddonProps } from './workspace-layout-api.js'
@@ -10,12 +18,13 @@ const workspaceThreadStatus: Plugin = (ctx) => {
   const TabStatus = memo(({ threadIds }: WorkspaceTabAddonProps) => {
     const aggregate = useStoreSelector(
       threadStatus,
-      useCallback((status: ClientThreadStatusSnapshot) => aggregateThreadWorkStatus(status, threadIds), [threadIds]),
+      useCallback((status: ClientThreadStatusSnapshot) => tabStatus(status, threadIds), [threadIds]),
+      sameTabStatus,
     )
-    if (!aggregate) return null
+    if (!aggregate.status) return null
     return (
       <span className="workspace-tab-thread-status">
-        <ThreadStatusIndicator status={aggregate} />
+        <ThreadStatusIndicator status={aggregate.status} kind={aggregate.kind} />
       </span>
     )
   }, sameThreads)
@@ -26,8 +35,10 @@ const workspaceThreadStatus: Plugin = (ctx) => {
       useCallback((status: ClientThreadStatusSnapshot) => threadWorkStatusCounts(status, threadIds), [threadIds]),
       sameCounts,
     )
-    if (!counts.running && !counts.finished) return null
+    if (!counts.running && !counts.blocked && !counts.finished && !counts.failed) return null
     const summaries = [
+      { status: 'blocked', count: counts.blocked, label: 'waiting' },
+      { status: 'failed', count: counts.failed, label: 'failed' },
       { status: 'running', count: counts.running, label: 'working' },
       { status: 'finished', count: counts.finished, label: 'unread' },
     ] as const
@@ -51,8 +62,24 @@ const workspaceThreadStatus: Plugin = (ctx) => {
   })
 }
 
-function sameCounts(left: { running: number; finished: number }, right: { running: number; finished: number }): boolean {
-  return left.running === right.running && left.finished === right.finished
+function tabStatus(
+  status: ClientThreadStatusSnapshot,
+  threadIds: readonly string[],
+): { status: ThreadWorkStatus | undefined; kind: ThreadBlockedKind | undefined } {
+  const aggregate = aggregateThreadWorkStatus(status, threadIds)
+  return { status: aggregate, kind: aggregate === 'blocked' ? aggregateBlockedKind(status, threadIds) : undefined }
+}
+
+function sameTabStatus(
+  left: ReturnType<typeof tabStatus>,
+  right: ReturnType<typeof tabStatus>,
+): boolean {
+  return left.status === right.status && left.kind === right.kind
+}
+
+function sameCounts(left: ThreadWorkStatusCounts, right: ThreadWorkStatusCounts): boolean {
+  return left.running === right.running && left.blocked === right.blocked
+    && left.finished === right.finished && left.failed === right.failed
 }
 
 function sameThreads(left: { threadIds: readonly string[] }, right: { threadIds: readonly string[] }): boolean {

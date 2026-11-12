@@ -107,7 +107,7 @@
   text-align: left;
 }
 
-.pane-tab-select span {
+.pane-tab-select > span:not(.pane-tab-accessory) {
   display: block;
   overflow: hidden;
   font-size: var(--type-control);
@@ -118,6 +118,16 @@
 }
 
 .pane-tab-icon { flex: 0 0 auto; color: color-mix(in srgb, currentColor 88%, transparent); stroke-width: 1.75; }
+
+/* Accessories such as status badges sit at the end of the title. A renderer
+   that has nothing to show leaves the wrapper empty, and it collapses. */
+.pane-tab-accessory {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-left: auto;
+}
+.pane-tab-accessory:empty { display: none; }
 
 .pane-tab-close,
 .pane-tab-new {

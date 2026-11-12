@@ -3,11 +3,12 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentType,
   type ReactNode,
 } from 'react'
 import { clientStyles, type BrowserPlugin } from '../../src/client/plugin-api.js'
-import type { GhosttyTerminalProps, TerminalIdentity } from './ghostty-terminal-api.js'
+import type { ClientGhosttyTerminalService, GhosttyTerminalProps } from './ghostty-terminal-api.js'
 import { movePaneTabs, type PaneTabsProps } from './pane-tabs-api.js'
 import type { WorkspacePaneKindProps } from './workspace-layout-api.js'
 import styles from './ghostty-workspace.css'
@@ -107,13 +108,14 @@ function TerminalPane({
   closePane,
   Terminal,
   Tabs,
-  closeTerminal,
+  terminals,
 }: WorkspacePaneKindProps & {
   Terminal: ComponentType<GhosttyTerminalProps>
   Tabs: ComponentType<PaneTabsProps>
-  closeTerminal(identity: TerminalIdentity): Promise<void>
+  terminals: ClientGhosttyTerminalService
 }): ReactNode {
   const key = storageKey(workspaceId, pane.id)
+  const accessories = useSyncExternalStore(terminals.subscribeTabAccessories, terminals.tabAccessories)
   const [state, setState] = useState(() => readState(key))
   const [problem, setProblem] = useState<string>()
   const closing = useRef(false)
@@ -140,7 +142,7 @@ function TerminalPane({
     if (closing.current || state.tabs.length <= 1 || !state.tabs.some((tab) => tab.id === id)) return
     closing.current = true
     try {
-      await closeTerminal({ workspaceId, paneId: pane.id, tabId: id })
+      await terminals.close({ workspaceId, paneId: pane.id, tabId: id })
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error))
       return
@@ -167,7 +169,20 @@ function TerminalPane({
     <div className={`${clientStyles.pane} ghostty-workspace-pane`}>
       <div className={`${clientStyles.paneHeader} ghostty-workspace-tabs workspace-local-tabbar`}>
         <Tabs
-          tabs={state.tabs.map((tab) => ({ ...tab, icon: SquareTerminal }))}
+          tabs={state.tabs.map((tab) => {
+            const identity = { workspaceId, paneId: pane.id, tabId: tab.id }
+            const selected = tab.id === state.activeId
+            return {
+              ...tab,
+              icon: SquareTerminal,
+              ...(accessories.length ? {
+                accessory: accessories.map(({ id, renderer: Accessory }) => (
+                  <Accessory key={id} identity={identity} selected={selected}
+                    focused={focused && selected} visible={visible} />
+                )),
+              } : {}),
+            }
+          })}
           activeId={state.activeId}
           label="Terminal tabs"
           createLabel="New terminal tab"
@@ -207,16 +222,16 @@ function TerminalPane({
 }
 
 const ghosttyWorkspace: BrowserPlugin = (ctx) => {
-  const Terminal = ctx.clientGhosttyTerminal.renderer
+  const terminals = ctx.clientGhosttyTerminal
+  const Terminal = terminals.renderer
   const Tabs = ctx.clientPaneTabs.renderer
-  const closeTerminal = (identity: TerminalIdentity) => ctx.clientGhosttyTerminal.close(identity)
   ctx.clientWorkspaceLayout.registerPaneKind(ctx, {
     id: 'ghostty-terminal',
     label: 'Terminal',
     description: 'A native terminal with persistent tabs',
     shortcut: 't',
     icon: SquareTerminal,
-    renderer: (props) => <TerminalPane {...props} Terminal={Terminal} Tabs={Tabs} closeTerminal={closeTerminal} />,
+    renderer: (props) => <TerminalPane {...props} Terminal={Terminal} Tabs={Tabs} terminals={terminals} />,
   })
   ctx.clientUi.registerStyle(ctx, 'ghostty-workspace', String(styles))
 }

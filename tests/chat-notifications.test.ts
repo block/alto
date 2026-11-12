@@ -134,6 +134,10 @@ function completionNotificationHarness(options: {
       }
       statusListener()
     },
+    update: (next: Omit<ClientThreadStatusSnapshot, 'revision'>) => {
+      statusSnapshot = { revision: statusSnapshot.revision + 1, ...next }
+      statusListener()
+    },
     notifications,
     instances,
     titles,
@@ -462,5 +466,53 @@ describe('chat notifications', () => {
       harness: { extensions: { orchestrator: { revision: 1, tasks: [{ ...childTask, status }] } } },
     } as unknown as ClientSessionSnapshot
     expect(completionNotificationTarget(completedThread.id, session)).toBeUndefined()
+  })
+
+  it('titles a failed turn as a failure', () => {
+    const h = completionNotificationHarness()
+    h.update({ running: [], finished: [completedThread.id], failed: [completedThread.id] })
+    expect(h.titles).toEqual(['Agent failed'])
+    expect(h.notifications[0]).toMatchObject({ tag: 'alto-chat-finished-thread-completed' })
+    h.dispose()
+  })
+
+  it('waits until a settling outcome is known and notifies once', () => {
+    const h = completionNotificationHarness()
+    h.update({ running: [], finished: [completedThread.id], settling: [completedThread.id] })
+    expect(h.instances).toHaveLength(0)
+    h.update({ running: [], finished: [completedThread.id], failed: [completedThread.id] })
+    h.update({ running: [], finished: [completedThread.id], failed: [completedThread.id] })
+    expect(h.titles).toEqual(['Agent failed'])
+    h.dispose()
+  })
+
+  it('does not notify for a settling chat that the user opened before its outcome arrived', () => {
+    const h = completionNotificationHarness()
+    h.update({ running: [], finished: [completedThread.id], settling: [completedThread.id] })
+    h.update({ running: [], finished: [] })
+    expect(h.instances).toHaveLength(0)
+    h.dispose()
+  })
+
+  it('notifies when a background chat starts waiting, at most once per interval', () => {
+    const h = completionNotificationHarness()
+    h.update({ running: [completedThread.id], finished: [], blocked: { [completedThread.id]: 'permission' } })
+    expect(h.titles).toEqual(['Agent needs approval'])
+    expect(h.notifications[0]).toMatchObject({ body: completedThread.title, tag: 'alto-chat-blocked-thread-completed' })
+    h.update({ running: [completedThread.id], finished: [] })
+    h.update({ running: [completedThread.id], finished: [], blocked: { [completedThread.id]: 'question' } })
+    expect(h.titles).toEqual(['Agent needs approval'])
+    h.dispose()
+  })
+
+  it('does not suppress waiting alerts for chats whose completions are suppressed', async () => {
+    const h = completionNotificationHarness()
+    const owner = new Context()
+    h.controller.suppressCompletion(owner, completedThread.id)
+    h.update({ running: [completedThread.id], finished: [], blocked: { [completedThread.id]: 'question' } })
+    expect(h.titles).toEqual(['Agent has a question'])
+    h.complete()
+    expect(h.titles).toEqual(['Agent has a question'])
+    h.dispose()
   })
 })

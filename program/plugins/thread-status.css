@@ -37,6 +37,20 @@
   opacity: 0.72;
 }
 
+/* Waiting and failed chats use the shared warning and danger colors so they
+   remain distinct from the accent-colored completion dot. */
+.thread-status-indicator.blocked {
+  color: var(--warning, #b48a43);
+}
+
+.thread-status-indicator.failed {
+  color: var(--danger, #c8616c);
+}
+
+/* Collapsed tab groups color each count like its icon. */
+.workspace-tab-group-status-item[data-status='blocked'] { color: var(--warning, #b48a43); }
+.workspace-tab-group-status-item[data-status='failed'] { color: var(--danger, #c8616c); }
+
 @keyframes thread-status-spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {

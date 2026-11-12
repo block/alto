@@ -15,6 +15,7 @@ import type { ClientWorkspaceLayoutService } from './workspace-layout-api.js'
 import type {
   ClientThreadStatusService,
   ClientThreadStatusSnapshot,
+  ThreadBlockedKind,
 } from './thread-status-api.js'
 import { ORCHESTRATOR_STATE, type OrchestratorSnapshot } from './orchestrator-api.js'
 import type { ClientNotification, ClientNotificationsService } from './chat-notifications-api.js'
@@ -104,29 +105,57 @@ function isSubagentThread(threadId: string, session: ClientSessionSnapshot): boo
   return agents?.tasks.some((task) => task.threadId === threadId) === true
 }
 
-export function completionNotificationTarget(threadId: string, session: ClientSessionSnapshot): {
+interface NotificationTarget {
   threadId: string
   thread: ThreadSummary
   title: string
   body: string
-} | undefined {
+}
+
+function mainChatTarget(
+  threadId: string,
+  session: ClientSessionSnapshot,
+  title: string,
+  fallbackBody: string,
+): NotificationTarget | undefined {
   if (isSubagentThread(threadId, session)) return undefined
   // Recent chat history excludes native subagents, even if the Agents plugin
   // is disabled or has not received the child's metadata yet.
   const thread = session.threads.find((candidate) => candidate.id === threadId)
   if (!thread) return undefined
-  return {
-    threadId,
-    thread,
-    title: 'Agent finished',
-    body: thread.title.trim() || 'A chat is ready to review.',
-  }
+  return { threadId, thread, title, body: thread.title.trim() || fallbackBody }
 }
+
+export function completionNotificationTarget(
+  threadId: string,
+  session: ClientSessionSnapshot,
+  outcome: 'completed' | 'failed' = 'completed',
+): NotificationTarget | undefined {
+  return outcome === 'failed'
+    ? mainChatTarget(threadId, session, 'Agent failed', 'A chat stopped with an error.')
+    : mainChatTarget(threadId, session, 'Agent finished', 'A chat is ready to review.')
+}
+
+export function blockedNotificationTarget(
+  threadId: string,
+  session: ClientSessionSnapshot,
+  kind: ThreadBlockedKind,
+): NotificationTarget | undefined {
+  const title = kind === 'question'
+    ? 'Agent has a question'
+    : kind === 'auth' ? 'Agent needs you to sign in' : 'Agent needs approval'
+  return mainChatTarget(threadId, session, title, 'A chat is waiting for you.')
+}
+
+// The badge shows every wait. Desktop alerts for one chat are spaced out so a
+// run of approvals does not produce a run of alerts.
+const BLOCKED_NOTIFICATION_INTERVAL_MS = 15_000
 
 export class ChatNotificationsController implements ClientNotificationsService {
   private readonly listeners = new Set<() => void>()
   private readonly notifications = new Set<Notification>()
   private readonly completionSuppressions = new Map<string, Set<symbol>>()
+  private readonly blockedNotifiedAt = new Map<string, number>()
   private preference: NotificationPreference
   private previousStatus: ClientThreadStatusSnapshot
   private state: ChatNotificationsSnapshot
@@ -172,6 +201,7 @@ export class ChatNotificationsController implements ClientNotificationsService {
       for (const notification of this.notifications) notification.close()
       this.notifications.clear()
       this.completionSuppressions.clear()
+      this.blockedNotifiedAt.clear()
       this.listeners.clear()
     }
   }
@@ -241,34 +271,73 @@ export class ChatNotificationsController implements ClientNotificationsService {
 
   private statusChanged(): void {
     const next = this.status.snapshot()
-    const previousRunning = new Set(this.previousStatus.running)
-    const previousFinished = new Set(this.previousStatus.finished)
-    const completed = next.finished.filter((threadId) => (
-      previousRunning.has(threadId) && !previousFinished.has(threadId)
-    ))
+    const previous = this.previousStatus
     this.previousStatus = next
-    for (const threadId of completed) void this.showCompletion(threadId)
+    const previousRunning = new Set(previous.running)
+    const previousFinished = new Set(previous.finished)
+    const previousSettling = new Set(previous.settling ?? [])
+    const settling = new Set(next.settling ?? [])
+    const failed = new Set(next.failed ?? [])
+    for (const threadId of next.finished) {
+      const completed = previousRunning.has(threadId) && !previousFinished.has(threadId)
+      const settled = previousSettling.has(threadId) && !settling.has(threadId)
+      // A settling chat may still turn out to have failed. Its alert waits
+      // until the outcome arrives so that it is shown once, with the right title.
+      if ((completed || settled) && !settling.has(threadId)) {
+        this.showCompletion(threadId, failed.has(threadId) ? 'failed' : 'completed')
+      }
+    }
+    const previousBlocked = previous.blocked ?? {}
+    for (const [threadId, kind] of Object.entries(next.blocked ?? {})) {
+      if (!Object.hasOwn(previousBlocked, threadId)) this.showBlocked(threadId, kind)
+    }
   }
 
-  private async showCompletion(threadId: string): Promise<void> {
-    if (!this.canNotify(threadId) || this.completionSuppressions.has(threadId)) return
+  private showCompletion(threadId: string, outcome: 'completed' | 'failed'): void {
+    const allowed = () => this.canNotify(threadId) && !this.completionSuppressions.has(threadId)
+    this.withMainChatSession(threadId, allowed, (session) => {
+      const target = completionNotificationTarget(threadId, session, outcome)
+      if (!target) return
+      this.showNotification({ ...target, tag: `alto-chat-finished-${target.threadId}` }, target.thread)
+    })
+  }
 
-    let session = this.conversation.snapshot()
+  private showBlocked(threadId: string, kind: ThreadBlockedKind): void {
+    const allowed = () => this.canNotify(threadId)
+      && Date.now() - (this.blockedNotifiedAt.get(threadId) ?? -Infinity) >= BLOCKED_NOTIFICATION_INTERVAL_MS
+      // The wait may have ended while history was refreshing.
+      && this.status.snapshot().blocked?.[threadId] !== undefined
+    this.withMainChatSession(threadId, allowed, (session) => {
+      const target = blockedNotificationTarget(threadId, session, kind)
+      if (!target) return
+      this.blockedNotifiedAt.set(threadId, Date.now())
+      this.showNotification({ ...target, tag: `alto-chat-blocked-${target.threadId}` }, target.thread)
+    })
+  }
+
+  /**
+   * Calls `show` with a session snapshot that knows this main chat. A known
+   * chat's alert is shown in the same task as its status change. Only a chat
+   * missing from history waits for a refresh, and a subagent gets no alert.
+   */
+  private withMainChatSession(
+    threadId: string,
+    allowed: () => boolean,
+    show: (session: ClientSessionSnapshot) => void,
+  ): void {
+    if (!allowed()) return
+    const session = this.conversation.snapshot()
     if (isSubagentThread(threadId, session)) return
-    if (!session.threads.some((thread) => thread.id === threadId)) {
-      // A new main chat may finish before its history entry arrives. Resolve
-      // that entry instead of treating an unknown thread as a main chat.
-      try {
-        await this.conversation.refreshHistory()
-      } catch {
-        return
-      }
-      if (!this.canNotify(threadId) || this.completionSuppressions.has(threadId)) return
-      session = this.conversation.snapshot()
+    if (session.threads.some((thread) => thread.id === threadId)) {
+      show(session)
+      return
     }
-    const target = completionNotificationTarget(threadId, session)
-    if (!target) return
-    this.showNotification({ ...target, tag: `alto-chat-finished-${target.threadId}` }, target.thread)
+    // A new main chat may finish before its history entry arrives. Resolve
+    // that entry instead of treating an unknown thread as a main chat.
+    void this.conversation.refreshHistory().then(
+      () => { if (allowed()) show(this.conversation.snapshot()) },
+      () => undefined,
+    )
   }
 
   private showNotification(request: ClientNotification, thread?: ThreadSummary): void {
@@ -371,8 +440,8 @@ function permissionCopy(state: ChatNotificationsSnapshot): string {
     return 'Turn this on to let Alto request notification permission.'
   }
   return state.enabled
-    ? 'Alto will notify you when a background chat finishes.'
-    : 'Completion notifications are off.'
+    ? 'Alto will notify you when a background chat finishes, fails, or is waiting for you.'
+    : 'Chat notifications are off.'
 }
 
 function NotificationsSettings({
@@ -400,7 +469,7 @@ function NotificationsSettings({
         <SettingsRow
           className="chat-notifications-row"
           label="Notification sounds"
-          description="Play a sound when Alto shows a completion notification."
+          description="Play a sound when Alto shows a chat notification."
           disabled={!state.supported}
           checked={state.playSound}
           onClick={() => controller.setPlaySound(!state.playSound)}
@@ -410,7 +479,7 @@ function NotificationsSettings({
         <SettingsRow
           className="chat-notifications-row"
           label="Notify for the visible chat"
-          description="Also alert when the completed chat is already open and Alto is focused."
+          description="Also alert when the chat is already open and Alto is focused."
           disabled={!state.supported}
           checked={state.notifyCurrentChat}
           onClick={() => controller.setNotifyCurrentChat(!state.notifyCurrentChat)}
@@ -438,7 +507,7 @@ const chatNotificationsClient: BrowserPlugin<ChatNotificationsConfig> = (ctx, co
     id: 'chat-notifications',
     label: 'Notifications',
     placement: 'general',
-    keywords: ['notifications', 'desktop', 'agent', 'finished', 'complete', 'background', 'sound', 'silent'],
+    keywords: ['notifications', 'desktop', 'agent', 'finished', 'complete', 'failed', 'approval', 'question', 'background', 'sound', 'silent'],
     order: 20,
     renderer: Settings,
   })

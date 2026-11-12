@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Context, type Plugin } from 'cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type {
   ClientHostService,
   ClientHostSnapshot,
@@ -12,12 +12,14 @@ import type {
 } from '../program/plugins/session-api.js'
 import { ThreadStatusService } from '../program/plugins/thread-status.client.js'
 import {
+  aggregateBlockedKind,
   aggregateThreadWorkStatus,
   OptionalThreadStatusService,
   threadWorkStatus,
   threadWorkStatusCounts,
   type ClientThreadStatusService,
 } from '../program/plugins/thread-status-api.js'
+import type { HarnessSnapshot, PendingServerRequest } from '../src/shared/protocol.js'
 import { HistoryPanel } from '../program/plugins/ui/history.js'
 import { ThreadStatusIndicator } from '../program/plugins/ui/thread-status.js'
 
@@ -169,15 +171,15 @@ describe('chat status', () => {
 
     expect(threadWorkStatusCounts(status, [
       'thread-unread-a', 'thread-unread-a', 'thread-working', 'thread-unread-b', 'thread-idle',
-    ])).toEqual({ running: 1, finished: 2 })
-    expect(threadWorkStatusCounts(status, ['thread-working'])).toEqual({ running: 1, finished: 0 })
-    expect(threadWorkStatusCounts(status, ['thread-unread-b'])).toEqual({ running: 0, finished: 1 })
+    ])).toEqual({ running: 1, blocked: 0, finished: 2, failed: 0 })
+    expect(threadWorkStatusCounts(status, ['thread-working'])).toEqual({ running: 1, blocked: 0, finished: 0, failed: 0 })
+    expect(threadWorkStatusCounts(status, ['thread-unread-b'])).toEqual({ running: 0, blocked: 0, finished: 1, failed: 0 })
   })
 
   it('does not count statuses belonging to chats outside a group', () => {
     const status = { revision: 1, running: ['elsewhere-working'], finished: ['elsewhere-unread'] }
-    expect(threadWorkStatusCounts(status, ['thread-idle'])).toEqual({ running: 0, finished: 0 })
-    expect(threadWorkStatusCounts(status, [])).toEqual({ running: 0, finished: 0 })
+    expect(threadWorkStatusCounts(status, ['thread-idle'])).toEqual({ running: 0, blocked: 0, finished: 0, failed: 0 })
+    expect(threadWorkStatusCounts(status, [])).toEqual({ running: 0, blocked: 0, finished: 0, failed: 0 })
   })
 
   it('keeps status lookups consistent across completion and acknowledgment snapshots', () => {
@@ -189,7 +191,9 @@ describe('chat status', () => {
       expect(aggregateThreadWorkStatus(snapshot, ['thread-a'])).toBe(expected)
       expect(threadWorkStatusCounts(snapshot, ['thread-a', 'thread-a'])).toEqual({
         running: expected === 'running' ? 1 : 0,
+        blocked: 0,
         finished: expected === 'finished' ? 1 : 0,
+        failed: 0,
       })
     }
     expect(threadWorkStatus(running, 'thread-a')).toBe('running')
@@ -270,5 +274,127 @@ describe('chat status', () => {
 
     await secondProvider.dispose()
     await consumerFiber.dispose()
+  })
+
+  it('marks chats that wait for an approval or answer and returns them to work when resolved', () => {
+    const restore = installBrowserGlobals()
+    const harness = {
+      codex: { activeThreadIds: ['thread-a', 'thread-b', 'thread-c'], threadStates: {} },
+      pendingRequests: [] as PendingServerRequest[],
+      extensions: {},
+    }
+    let hostListener = (_event: HarnessEvent): void => undefined
+    const host = {
+      snapshot: () => ({ snapshot: harness }),
+      journal: () => [],
+      onEvent: (listener: (event: HarnessEvent) => void) => { hostListener = listener; return () => undefined },
+    } as unknown as ClientHostService
+    const session = { snapshot: () => sessionSnapshot('other'), subscribe: () => () => {} } as unknown as ClientSessionService
+    const service = new ThreadStatusService(host, session)
+    const request = (id: number, method: string, params: Record<string, unknown>): PendingServerRequest => ({ id, method, params, receivedAt: '' })
+    try {
+      harness.pendingRequests = [
+        request(1, 'item/commandExecution/requestApproval', { threadId: 'thread-a' }),
+        request(2, 'item/tool/requestUserInput', { threadId: 'thread-b' }),
+        request(3, 'item/tool/requestUserInput', { threadId: 'thread-c', isBlocking: false }),
+      ]
+      hostListener({ type: 'codex.serverRequest', payload: harness.pendingRequests[0]! })
+      expect(service.snapshot().blocked).toEqual({ 'thread-a': 'permission', 'thread-b': 'question' })
+      expect(threadWorkStatus(service.snapshot(), 'thread-a')).toBe('blocked')
+      expect(threadWorkStatus(service.snapshot(), 'thread-c')).toBe('running')
+      expect(service.snapshot().running).toContain('thread-a')
+
+      harness.pendingRequests = []
+      harness.codex.threadStates = { 'thread-c': { status: { type: 'active', activeFlags: ['waitingOnUserInput'] } } }
+      hostListener({ type: 'codex.serverRequest.resolved', payload: { id: 1 } } as HarnessEvent)
+      expect(service.snapshot().blocked).toEqual({ 'thread-c': 'question' })
+      expect(threadWorkStatus(service.snapshot(), 'thread-a')).toBe('running')
+    } finally { service.dispose(); restore() }
+  })
+
+  it('waits briefly for a Codex outcome and remembers failed turns', async () => {
+    const restore = installBrowserGlobals()
+    let hostListener = (_event: HarnessEvent): void => undefined
+    const host = {
+      snapshot: () => ({ snapshot: { codex: { activeThreadIds: [] }, pendingRequests: [], extensions: {} } }),
+      journal: () => [],
+      onEvent: (listener: (event: HarnessEvent) => void) => { hostListener = listener; return () => undefined },
+    } as unknown as ClientHostService
+    const session = { snapshot: () => sessionSnapshot('other'), subscribe: () => () => {} } as unknown as ClientSessionService
+    const service = new ThreadStatusService(host, session, { outcomeSettleMs: 20 })
+    const status = (activeThreadIds: string[]): HarnessEvent => ({ type: 'codex.status', payload: { status: 'ready', models: [], activeThreadIds } } as HarnessEvent)
+    try {
+      hostListener({ type: 'codex.notification', payload: { method: 'turn/started', params: { threadId: 'thread-f' } } })
+      hostListener({ type: 'codex.notification', payload: { method: 'turn/started', params: { threadId: 'thread-ok' } } })
+      // Codex reports the thread as idle before it forwards turn/completed.
+      hostListener(status([]))
+      expect(service.snapshot().settling).toEqual(['thread-f', 'thread-ok'])
+      hostListener({ type: 'codex.notification', payload: { method: 'turn/completed', params: { threadId: 'thread-f', turn: { id: 't', status: 'failed' } } } })
+      expect(service.snapshot().settling).toEqual(['thread-ok'])
+      expect(threadWorkStatus(service.snapshot(), 'thread-f')).toBe('failed')
+      await vi.waitFor(() => expect(service.snapshot().settling).toBeUndefined())
+      expect(threadWorkStatus(service.snapshot(), 'thread-ok')).toBe('finished')
+
+      const reloaded = new ThreadStatusService(host, session)
+      expect(threadWorkStatus(reloaded.snapshot(), 'thread-f')).toBe('failed')
+      reloaded.acknowledge('thread-f')
+      expect(reloaded.snapshot().failed).toBeUndefined()
+      reloaded.dispose()
+    } finally { service.dispose(); restore() }
+  })
+
+  it('takes an Agent chat outcome from its problem when the turn ends', () => {
+    const restore = installBrowserGlobals()
+    const failedId = 'acp-00000000-0000-0000-0000-000000000001'
+    const okId = 'acp-00000000-0000-0000-0000-000000000002'
+    const chat = (id: string, turn: string, problem?: string) => ({ summary: { id }, turn, requests: [], activities: [], ...(problem ? { problem } : {}) })
+    let extensions: Record<string, unknown> = { a: chat(failedId, 'running'), b: chat(okId, 'running') }
+    let hostListener = (_event: HarnessEvent): void => undefined
+    const host = {
+      snapshot: () => ({ snapshot: { codex: { activeThreadIds: [] }, pendingRequests: [], extensions } as unknown as HarnessSnapshot }),
+      journal: () => [],
+      onEvent: (listener: (event: HarnessEvent) => void) => { hostListener = listener; return () => undefined },
+    } as unknown as ClientHostService
+    const session = { snapshot: () => sessionSnapshot('other'), subscribe: () => () => {} } as unknown as ClientSessionService
+    const service = new ThreadStatusService(host, session)
+    const updated = { type: 'extensions.updated', payload: {} } as HarnessEvent
+    try {
+      hostListener(updated)
+      expect(service.snapshot().running).toEqual([failedId, okId])
+      extensions = { a: { ...chat(failedId, 'running'), requests: [{ id: 1, method: 'agent/requestApproval', params: {}, receivedAt: '' }] }, b: chat(okId, 'running') }
+      hostListener(updated)
+      expect(threadWorkStatus(service.snapshot(), failedId)).toBe('blocked')
+      extensions = { a: chat(failedId, 'idle', 'The provider exited'), b: chat(okId, 'idle') }
+      hostListener(updated)
+      expect(threadWorkStatus(service.snapshot(), failedId)).toBe('failed')
+      expect(threadWorkStatus(service.snapshot(), okId)).toBe('finished')
+      expect(service.snapshot().settling).toBeUndefined()
+    } finally { service.dispose(); restore() }
+  })
+
+  it('ranks waiting, failed, working, and finished chats for tabs and groups', () => {
+    const status = {
+      revision: 1,
+      running: ['running', 'blocked'],
+      finished: ['failed', 'finished'],
+      failed: ['failed'],
+      blocked: { blocked: 'question' as const },
+    }
+    expect(aggregateThreadWorkStatus(status, ['finished', 'running', 'failed', 'blocked'])).toBe('blocked')
+    expect(aggregateThreadWorkStatus(status, ['finished', 'running', 'failed'])).toBe('failed')
+    expect(aggregateThreadWorkStatus(status, ['finished', 'running'])).toBe('running')
+    expect(aggregateBlockedKind(status, ['running', 'blocked'])).toBe('question')
+    expect(threadWorkStatusCounts(status, ['running', 'blocked', 'failed', 'finished', 'finished']))
+      .toEqual({ running: 1, blocked: 1, failed: 1, finished: 1 })
+  })
+
+  it('labels waiting and failed chats', () => {
+    const question = renderToStaticMarkup(<ThreadStatusIndicator status="blocked" kind="question" />)
+    expect(question).toContain('aria-label="Waiting for your answer"')
+    expect(question).toContain('lucide-circle-alert')
+    expect(renderToStaticMarkup(<ThreadStatusIndicator status="blocked" />)).toContain('aria-label="Waiting for you"')
+    expect(renderToStaticMarkup(<ThreadStatusIndicator status="failed" />)).toContain('aria-label="Failed"')
+    expect(renderToStaticMarkup(<ThreadStatusIndicator status="failed" label="Failed (cargo): 2 tests" />))
+      .toContain('title="Failed (cargo): 2 tests"')
   })
 })

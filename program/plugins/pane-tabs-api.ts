@@ -1,9 +1,11 @@
-import type { ComponentType } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
 export interface PaneTab {
   id: string
   title: string
   icon?: ComponentType<{ size?: number; className?: string }>
+  /** Drawn after the title, for example a status badge. Empty accessories take no space. */
+  accessory?: ReactNode
 }
 
 export type PaneTabDropPosition = 'before' | 'after'
