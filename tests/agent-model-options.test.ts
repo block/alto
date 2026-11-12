@@ -52,12 +52,37 @@ describe('Claude draft model choices', () => {
   it('offers effort when moving from a cached Haiku catalog to Opus, and hides it for Haiku', () => {
     const known = [model([{ value: 'haiku', name: 'Haiku 4.5' }, { value: 'opus[1m]', name: 'Opus 5.5' }])]
     known[0]!.currentValue = 'haiku'
-    expect(initialAgentConfig('claude', known)).toEqual(known)
+    expect(initialAgentConfig('claude', known)).toEqual([{ ...known[0], allowCustom: true }])
     const config = draftAgentConfig('claude', known, 'opus[1m]')
     expect(config.find(option => option.category === 'thought_level')?.options.map(option => option.value)).toContain('max')
     expect(draftAgentConfig('claude', initialAgentConfig('claude'), 'haiku').some(option => option.category === 'thought_level')).toBe(false)
     expect(known).toHaveLength(1)
   })
+
+  it('preserves custom IDs without hiding known Claude aliases or mutating the learned catalog', () => {
+    const known = [model([{ value: 'opus[1m]', name: 'Opus 5.5' }])]
+    const config = initialAgentConfig('claude', known)
+    expect(resolveDraftConfigValue('claude', config[0]!, ' deployment/custom-model:latest ')).toBe('deployment/custom-model:latest')
+    expect(resolveDraftConfigValue('claude', config[0]!, ' claude-opus-5-5 ')).toBe('opus[1m]')
+    expect(draftAgentConfig('claude', known, 'deployment/custom-model')[0]?.allowCustom).toBe(true)
+    expect(known[0]?.allowCustom).toBeUndefined()
+    expect(known[0]?.options).toEqual([{ value: 'opus[1m]', name: 'Opus 5.5' }])
+  })
+
+  it('keeps explicit model restrictions and non-model enumerations strict', () => {
+    const restricted = { ...model([{ value: 'opus', name: 'Opus' }]), allowCustom: false }
+    expect(initialAgentConfig('claude', [restricted])[0]?.allowCustom).toBe(false)
+    expect(resolveDraftConfigValue('claude', restricted, 'deployment/custom-model')).toBeUndefined()
+    for (const category of ['agent', 'mode', 'thought_level']) {
+      expect(resolveDraftConfigValue('claude', { ...restricted, allowCustom: true, category }, 'another-value')).toBeUndefined()
+    }
+  })
+
+  it.each(['', '  ', 'bad\nmodel', 'bad\tmodel', 'bad\u0000model', 'bad\u007fmodel', 'x'.repeat(257)])(
+    'rejects an invalid custom model ID %j', value => {
+      expect(resolveDraftConfigValue('claude', initialAgentConfig('claude')[0]!, value)).toBeUndefined()
+    },
+  )
 })
 
 describe('Gemini draft model choices', () => {
@@ -72,7 +97,7 @@ describe('Gemini draft model choices', () => {
     ])
     expect(draftAgentConfig('gemini', config, 'gemini-4-argon')).toEqual(config)
     expect(resolveDraftConfigValue('gemini', config[0]!, 'gemini-4-argon')).toBe('gemini-4-argon')
-    expect(resolveDraftConfigValue('gemini', config[0]!, 'unknown')).toBeUndefined()
+    expect(resolveDraftConfigValue('gemini', config[0]!, ' custom-gemini-model ')).toBe('custom-gemini-model')
     config[0]!.options[1]!.name = 'Changed'
     expect(initialAgentConfig('gemini')[0]?.options[1]?.name).toBe('Gemini 4 Argon')
   })
@@ -85,10 +110,18 @@ describe('Gemini draft model choices', () => {
     expect(extended[0]?.options[0]).toEqual({ value: 'auto', name: 'Automatic selection', description: 'Agent-provided description' })
     expect(extended[0]?.options).toContainEqual({ value: 'gemini-4-argon', name: 'Gemini 4 Argon' })
     expect(extended[0]?.options.some(option => option.value === 'default')).toBe(false)
+    expect(extended[0]?.allowCustom).toBe(true)
     const count = extended[0]!.options.length
     expect(legacyAgentConfig('gemini', extended)[0]?.options).toHaveLength(count)
     expect(legacyAgentConfig('pi', [])).toEqual([])
     expect(legacyAgentConfig('gemini', [])).toEqual([])
+  })
+
+  it('does not advertise custom values for an authoritative modern Gemini model selector', () => {
+    const config: AgentConfigOption[] = [{ id: 'model', name: 'Model', category: 'model', currentValue: 'auto', options: [{ value: 'auto', name: 'Auto' }] }]
+    const learned = initialAgentConfig('gemini', config)
+    expect(learned[0]?.allowCustom).toBeUndefined()
+    expect(resolveDraftConfigValue('gemini', learned[0]!, 'custom-gemini-model')).toBeUndefined()
   })
 })
 

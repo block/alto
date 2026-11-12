@@ -1,6 +1,7 @@
 import type {} from './conversation-titles-api.js'
 import type { TurnProgram } from '../../src/server/services/turn-program.js'
 import { applyAgentChatEvent } from './agent-chat-events.js'
+import { resolveDraftConfigValue } from './agent-model-options.js'
 import { AgentChatStore } from './agent-chat-store.js'
 import { AgentToolBridge, type AgentToolContext } from './agent-tool-bridge.js'
 import { taskActive, type AgentTask } from './orchestrator-api.js'
@@ -253,26 +254,36 @@ export class AgentChats {
 
   private async resume(chat: AgentChat): Promise<void> {
     const provider = this.agents.provider(chat.summary.providerId)
+    const snapshot = provider.snapshot()
     const sessionId = chat.summary.providerSessionId
-    if (provider.snapshot().activeSessionIds.includes(sessionId)) return
+    if (snapshot.activeSessionIds.includes(sessionId)) return
     if (!provider.loadSession) throw new Error('This agent cannot resume saved chats')
-    if (provider.snapshot().capabilities?.durableSession) {
+    if (snapshot.capabilities?.durableSession) {
       const session = await provider.loadSession(sessionId, { cwd: chat.summary.cwd, permissionMode: chat.permissionMode })
       if (!this.active) { await provider.closeSession(sessionId); throw new Error('Agent chats was closed') }
       if (chat.remote && session.workspaceName) chat.remote.workspaceName = session.workspaceName
       if (chat.remote && session.workspace) chat.remote.workspace = session.workspace
       return
     }
-    const desired = chat.configOptions ?? []
+    const desired = structuredClone(chat.configOptions ?? [])
     const session = await provider.loadSession(sessionId, { cwd: chat.summary.cwd, permissionMode: chat.permissionMode, ...await this.promptOptions(chat.summary.id, chat.summary.cwd), mcpServers: await this.bridge?.attach(chat.summary.id) ?? [] })
     if (!this.active) { await provider.closeSession(sessionId); throw new Error('Agent chats was closed') }
-    chat.configOptions = session.configOptions ?? []
-    for (const option of desired) {
-      const current = chat.configOptions.find((candidate) => candidate.id === option.id)
-      if (!current || current.currentValue === option.currentValue || !provider.configure) continue
-      if (!current.options.some((candidate) => candidate.value === option.currentValue)) continue
-      chat.configOptions = await provider.configure(sessionId, option.id, option.currentValue)
+    let config = session.configOptions ?? []
+    try {
+      for (const option of desired) {
+        const current = config.find((candidate) => candidate.id === option.id)
+        if (!current || !provider.configure) continue
+        const value = resolveDraftConfigValue(snapshot.agentId ?? snapshot.id, current, option.currentValue)
+        if (value === undefined || current.currentValue === value) continue
+        config = await provider.configure(sessionId, option.id, value)
+      }
+    } catch (error) {
+      // A failed restore must not let a retry use the newly loaded default.
+      chat.configOptions = desired
+      await provider.closeSession(sessionId).catch(() => {})
+      throw error
     }
+    chat.configOptions = config
     chat.configurationRevision = (chat.configurationRevision ?? 0) + 1
     this.publish(chat, false)
   }

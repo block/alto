@@ -427,15 +427,17 @@ export class AgentSessionService implements ClientSessionService {
     const remember = option?.category === 'model' || option?.category === 'thought_level'
     const intent = remember ? beginModelChoice(this.host, providerId) : undefined
     if (!id) {
-      if (this.creating || this.sending || !option?.options.some((candidate) => candidate.value === value)) {
+      const provider = this.catalog().providers.find((provider) => provider.id === providerId)
+      const selected = option && resolveDraftConfigValue(provider?.agentId ?? providerId, option, value)
+      if (this.creating || this.sending || selected === undefined) {
         if (intent) failModelChoice(intent)
         return
       }
-      this.draftConfig.set(configId, value)
+      this.draftConfig.set(configId, selected)
       this.sync()
       for (const option of this.configuration) {
         const selected = this.draftConfig.get(option.id)
-        if (selected && !option.options.some((candidate) => candidate.value === selected)) this.draftConfig.delete(option.id)
+        if (selected && resolveDraftConfigValue(provider?.agentId ?? providerId, option, selected) === undefined) this.draftConfig.delete(option.id)
       }
       if (remember) this.rememberModelChoice(this.configuration, providerId, intent)
       return
@@ -459,6 +461,7 @@ export class AgentSessionService implements ClientSessionService {
     const choice = (category: string): string | null => {
       const option = config.find((candidate) => candidate.category === category)
       const selected = option?.options.find((candidate) => candidate.value === option.currentValue)
+      if (!selected && option?.category === 'model') return resolveDraftConfigValue(providerId, option, option.currentValue) ?? null
       return selected && !(selected.value === 'default' && selected.name === 'Agent default') ? selected.value : null
     }
     rememberModelChoice(this.host, { providerId, model: choice('model'), effort: choice('thought_level') }, intent)

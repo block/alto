@@ -2768,6 +2768,29 @@ button.composer-workspace-trigger:focus-visible { color: var(--text); background
 .composer-picker-models { max-height: calc(10 * var(--control-default)); }
 .composer-picker-note { margin: var(--space-2) var(--space-2); color: var(--ui-text-secondary); font-size: var(--type-supporting); overflow-wrap: anywhere; text-align: left; }
 
+.composer-picker-custom { min-width: 0; flex-shrink: 0; padding: var(--space-1) var(--space-2) 0; }
+.composer-picker-options > .composer-picker-custom-action { color: var(--ui-text-secondary); font-size: var(--type-supporting); }
+.composer-picker-options > .composer-picker-custom-action:hover:not(:disabled) { color: var(--ui-text); }
+.custom-model-entry { --alto-button-height: var(--control-compact); min-width: 0; display: grid; gap: var(--space-1); text-align: left; }
+.custom-model-entry-controls { min-width: 0; display: flex; align-items: center; gap: var(--space-1); }
+.custom-model-entry input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-compact);
+  flex: 1 1 auto;
+  padding: var(--space-1) var(--space-2);
+  color: var(--ui-text);
+  border: 1px solid var(--ui-field-border);
+  border-radius: var(--ui-control-radius);
+  background: var(--ui-field-fill);
+  font: inherit;
+}
+.custom-model-entry input::placeholder { color: var(--ui-text-secondary); }
+.custom-model-entry input:focus-visible { outline: 1px solid var(--ui-focus); outline-offset: 0; box-shadow: none; }
+.custom-model-entry-controls > button { flex-shrink: 0; }
+.custom-model-entry-cancel { width: var(--control-compact); min-height: var(--control-compact); }
+.custom-model-entry-error { margin: 0; color: var(--ui-danger); font-size: var(--type-supporting); overflow-wrap: anywhere; }
+
 .composer-picker-reasoning {
   flex-shrink: 0;
   display: grid;

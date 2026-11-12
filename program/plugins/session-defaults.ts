@@ -30,9 +30,11 @@ export function configuredDefaults(
   const selected = harness?.codex.models.find((model) => model.id === saved.model)
   const model = saved.model ?? defaults?.model
   const effort = saved.effort ?? (saved.model ? selected?.defaultReasoningEffort : defaults?.effort)
+  const modelProvider = saved.modelProvider ?? selected?.modelProvider ?? defaults?.modelProvider
   return {
     permissionMode: defaults?.permissionMode ?? 'ask',
     ...(model ? { model } : {}),
+    ...(modelProvider ? { modelProvider } : {}),
     ...(effort ? { effort } : {}),
   }
 }

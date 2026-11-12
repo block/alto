@@ -8,6 +8,8 @@ export const MODEL_DEFAULTS_STATUS = 'model-defaults.status'
 
 export interface ModelDefaultsChoice {
   model?: string
+  /** Native Codex route for a custom model absent from the catalog. */
+  modelProvider?: string
   effort?: string
 }
 
@@ -19,6 +21,7 @@ export interface ModelDefaultsPreferences {
 export interface ModelDefaultsUpdate {
   providerId: string
   model?: string | null
+  modelProvider?: string | null
   effort?: string | null
   /** Remember this provider's choices without changing the default agent. */
   selectProvider?: boolean
@@ -38,7 +41,8 @@ export function modelDefaultsSaveFence(value: unknown): ModelDefaultsSaveFence |
 
 export function applyModelDefaultsUpdate(preferences: ModelDefaultsPreferences, update: ModelDefaultsUpdate): ModelDefaultsPreferences {
   const choice = { ...preferences.choices[update.providerId] }
-  for (const key of ['model', 'effort'] as const) {
+  if (update.model !== undefined && update.modelProvider === undefined) delete choice.modelProvider
+  for (const key of ['model', 'modelProvider', 'effort'] as const) {
     if (update[key] === null) delete choice[key]
     else if (typeof update[key] === 'string') choice[key] = update[key]
   }
@@ -75,9 +79,11 @@ export function modelDefaults(value: unknown): ModelDefaultsPreferences | undefi
   for (const [id, choice] of Object.entries(value.choices)) {
     if (!validDefaultProviderId(id) || !isRecord(choice)) return undefined
     if (choice.model !== undefined && !validDefaultChoice(choice.model)) return undefined
+    if (choice.modelProvider !== undefined && !validDefaultChoice(choice.modelProvider)) return undefined
     if (choice.effort !== undefined && !validDefaultChoice(choice.effort)) return undefined
     choices.push([id, {
       ...(typeof choice.model === 'string' ? { model: choice.model } : {}),
+      ...(typeof choice.modelProvider === 'string' ? { modelProvider: choice.modelProvider } : {}),
       ...(typeof choice.effort === 'string' ? { effort: choice.effort } : {}),
     }])
   }

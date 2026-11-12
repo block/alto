@@ -16,7 +16,7 @@ const claudeEffort: AgentConfigOption = {
 // Gemini CLI's legacy setter accepts explicit model IDs, including models
 // newer than its built-in menu. Keep its advertised catalog when available.
 const geminiModel: AgentConfigOption = {
-  id: '__model', name: 'Model', category: 'model', currentValue: 'default',
+  id: '__model', name: 'Model', category: 'model', allowCustom: true, currentValue: 'default',
   options: [
     { value: 'default', name: 'Agent default' },
     { value: 'gemini-4-argon', name: 'Gemini 4 Argon' },
@@ -32,14 +32,19 @@ const geminiModel: AgentConfigOption = {
   ],
 }
 
+function customModelConfig(agentId: string, config: AgentConfigOption[]): AgentConfigOption[] {
+  if (agentId !== 'claude' || !config.some(option => option.category === 'model' && option.allowCustom === undefined)) return config
+  return config.map(option => option.category === 'model' && option.allowCustom === undefined ? { ...option, allowCustom: true } : option)
+}
+
 export function initialAgentConfig(agentId: string, known?: AgentConfigOption[]): AgentConfigOption[] {
-  if (known !== undefined) return structuredClone(known)
+  if (known !== undefined) return customModelConfig(agentId, structuredClone(known))
   if (agentId === 'gemini') return [structuredClone(geminiModel)]
   if (agentId !== 'claude') return []
   // Draft choices must not start a remote machine. Validate both the version
   // and effort against the running agent before sending the first prompt.
   // https://code.claude.com/docs/en/model-config
-  return [{ id: 'model', name: 'Model', category: 'model', currentValue: 'default', options: [
+  return [{ id: 'model', name: 'Model', category: 'model', allowCustom: true, currentValue: 'default', options: [
     { value: 'default', name: 'Agent default' },
     { value: 'claude-opus-5-5', name: 'Opus 5.5' },
     { value: 'opus', name: 'Opus (latest)' },
@@ -51,6 +56,7 @@ export function initialAgentConfig(agentId: string, known?: AgentConfigOption[])
 export function legacyAgentConfig(agentId: string, config: AgentConfigOption[]): AgentConfigOption[] {
   const model = config.find((option) => option.id === '__model')
   if (agentId !== 'gemini' || !model) return config
+  model.allowCustom ??= true
   // The legacy setter accepts these explicit IDs even when the agent's menu
   // does not list them. Modern configOptions never pass through this path.
   for (const option of geminiModel.options) {
@@ -63,6 +69,7 @@ export function legacyAgentConfig(agentId: string, config: AgentConfigOption[]):
 
 export function draftAgentConfig(agentId: string, config: AgentConfigOption[], selectedModel?: string): AgentConfigOption[] {
   if (agentId !== 'claude') return config
+  config = customModelConfig(agentId, config)
   const model = config.find((option) => option.category === 'model')
   const value = selectedModel ?? model?.currentValue
   const choice = model?.options.find((option) => option.value === value)
@@ -78,8 +85,14 @@ export function draftAgentConfig(agentId: string, config: AgentConfigOption[], s
 }
 
 export function resolveDraftConfigValue(agentId: string, option: AgentConfigOption, value: string): string | undefined {
+  const custom = option.category === 'model' && option.allowCustom === true
+  if (custom) {
+    if (/[\u0000-\u001f\u007f]/.test(value)) return undefined
+    value = value.trim()
+    if (!value || value.length > 256) return undefined
+  }
   if (option.options.some((candidate) => candidate.value === value)) return value
-  if (agentId !== 'claude' || option.category !== 'model') return undefined
+  if (agentId !== 'claude' || option.category !== 'model') return custom ? value : undefined
 
   // Claude can advertise a generic family name with the exact version in its
   // description. Preserve the current context variant when both are offered.
@@ -98,4 +111,5 @@ export function resolveDraftConfigValue(agentId: string, option: AgentConfigOpti
   })
   return candidates.find((candidate) => candidate.value === option.currentValue)?.value
     ?? (candidates.length === 1 ? candidates[0]!.value : undefined)
+    ?? (custom ? value : undefined)
 }

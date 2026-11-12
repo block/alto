@@ -284,6 +284,43 @@ it('remembers ACP draft choices and clears reasoning unavailable on the selected
   } finally { f.close() }
 })
 
+it('remembers a custom Claude model and configures the same ID before submitting the first prompt', async () => {
+  const f = fixture({ providerId: 'claude', choices: { claude: { model: 'sonnet' } } })
+  f.chat.summary.providerId = 'claude'
+  f.chat.configOptions = initialAgentConfig('claude')
+  try {
+    f.session.setModel('  claude-tenant-preview  ')
+    expect(f.session.snapshot().session.model).toBe('claude-tenant-preview')
+    expect(modelDefaults(f.snapshot.extensions['model-defaults'])?.choices.claude?.model).toBe('claude-tenant-preview')
+    expect(f.call.mock.calls.every(([method]) => method === MODEL_DEFAULTS_SET)).toBe(true)
+    f.session.newThread()
+    expect(f.session.snapshot().session.model).toBe('claude-tenant-preview')
+    await f.session.send(draft)
+    expect(f.call).toHaveBeenCalledWith('agent-chats.configure', { id: chatId, configId: 'model', value: 'claude-tenant-preview' })
+    const operations = f.call.mock.calls.map(([method]) => method)
+    expect(operations.indexOf('agent-chats.configure')).toBeLessThan(operations.indexOf('agent-chats.send'))
+    expect(f.session.snapshot().session.model).toBe('claude-tenant-preview')
+  } finally { f.close() }
+})
+
+it('keeps a native custom model on its selected route after saving and opening a fresh chat', () => {
+  const f = fixture({ providerId: 'codex', choices: {} })
+  try {
+    f.snapshot.codex.models = [...f.snapshot.codex.models, { id: 'listed-external', displayName: 'External model', modelProvider: 'external' }]
+    f.update({ providerId: 'codex', choices: {} })
+    f.session.setModel('listed-external')
+    f.session.setModel('tenant/model-preview')
+    expect(f.session.snapshot().session).toMatchObject({ model: 'tenant/model-preview', modelProvider: 'external' })
+    expect(modelDefaults(f.snapshot.extensions['model-defaults'])?.choices.codex).toEqual({ model: 'tenant/model-preview', modelProvider: 'external' })
+    f.session.newThread()
+    expect(f.session.snapshot().session).toMatchObject({ model: 'tenant/model-preview', modelProvider: 'external' })
+    expect(f.session.snapshot().session.effort).toBeUndefined()
+    f.session.setModel('one')
+    expect(modelDefaults(f.snapshot.extensions['model-defaults'])?.choices.codex?.modelProvider).toBeUndefined()
+    expect(f.call.mock.calls.every(([method]) => method === MODEL_DEFAULTS_SET)).toBe(true)
+  } finally { f.close() }
+})
+
 it('persists live ACP choices only after successful model-specific configuration', async () => {
   const f = fixture({ providerId: 'gemini', choices: { gemini: { model: 'gemini-4-argon' }, claude: { model: 'sonnet', effort: 'high' } } })
   const original = f.call.getMockImplementation()!

@@ -50,7 +50,8 @@ async function check() {
           const preferences=structuredClone(hostState.snapshot.extensions['model-defaults']);
           preferences.providerId=payload.providerId;
           const choice=preferences.choices[payload.providerId]??={};
-          for(const key of ['model','effort'])if(key in payload){
+          if('model' in payload && !('modelProvider' in payload))delete choice.modelProvider;
+          for(const key of ['model','modelProvider','effort'])if(key in payload){
             if(payload[key]===null)delete choice[key];else choice[key]=payload[key];
           }
           publish(preferences);return preferences;
@@ -78,6 +79,20 @@ async function check() {
       window.choose=(label,value)=>flushSync(()=>{const element=document.querySelector('select[aria-label="'+label+'"]');
         element.value=value;element.dispatchEvent(new Event('change',{bubbles:true}))});
       window.click=label=>flushSync(()=>[...document.querySelectorAll('button')].find(node=>node.textContent===label).click());
+      window.customModel=value=>flushSync(()=>{
+        const input=document.querySelector('input[aria-label="Custom model"]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,value);
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+      });
+      window.applyCustomModel=()=>{
+        let prevented=false;
+        flushSync(()=>{
+          const event=new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});
+          document.querySelector('input[aria-label="Custom model"]').dispatchEvent(event);
+          prevented=event.defaultPrevented;
+        });
+        return prevented;
+      };
       window.reopen=()=>{flushSync(()=>overlays.close());flushSync(()=>overlays.open('settings'))};
       window.publish=value=>flushSync(()=>publish(value));
       window.failSave=()=>{fail=true};
@@ -86,16 +101,20 @@ async function check() {
           options:[...node.options].map(option=>({value:option.value,label:option.textContent,disabled:option.disabled}))}))});
       window.bounds=()=>({width:innerWidth,overflow:document.body.scrollWidth>innerWidth,
         modal:(()=>{const rect=document.querySelector('.program-modal').getBoundingClientRect();return {left:rect.left,right:rect.right}})(),
-        controls:[...document.querySelectorAll('.model-defaults-settings select,.model-defaults-load,[aria-label="Close settings"]')]
+        rows:[...document.querySelectorAll('.model-defaults-settings .settings-row')].map(node=>node.getBoundingClientRect().height),
+        controls:[...document.querySelectorAll('.model-defaults-settings select,.model-defaults-load,.custom-model-entry input,.custom-model-entry button,[aria-label="Close settings"]')]
           .map(node=>{const rect=node.getBoundingClientRect();return {left:rect.left,right:rect.right,width:rect.width}})});
       window.teardown=()=>{root.unmount();cleanups.reverse().forEach(cleanup=>cleanup())};
     ` },
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     loader: { '.css': 'text' }, define: { 'process.env.NODE_ENV': '"production"' },
   })
-  const css = (await fsp.readFile('src/client/styles.css', 'utf8')).replace(/@import[^;]+;/g, '')
+  const css = (await Promise.all([
+    'src/client/styles.css', 'program/plugins/ui/appearance-tokens.css',
+    'program/plugins/ui/controls.css', 'program/plugins/ui/focus.css', 'program/plugins/theme.css',
+  ].map(file => fsp.readFile(file, 'utf8')))).join('\n').replace(/@import[^;]+;/g, '')
   const server = http.createServer((_request, response) => {
-    response.end('<!doctype html><style>' + css + '</style><div class="shell-kernel"><div id="root"></div></div>')
+    response.end('<!doctype html><html data-alto-theme="light"><style>' + css + '</style><div class="shell-kernel"><div id="root"></div></div></html>')
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const window = new BrowserWindow({ show: false, width: 1280, height: 900,
@@ -221,6 +240,46 @@ async function check() {
     await select('Default model', 'gemini-4-argon')
     assert.equal((await read()).preferences.choices.gemini.model, 'gemini-4-argon')
     assert.deepEqual((await read()).setters, [])
+
+    await select('Default agent', 'claude')
+    await run('click("Custom…")')
+    await run('customModel("  claude-tenant-preview  ")')
+    assert.equal(await run('applyCustomModel()'), true)
+    await settle()
+    state = await read()
+    assert.equal(state.preferences.choices.claude.model, 'claude-tenant-preview')
+    assert.equal(get(state, 'Default model').value, 'claude-tenant-preview')
+    assert.equal(get(state, 'Default model').options.find(option => option.value === 'claude-tenant-preview').disabled, false)
+    assert.ok(!state.text.includes('currently unavailable'))
+
+    await run('click("Custom…")')
+    await run('customModel("claude-tenant-retry")')
+    await run('failSave()')
+    await run('click("Use")')
+    await settle()
+    assert.match((await read()).text, /Cannot save test defaults/)
+    assert.equal((await read()).preferences.choices.claude.model, 'claude-tenant-preview')
+    assert.equal(await run('document.querySelector(".custom-model-entry input").value'), 'claude-tenant-retry')
+    await run('click("Use")')
+    await settle()
+    assert.equal((await read()).preferences.choices.claude.model, 'claude-tenant-retry')
+
+    await run('click("Custom…")')
+    for (const width of [1280, 480, 340]) {
+      window.setContentSize(width, 900)
+      await settle()
+      const bounds = await run('bounds()')
+      assert.equal(bounds.overflow, false, JSON.stringify(bounds))
+      assert.ok(bounds.rows.every(height => height < 220), JSON.stringify(bounds))
+      for (const control of bounds.controls) assert.ok(control.width > 0 && control.left >= bounds.modal.left && control.right <= bounds.modal.right, JSON.stringify(bounds))
+      await screenshot(`custom-model-defaults-${width}.png`)
+    }
+    await run('reopen()')
+    await run('showModels()')
+    assert.equal(get(await read(), 'Default model').value, 'claude-tenant-retry')
+    assert.equal((await read()).preferences.choices.gemini.model, 'gemini-4-argon')
+    assert.deepEqual((await read()).setters, [])
+    assert.equal((await read()).threadId, 'active-chat')
     await run('teardown()')
     console.log('Any-agent settings checks passed')
   } finally {

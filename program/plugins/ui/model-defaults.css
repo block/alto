@@ -8,6 +8,7 @@
 }
 
 .model-defaults-settings .settings-row {
+  flex-direction: row;
   flex-wrap: wrap;
 }
 
@@ -33,6 +34,29 @@
   min-width: 0;
   display: flex;
   align-items: center;
+}
+
+.model-defaults-model-control {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.model-defaults-model-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.model-defaults-model-choice .model-defaults-select {
+  flex: 1;
+}
+
+.model-defaults-custom-action {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .model-defaults-settings .model-defaults-select select {

@@ -36,6 +36,8 @@ async function check() {
         {id:'cloud-claude',agentId:'claude',label:'Claude',location:{id:'cloud',label:'Cloud'}},
         {id:'managed-remote',agentId:'managed',label:'Managed',location:{id:'managed',label:'Hosted'}}];
       const extraConfig=()=>[{id:'verbosity',name:'Verbosity',currentValue:'quiet',category:'verbosity',options:[{value:'quiet',name:'Quiet'},{value:'full',name:'Full'}]}];
+      const claudeConfig=()=>[{id:'model',name:'Model',category:'model',allowCustom:true,currentValue:'opus',
+        options:claude.map(model=>({value:model.id,name:model.displayName}))},...extraConfig()];
       const managedConfig=()=>[{id:'agent',name:'Managed agent',currentValue:'worker-a',category:'agent',options:[{value:'worker-a',name:'Primary worker'},{value:'worker-b',name:'Backup worker'}]},...extraConfig()];
       providers.find(provider=>provider.id==='managed-remote').configOptions=managedConfig().filter(option=>option.category==='agent');
       let state={revision:1,connected:true,providerId:'codex',providers,models:native,agentConfig:[],
@@ -49,7 +51,7 @@ async function check() {
       const selectProvider=(providerId,selection,reset=false)=>{
         const same=providerId===state.providerId&&!reset;
         const models=catalogs[providerId],model=models.find(option=>option.isDefault)??models[0];
-        let config=same?state.agentConfig:providerId==='managed-remote'?managedConfig():providerId.includes('claude')?extraConfig():[];
+        let config=same?state.agentConfig:providerId==='managed-remote'?managedConfig():providerId.includes('claude')?claudeConfig():[];
         if(selection){
           const option=config.find(option=>option.id===selection.configId&&option.category==='agent');
           if(!option?.options.some(option=>option.value===selection.value))throw new Error('Agent is unavailable');
@@ -108,8 +110,11 @@ async function check() {
         provider.id===providerId?{...provider,capabilities:{...provider.capabilities,permissionModes:available}}:provider)});
       window.emptyCodex=()=>{selectProvider('codex');publish({models:[],harness:{...state.harness,codex:{status:'stopped',models:[]}},
         session:{...state.session,model:undefined,effort:undefined}})};
-      window.finishLoad=error=>{const pending=pendingLoads.shift();if(!pending)throw new Error('No pending catalog request');
-        if(error)pending.reject(new Error(error));else{if(state.providerId==='codex')publish({models:native,harness:{...state.harness,codex:{status:'ready',models:native}}});pending.resolve()}};
+      window.coldCustomCodex=()=>{session.loadModels=undefined;publish({providerId:'codex',providers:[],models:[],agentConfig:[],
+        harness:{...state.harness,codex:{status:'stopped',models:[]}},session:{...state.session,model:undefined,effort:undefined}})};
+      window.finishLoad=(error,selectDefault=false)=>{const pending=pendingLoads.shift();if(!pending)throw new Error('No pending catalog request');
+        if(error)pending.reject(new Error(error));else{if(state.providerId==='codex')publish({models:native,harness:{...state.harness,codex:{status:'ready',models:native}},
+          ...(selectDefault?{session:{...state.session,model:'balanced',effort:'medium'}}:{})});pending.resolve()}};
       window.resetChanges=()=>{changes.length=0;clickCount=0};
       window.read=()=>({providerId:state.providerId,model:state.session.model,effort:state.session.effort,agentConfig:state.agentConfig,changes:[...changes],
         draft:draft.message,clicks:clickCount,requests:modelRequests,pending:pendingLoads.length,
@@ -123,7 +128,7 @@ async function check() {
         const box=node=>{const r=node.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}};
         return {width:innerWidth,height:innerHeight,page:document.documentElement.scrollWidth,popup:box(popup),
           list:{...box(list),scroll:list.scrollHeight,visible:list.clientHeight},
-          controls:[...popup.querySelectorAll('button,select')].filter(node=>!node.closest('[data-composer-models],[data-composer-agents]')&&node.getBoundingClientRect().width>0).map(box),
+          controls:[...popup.querySelectorAll('button,select,input')].filter(node=>!node.closest('[data-composer-models],[data-composer-agents]')&&node.getBoundingClientRect().width>0).map(box),
           agents:box(popup.querySelector('[data-composer-agents]')),
           rail:box(popup.querySelector('.composer-picker-agents-rail')),
           nativeAgent:box(popup.querySelector('select[aria-label=Agent]')),
@@ -205,6 +210,7 @@ async function check() {
     const directory = process.env.ALTO_MODEL_PICKER_ARTIFACT_DIR
     if (!directory) return
     await fs.mkdir(directory, { recursive: true })
+    await frames()
     await fs.writeFile(path.join(directory, name + '.png'), (await win.webContents.capturePage()).toPNG())
   }
   try {
@@ -449,15 +455,31 @@ async function check() {
     await until('[...document.querySelectorAll(".composer-model-picker [role=alert]")].some(node=>node.textContent.includes("Catalog unavailable"))')
     await click(button('Load models'))
     assert.equal(await run('modelRequests'), 2)
-    await run('finishLoad()')
+    await click(button('Custom model…'))
+    await win.webContents.insertText('draft/custom-before-discovery')
+    await frames()
+    await run('window.discoveryCustomInput=document.querySelector(".custom-model-entry input");finishLoad(undefined,true)')
     await until('document.querySelector("[data-composer-models] [aria-selected=true]")')
+    await frames()
+    assert.equal(await run('document.querySelector(".custom-model-entry input")===discoveryCustomInput'), true, 'Background model discovery cannot close or replace a typed custom editor')
+    assert.equal(await run('discoveryCustomInput.value'), 'draft/custom-before-discovery')
+    assert.equal(await run('document.activeElement===discoveryCustomInput'), true, 'A newly advertised default does not steal custom-entry focus')
+    assert.equal((await run('read()')).model, 'balanced', 'Typing has not selected the custom draft')
+    assert.equal(await run('sent.length'), 0)
+    await click(button('Swift', '[data-composer-models]'))
+    await until('!document.querySelector(".custom-model-entry")')
+    assert.equal((await run('read()')).model, 'swift-v2', 'An explicit catalog choice closes the custom editor after it applies')
+    await click(button('Balanced', '[data-composer-models]'))
     assert.equal((await run('read()')).models.filter(option => option.selected === 'true')[0].name, 'Balanced')
     await showOptions()
     await click(button('Refresh models'))
     assert.equal(await run('modelRequests'), 3)
     await run('finishLoad()')
     await until('!'+button('Refresh models')+'.disabled')
+    await click(button('Custom model…'))
+    await win.webContents.insertText('draft/discard-on-explicit-reset')
     await click(button('Reset to default'))
+    await until('!document.querySelector(".custom-model-entry")')
     assert.equal((await run('read()')).model, undefined)
     assert.equal((await run('read()')).effort, undefined)
     assert.equal((await run('read()')).open, true, 'Reset leaves the unified picker open')
@@ -606,6 +628,103 @@ async function check() {
     assert.equal(await run('activityClicks'), 1)
     await run('document.getElementById("activity-overlay").hidden=true')
     await retained()
+
+    const customInput = 'document.querySelector(".custom-model-entry input")'
+    const typeCustom = async value => {
+      await click(button('Custom model…'))
+      assert.equal(await run('document.activeElement.getAttribute("aria-label")'), 'Custom model')
+      await win.webContents.insertText(value)
+      await frames()
+    }
+    await run('chooseProvider("codex");resetChanges()')
+    await run('selectDraft(6,11)')
+    await open()
+    await click(button('Custom model…'))
+    await key('Return')
+    assert.equal((await run('read()')).model, 'balanced', 'A blank custom model cannot replace the current model')
+    assert.deepEqual((await run('read()')).changes, [])
+    assert.ok(await run('document.querySelector(".custom-model-entry [role=alert]")?.textContent.includes("Enter a model")'))
+    await win.webContents.insertText('  custom-route/native-preview  ')
+    await frames()
+    await run(customInput + '.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",isComposing:true,bubbles:true,cancelable:true}))')
+    assert.deepEqual((await run('read()')).changes, [], 'IME confirmation does not submit a custom model')
+    await key('Return')
+    await until('!document.querySelector(".custom-model-entry")')
+    assert.equal((await run('read()')).model, 'custom-route/native-preview')
+    assert.equal((await run('read()')).open, true, 'Applying a custom model keeps the shared picker open')
+    assert.deepEqual((await run('read()')).changes, [['model', 'custom-route/native-preview']])
+    assert.deepEqual((await run('read()')).models.filter(option => option.selected === 'true').map(option => option.name), ['custom-route/native-preview'])
+    assert.ok(await run('document.querySelector(".composer-model-trigger").textContent.includes("custom-route/native-preview")'), 'The custom name replaces the catalog default in the trigger')
+    assert.equal(await run('sent.length'), 0, 'Enter in the model field never sends the composer draft')
+    await retained()
+    await run('focusDraft()'); await frames()
+    assert.deepEqual(await run('draftSelection()'), { focused: true, original: true, anchor: 6, focus: 11 }, 'Typing a model name preserves the composer caret and selected range')
+    await open()
+    await run('replaceCatalog()')
+    assert.equal((await run('read()')).models.filter(option => option.name === 'custom-route/native-preview').length, 1, 'Catalog refresh preserves one selected custom row')
+    await click(button('Custom model…'))
+    assert.equal(await run(customInput + '.value'), 'custom-route/native-preview')
+    assert.equal(await run(customInput + '.maxLength'), 256)
+    await key('Escape')
+    assert.equal(await run('!!document.querySelector(".custom-model-entry")'), false, 'Escape cancels only the inline custom editor')
+    assert.equal((await run('read()')).open, true)
+    await showOptions(); await click(button('Reset to default'))
+    assert.equal((await run('read()')).model, undefined)
+    assert.equal((await run('read()')).models.some(option => option.name === 'custom-route/native-preview'), false)
+
+    await run('chooseProvider("claude");resetChanges();holdNextModel()')
+    await typeCustom('  claude-future-custom  ')
+    await key('Return')
+    assert.equal((await run('read()')).model, 'opus')
+    assert.equal(await run(customInput + '.disabled'), true)
+    await run('rejectModel("Custom model was refused")')
+    await until('document.querySelector(".custom-model-entry [role=alert]")?.textContent.includes("Custom model was refused")')
+    assert.equal(await run(customInput + '.value'), '  claude-future-custom  ', 'A refused model retains the entered name for correction or retry')
+    assert.equal(await run('document.activeElement.getAttribute("aria-label")'), 'Custom model')
+    assert.equal((await run('read()')).model, 'opus', 'A refused custom name keeps the prior model selected')
+    await capture('picker-custom-error')
+    await run('document.documentElement.dataset.altoTheme="light"')
+    await capture('picker-custom-error-light')
+    await click(button('Use', '.custom-model-entry'))
+    await until('!document.querySelector(".custom-model-entry")')
+    assert.equal((await run('read()')).model, 'claude-future-custom')
+    assert.deepEqual((await run('read()')).models.filter(option => option.selected === 'true').map(option => option.name), ['claude-future-custom'])
+    assert.deepEqual((await run('read()')).changes, [['model', 'claude-future-custom'], ['model', 'claude-future-custom']])
+    assert.equal((await run('read()')).open, true)
+    await retained()
+    await capture('picker-custom-claude')
+    await run('holdNextModel()')
+    await typeCustom('claude-dismissed-custom')
+    await key('Return')
+    await run('chooseProvider("managed-remote")')
+    await run('rejectModel("A previous custom model failed")')
+    assert.equal(await run('!!document.querySelector(".custom-model-entry")||!!document.querySelector(".composer-model-picker [role=alert]")'), false, 'A previous-provider failure cannot leak into another agent')
+    assert.equal(await run('!!' + button('Custom model…')), false, 'Providers with a strict catalog do not offer custom names')
+    assert.equal((await run('read()')).model, 'managed-reasoner')
+    await key('Escape')
+
+    win.setContentSize(320, 360)
+    await run('chooseProvider("codex")')
+    await frames(); await open()
+    await click(button('Custom model…')); await key('Return')
+    const blankCustomGeometry = await run('geometry()')
+    assert.ok(blankCustomGeometry.controls.every(control => control.left >= blankCustomGeometry.popup.left && control.right <= blankCustomGeometry.popup.right + 1 && control.top >= blankCustomGeometry.popup.top && control.bottom <= blankCustomGeometry.popup.bottom + 1), 'Validation keeps the custom editor reachable on a short narrow pane: ' + JSON.stringify(blankCustomGeometry))
+    await win.webContents.insertText('native/long-custom-model-name-with-a-provider-prefix'); await frames()
+    const customGeometry = await run('geometry()')
+    assert.ok(customGeometry.popup.left >= 0 && customGeometry.popup.right <= 321 && customGeometry.popup.top >= 0 && customGeometry.popup.bottom <= 361, 'The custom editor fits a short narrow pane: ' + JSON.stringify(customGeometry))
+    assert.ok(customGeometry.controls.every(control => control.left >= customGeometry.popup.left && control.right <= customGeometry.popup.right + 1 && control.top >= customGeometry.popup.top && control.bottom <= customGeometry.popup.bottom + 1), 'Custom input and actions stay inside the picker: ' + JSON.stringify(customGeometry))
+    await capture('picker-custom-entry-narrow')
+    await key('Return')
+    await until('!document.querySelector(".custom-model-entry")')
+    assert.equal((await run('read()')).model, 'native/long-custom-model-name-with-a-provider-prefix')
+    assert.equal((await run('read()')).open, true)
+    assert.equal(await run('sent.length'), 0)
+    await capture('picker-custom-narrow')
+    await key('Escape')
+    win.setContentSize(1000, 800)
+    await run('chooseProvider("codex")')
+    await frames()
+
     await open()
     const beforeExpansion = await run('editor().closest(".composer").getBoundingClientRect().height')
     await run('expandComposer()')
@@ -617,6 +736,21 @@ async function check() {
     assert.ok(expanded.popup.top >= 0 && expanded.popup.bottom <= expanded.height && expanded.popup.left >= 0, 'The picker follows the expanded composer anchor: ' + JSON.stringify(expanded))
     assert.ok(expanded.list.visible >= 32, JSON.stringify(expanded))
     await capture('picker-expanded-composer')
+    await key('Escape')
+    await run('coldCustomCodex();resetChanges()')
+    assert.equal(await run('document.querySelector(".composer-model-trigger").disabled'), false, 'A cold native picker permits custom entry before models or provider metadata load')
+    await open()
+    assert.equal(await run('!!'+button('Load models')), false, 'The cold fixture has no discovery callback')
+    await typeCustom('cold/custom-native-model')
+    await key('Return')
+    await until('!document.querySelector(".custom-model-entry")')
+    assert.equal((await run('read()')).model, 'cold/custom-native-model')
+    assert.deepEqual((await run('read()')).models, [{name:'cold/custom-native-model',selected:'true'}], 'An empty catalog still displays its selected custom model')
+    assert.ok(await run('document.querySelector(".composer-model-trigger").textContent.includes("cold/custom-native-model")'))
+    assert.equal(await run('[...document.querySelectorAll(".composer-picker-note")].some(node=>node.textContent.includes("follows the agent"))'), false, 'A selected custom name is not described as the agent default')
+    assert.deepEqual((await run('read()')).changes, [['model','cold/custom-native-model']])
+    assert.equal(await run('sent.length'), 0)
+    await capture('picker-custom-cold')
     await key('Escape')
     await run('teardown()')
     console.log('Composer model picker browser checks passed')

@@ -85,6 +85,8 @@ export interface AgentConfigOption {
   id: string
   name: string
   category?: string
+  /** Permit explicit model IDs outside the menu; the provider still validates them. */
+  allowCustom?: boolean
   currentValue: string
   options: Array<{ value: string; name: string; description?: string }>
 }

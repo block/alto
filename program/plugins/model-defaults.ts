@@ -47,7 +47,7 @@ const modelDefaults: HarnessPlugin = (ctx) => {
   extensions.registerMethod(ctx, MODEL_DEFAULTS_SET, (payload) => {
     if (!isRecord(payload) || !validDefaultProviderId(payload.providerId)) throw new Error('An enabled providerId is required')
     if (payload.selectProvider !== undefined && typeof payload.selectProvider !== 'boolean') throw new Error('selectProvider must be a boolean')
-    for (const key of ['model', 'effort'] as const) {
+    for (const key of ['model', 'modelProvider', 'effort'] as const) {
       if (payload[key] !== undefined && payload[key] !== null && !validDefaultChoice(payload[key])) {
         throw new Error(`${key} must be a nonempty string or null`)
       }

@@ -1,10 +1,11 @@
-import { Check, ChevronDown, Cloud, Laptop, MoreHorizontal, RefreshCw, RotateCcw } from 'lucide-react'
+import { Check, ChevronDown, Cloud, Laptop, MoreHorizontal, Plus, RefreshCw, RotateCcw } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import type { ModelOption } from '../../../src/shared/protocol.js'
 import type { AgentConfigOption } from '../../../src/server/services/agent-registry.js'
 import type { AgentConfigSelection, ClientSessionSnapshot } from '../session-api.js'
 import { agentSelection, type AgentPickerChoice } from './agent-selection.js'
 import { uiStyles } from './appearance.js'
+import { CustomModelEntry } from './custom-model-entry.js'
 
 function effortLabel(effort: string | undefined): string {
   if (!effort) return 'Default'
@@ -53,8 +54,12 @@ export function ComposerModelPicker({
   const agentRevision = useRef(0)
   const configRevision = useRef(0)
   const requestRevision = useRef(0)
+  const customRevision = useRef(0)
+  const customAction = useRef<HTMLButtonElement>(null)
+  const wasCustomOpen = useRef(false)
   const id = useId()
   const [moreOpen, setMoreOpen] = useState(false)
+  const [customOpen, setCustomOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const [choiceError, setChoiceError] = useState<string>()
@@ -64,7 +69,18 @@ export function ComposerModelPicker({
   const selection = useMemo(() => agentSelection(providers, providerId, agentConfig), [providers, providerId, agentConfig])
   const agentChoices = useMemo(() => selection.agentGroups.flatMap(group => group.agents), [selection])
   const selectedAgent = agentChoices.find(choice => choice.selected)
-  const selectedModel = models.find(option => option.id === model) ?? models.find(option => option.isDefault) ?? models[0]
+  const canUseCustomModel = providerId === 'codex' || agentConfig.some(option => option.category === 'model' && option.allowCustom)
+  const knownModel = models.find(option => option.id === model)
+  const customEffort = agentConfig.find(option => option.category === 'thought_level')
+  const customModel: ModelOption | undefined = canUseCustomModel && model && !knownModel ? {
+    id: model, displayName: model,
+    ...(customEffort ? {
+      defaultReasoningEffort: customEffort.currentValue,
+      supportedReasoningEfforts: customEffort.options.map(option => ({ reasoningEffort: option.value, description: option.name })),
+    } : {}),
+  } : undefined
+  const modelChoices = customModel ? [...models, customModel] : models
+  const selectedModel = knownModel ?? customModel ?? models.find(option => option.isDefault) ?? models[0]
   const reasoning = effort ?? selectedModel?.defaultReasoningEffort
   const reasoningOptions = selectedModel?.supportedReasoningEfforts ?? []
   const summary = [selectedModel?.displayName ?? model ?? `${selection.label} default`, effortLabel(reasoning)].join(' ')
@@ -102,6 +118,7 @@ export function ComposerModelPicker({
       setChangingAgent(false)
       setChangingModel(false)
       setPendingConfig(undefined)
+      setCustomOpen(false)
     }
     if (open && (opening || focus !== previousFocus.current)) {
       if (opening) {
@@ -110,6 +127,7 @@ export function ComposerModelPicker({
         setPendingConfig(undefined)
         setChoiceError(undefined)
         setMoreOpen(false)
+        setCustomOpen(false)
       }
       const active = document.activeElement
       if (active instanceof HTMLElement && (control.current?.contains(active) || agentControlRef?.current?.contains(active))) opener.current = active
@@ -121,7 +139,7 @@ export function ComposerModelPicker({
   }, [open, focus])
   useLayoutEffect(() => {
     if (open && models.length > 0 && !hadModels.current
-      && !document.activeElement?.closest('[data-composer-agents], .composer-picker-native-agent')) focusPicker('models')
+      && !document.activeElement?.closest('[data-composer-agents], .composer-picker-native-agent, .custom-model-entry')) focusPicker('models')
     hadModels.current = models.length > 0
   }, [open, models.length > 0])
   useLayoutEffect(() => {
@@ -153,11 +171,16 @@ export function ComposerModelPicker({
     }
     wasBusy.current = busy
   }, [open, busy])
+  useLayoutEffect(() => {
+    if (open && wasCustomOpen.current && !customOpen && document.activeElement === document.body) focusPicker('models')
+    wasCustomOpen.current = customOpen
+  }, [open, customOpen])
   useEffect(() => {
     modelRevision.current += 1
     agentRevision.current += 1
     configRevision.current += 1
     requestRevision.current += 1
+    customRevision.current += 1
     setChangingModel(false)
     setChangingAgent(false)
     setPendingConfig(undefined)
@@ -165,11 +188,13 @@ export function ComposerModelPicker({
     setChoiceError(undefined)
     setError(undefined)
     setMoreOpen(false)
+    setCustomOpen(false)
     return () => {
       modelRevision.current += 1
       agentRevision.current += 1
       configRevision.current += 1
       requestRevision.current += 1
+      customRevision.current += 1
     }
   }, [providerId])
   useEffect(() => {
@@ -193,6 +218,7 @@ export function ComposerModelPicker({
       modelRevision.current += 1
       agentRevision.current += 1
       configRevision.current += 1
+      customRevision.current += 1
       document.removeEventListener('pointerdown', outside)
       document.removeEventListener('keydown', escape)
     }
@@ -209,14 +235,35 @@ export function ComposerModelPicker({
   }
 
   async function chooseModel(option: ModelOption): Promise<void> {
-    if (busy || option.id === selectedModel?.id) return
+    if (busy) return
+    if (option.id === selectedModel?.id) { setCustomOpen(false); return }
     const revision = ++modelRevision.current
+    const entry = customRevision.current
     rememberBusyFocus()
     setChangingModel(true)
     setChoiceError(undefined)
-    try { await onModelChange(option.id) }
+    try {
+      await onModelChange(option.id)
+      if (customRevision.current === entry && wasOpen.current) setCustomOpen(false)
+    }
     catch (failure) { if (modelRevision.current === revision) setChoiceError(failure instanceof Error ? failure.message : String(failure)) }
     finally { if (modelRevision.current === revision) setChangingModel(false) }
+  }
+
+  async function chooseCustomModel(value: string): Promise<void> {
+    if (busy) return
+    if (value === selectedModel?.id) { setCustomOpen(false); return }
+    const revision = ++modelRevision.current
+    const entry = customRevision.current
+    rememberBusyFocus()
+    setChangingModel(true)
+    setChoiceError(undefined)
+    try {
+      await onModelChange(value)
+      if (customRevision.current === entry && wasOpen.current) setCustomOpen(false)
+    } finally {
+      if (modelRevision.current === revision) setChangingModel(false)
+    }
   }
 
   function chooseEffort(value: string): void {
@@ -251,12 +298,16 @@ export function ComposerModelPicker({
   async function resetDefaults(): Promise<void> {
     if (busy) return
     const revision = ++configRevision.current
+    const entry = customRevision.current
     rememberBusyFocus()
     setPendingConfig('defaults')
     setChoiceError(undefined)
     try {
       await onModelChange(undefined)
-      if (configRevision.current === revision) onEffortChange(undefined)
+      if (configRevision.current === revision) {
+        onEffortChange(undefined)
+        if (customRevision.current === entry && wasOpen.current) setCustomOpen(false)
+      }
     } catch (failure) { if (configRevision.current === revision) setChoiceError(failure instanceof Error ? failure.message : String(failure)) }
     finally { if (configRevision.current === revision) setPendingConfig(undefined) }
   }
@@ -299,7 +350,7 @@ export function ComposerModelPicker({
     {presentation === 'popover' && <button ref={trigger} className="composer-model-trigger" type="button"
       aria-label={`Model and reasoning: ${summary}`} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined}
       title={`${selection.label} · ${selection.locationLabel}\n${summary}`}
-      disabled={(disabled && (providerLocked || providers.length < 2)) || (!models.length && !providers.length && !onModelsRequest)}
+      disabled={(disabled && (providerLocked || providers.length < 2)) || (!models.length && !providers.length && !onModelsRequest && !canUseCustomModel)}
       onClick={() => { onFocusChange('models'); onOpenChange(!open || focus !== 'models') }}>
       <span>{summary}</span><ChevronDown size={12} />
     </button>}
@@ -344,12 +395,24 @@ export function ComposerModelPicker({
           <div className="composer-picker-options composer-picker-models" data-composer-models role="listbox" aria-label="Models">
             {unavailable && <p className="composer-picker-note" role="status">{unavailable}</p>}
             {!models.length && canLoadModels && <button type="button" disabled={loading} onClick={() => { void requestModels() }}>Load models</button>}
-            {models.map(option => <button className={uiStyles.row} type="button" role="option" aria-selected={option.id === selectedModel?.id}
+            {modelChoices.map(option => <button className={uiStyles.row} type="button" role="option" aria-selected={option.id === selectedModel?.id}
               tabIndex={option.id === selectedModel?.id ? 0 : -1} disabled={busy} key={option.id} title={option.displayName} onClick={() => { void chooseModel(option) }}>
               <span>{option.displayName}</span>{option.id === selectedModel?.id && <Check size={14} />}
             </button>)}
-            {!models.length && !canLoadModels && !unavailable && <p className="composer-picker-note">Model follows the agent’s defaults.</p>}
+            {!modelChoices.length && !canLoadModels && !unavailable && <p className="composer-picker-note">Model follows the agent’s defaults.</p>}
+            {canUseCustomModel && !customOpen && <button ref={customAction} className={uiStyles.row + ' composer-picker-custom-action'} type="button" disabled={busy}
+              onClick={() => { customRevision.current += 1; setChoiceError(undefined); setCustomOpen(true) }}>
+              <span>Custom model…</span><Plus size={13} />
+            </button>}
           </div>
+          {canUseCustomModel && customOpen && <div className="composer-picker-custom">
+            <CustomModelEntry key={providerId} initialValue={customModel?.id ?? ''} disabled={busy}
+              onApply={chooseCustomModel} onCancel={() => {
+                customRevision.current += 1
+                setCustomOpen(false)
+                customAction.current?.focus({ preventScroll: true })
+              }} />
+          </div>}
           {error && <p className="composer-picker-note" role="alert">{error}</p>}
           {choiceError && <p className="composer-picker-note" role="alert">{choiceError}</p>}
           {reasoningOptions.length > 0 && <div className="composer-picker-reasoning" role="group" aria-label="Reasoning">

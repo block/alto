@@ -6,7 +6,7 @@ import { expect, it } from 'vitest'
 
 const require = createRequire(import.meta.url)
 
-it.skipIf(process.platform !== 'darwin')('switches models and reasoning in one persistent picker while preserving provider rules, keyboard navigation, and drafts', async () => {
+it.skipIf(process.platform !== 'darwin')('switches advertised and custom models in one persistent picker while preserving provider rules, keyboard navigation, and drafts', async () => {
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
   const { stdout } = await promisify(execFile)(require('electron') as string, [

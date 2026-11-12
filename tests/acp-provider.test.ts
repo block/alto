@@ -68,6 +68,45 @@ describe('ACP process provider', () => {
     } finally { await provider.stop() }
   })
 
+  it('forwards custom Claude model IDs and preserves the selected model when the provider refuses one', async () => {
+    const configured = vi.fn()
+    const config = (value: string): acp.SessionConfigOption[] => [
+      { id: 'model', name: 'Model', type: 'select', category: 'model', currentValue: value,
+        options: [{ value: 'sonnet', name: 'Sonnet' }] },
+      { id: 'effort', name: 'Reasoning', type: 'select', category: 'thought_level', currentValue: 'high',
+        options: [{ value: 'high', name: 'High' }] },
+      { id: 'mode', name: 'Mode', type: 'select', category: 'mode', currentValue: 'default',
+        options: [{ value: 'default', name: 'Default' }] },
+    ]
+    let peer!: acp.AgentContext
+    const agent = acp.agent().onRequest('initialize', () => ({ protocolVersion: acp.PROTOCOL_VERSION }))
+      .onRequest('session/new', ctx => { peer = ctx.client; return { sessionId: 'custom-models', configOptions: config('sonnet') } })
+      .onRequest('session/set_config_option', ctx => {
+        configured(ctx.params)
+        if (ctx.params.value === 'rejected/model') throw new Error('This account cannot use rejected/model')
+        return { configOptions: config(String(ctx.params.value)) }
+      })
+    const provider = new AcpProcessProvider({ id: 'claude', label: 'Claude', command: 'unused', openConnection: directConnection(agent) })
+    const events: AgentEvent[] = []
+    provider.subscribe(event => events.push(event))
+    try {
+      const session = await provider.createSession({ cwd: '/tmp', permissionMode: 'ask' })
+      expect(session.configOptions?.find(option => option.category === 'model')?.allowCustom).toBe(true)
+      const updated = await provider.configure(session.id, 'model', ' deployment/custom-model ')
+      expect(configured).toHaveBeenCalledExactlyOnceWith({ sessionId: session.id, configId: 'model', value: 'deployment/custom-model' })
+      expect(updated.find(option => option.category === 'model')).toMatchObject({ currentValue: 'deployment/custom-model', allowCustom: true })
+      for (const [id, value] of [['model', 'bad\nmodel'], ['model', ' '], ['model', 'x'.repeat(257)], ['effort', 'unknown'], ['mode', 'unknown']]) {
+        await expect(provider.configure(session.id, id!, value!)).rejects.toThrow('Invalid agent configuration')
+      }
+      expect(configured).toHaveBeenCalledTimes(1)
+      await expect(provider.configure(session.id, 'model', 'rejected/model')).rejects.toThrow('This account cannot use rejected/model')
+      expect(provider.snapshot().configOptions?.find(option => option.category === 'model')?.currentValue).toBe('deployment/custom-model')
+      expect(events.filter(event => event.type === 'config.updated')).toHaveLength(1)
+      await peer.notify('session/update', { sessionId: session.id, update: { sessionUpdate: 'config_option_update', configOptions: config('external/model') } })
+      await vi.waitFor(() => expect(provider.snapshot().configOptions?.find(option => option.category === 'model')).toMatchObject({ currentValue: 'external/model', allowCustom: true }))
+    } finally { await provider.stop() }
+  })
+
   it('negotiates stable ACP, normalizes updates, and applies the captured permission mode', async () => {
     let permissionOutcome: acp.RequestPermissionResponse | undefined
     const agent = acp.agent({ name: 'test-agent' })

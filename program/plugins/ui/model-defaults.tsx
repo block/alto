@@ -10,15 +10,24 @@ import {
   MODEL_DEFAULTS_SET,
   MODEL_DEFAULTS_STATE,
   modelDefaults,
+  validDefaultChoice,
   type ModelDefaultsChoice,
   type ModelDefaultsUpdate,
 } from '../model-defaults-api.js'
 import type { ClientSessionSnapshot } from '../session-api.js'
 import { SettingsRow } from './settings.js'
+import { CustomModelEntry } from './custom-model-entry.js'
+import { uiStyles } from './appearance.js'
 
 type DefaultsProvider = Pick<AgentProviderSnapshot,
   'id' | 'label' | 'agentId' | 'location' | 'remoteLocation' | 'protocol' | 'configOptions'>
 type Choice = AgentConfigOption['options'][number]
+
+function allowsCustomModel(provider: DefaultsProvider | undefined, discovered?: AgentConfigOption[]): boolean {
+  if (!provider) return false
+  return provider.id === 'codex' || initialAgentConfig(provider.agentId ?? provider.id, discovered ?? provider.configOptions)
+    .some(option => option.category === 'model' && option.allowCustom)
+}
 
 export function defaultModelProviders(snapshot: HarnessSnapshot | undefined): DefaultsProvider[] {
   const catalog = snapshot?.extensions[AGENT_CHATS_STATE]
@@ -46,8 +55,12 @@ export function defaultsModelChoices(
     const selected = choice?.model
       ? models.find((model) => model.id === choice.model)
       : models.find((model) => model.isDefault) ?? models[0]
+    const choices = models.map((model) => ({ value: model.id, name: model.displayName }))
+    if (choice?.model && !selected && allowsCustomModel(provider, discovered) && validDefaultChoice(choice.model)) {
+      choices.push({ value: choice.model, name: choice.model })
+    }
     return {
-      models: models.map((model) => ({ value: model.id, name: model.displayName })),
+      models: choices,
       efforts: (selected?.supportedReasoningEfforts ?? []).map((effort) => ({
         value: effort.reasoningEffort, name: effort.reasoningEffort,
         ...(effort.description ? { description: effort.description } : {}),
@@ -64,6 +77,7 @@ export function defaultsModelChoices(
     const alias = models.find((option) => option.value === resolved)
     if (alias) models.push({ value: choice.model, name: alias.description?.split(' · ')[0] ?? alias.name })
   }
+  if (resolved && !models.some(option => option.value === resolved)) models.push({ value: resolved, name: resolved })
   return {
     models,
     efforts: config.find((option) => option.category === 'thought_level')?.options ?? [],
@@ -132,19 +146,22 @@ export function ModelDefaultsSettings({ host, workspace, saveDefaults }: {
   const [saving, setSaving] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [problem, setProblem] = useState<string>()
+  const [customModelOpen, setCustomModelOpen] = useState(false)
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
     return () => { mounted.current = false }
   }, [])
+  useEffect(() => { setCustomModelOpen(false) }, [providerId])
 
   const { models, efforts } = defaultsModelChoices(provider, snapshot, choice, discovered[providerId])
+  const canUseCustomModel = allowsCustomModel(provider, discovered[providerId])
   const ready = hostState.connected && preferences !== undefined
   const busy = saving || refreshing
   const staleModel = savedChoice(choice?.model, models)
   const staleEffort = savedChoice(choice?.effort, efforts)
 
-  async function save(change: { providerId: string; model?: string | null; effort?: string | null }): Promise<void> {
+  async function save(change: { providerId: string; model?: string | null; modelProvider?: string | null; effort?: string | null }): Promise<void> {
     setProblem(undefined)
     setSaving(true)
     try {
@@ -152,6 +169,7 @@ export function ModelDefaultsSettings({ host, workspace, saveDefaults }: {
       else await host.call(MODEL_DEFAULTS_SET, change)
     } catch (error) {
       if (mounted.current) setProblem(error instanceof Error ? error.message : String(error))
+      throw error
     } finally {
       if (mounted.current) setSaving(false)
     }
@@ -175,14 +193,17 @@ export function ModelDefaultsSettings({ host, workspace, saveDefaults }: {
     }
   }
 
-  function selectModel(value: string): void {
+  async function selectModel(value: string): Promise<void> {
     const nextChoice = { ...choice }
     if (value) nextChoice.model = value
     else delete nextChoice.model
     const nextEfforts = defaultsModelChoices(provider, snapshot, nextChoice, discovered[providerId]).efforts
     const clearEffort = choice?.effort !== undefined
       && !nextEfforts.some((effort) => effort.value === choice.effort)
-    void save({ providerId, model: value || null, ...(clearEffort ? { effort: null } : {}) })
+    const customRoute = providerId === 'codex' && value && !snapshot?.codex.models.some(model => model.id === value)
+      ? choice?.modelProvider ?? snapshot?.codex.models.find(model => model.id === choice?.model)?.modelProvider
+        ?? snapshot?.codex.defaults?.modelProvider : undefined
+    await save({ providerId, model: value || null, ...(customRoute ? { modelProvider: customRoute } : {}), ...(clearEffort ? { effort: null } : {}) })
   }
 
   return <div className="settings-page model-defaults-settings">
@@ -193,26 +214,36 @@ export function ModelDefaultsSettings({ host, workspace, saveDefaults }: {
         <SettingsRow as="label" label="Default agent" description="Enabled agents and their locations">
           <SelectShell>
             <select aria-label="Default agent" value={providerId} disabled={!ready || busy}
-              onChange={(event) => void save({ providerId: event.target.value })}>
+              onChange={(event) => { void save({ providerId: event.target.value }).catch(() => {}) }}>
               {!provider && <option value={providerId} disabled>{providerId} (saved; unavailable)</option>}
               {providers.map((candidate) => <option value={candidate.id} key={candidate.id}>{defaultsProviderLabel(candidate)}</option>)}
             </select>
           </SelectShell>
         </SettingsRow>
-        <SettingsRow as="label" label="Default model" description="Use the agent default or select a model">
-          <SelectShell>
-            <select aria-label="Default model" value={selectedChoice(choice?.model, models)} disabled={!ready || busy || !provider || (!models.length && !choice?.model)}
-              onChange={(event) => selectModel(event.target.value)}>
-              <ChoiceOptions choices={models} value={choice?.model} />
-            </select>
-          </SelectShell>
+        <SettingsRow label="Default model" description="Use the agent default or select a model">
+          <div className="model-defaults-model-control">
+            <div className="model-defaults-model-choice">
+              <SelectShell>
+                <select aria-label="Default model" value={selectedChoice(choice?.model, models)} disabled={!ready || busy || !provider || (!models.length && !choice?.model && !canUseCustomModel)}
+                  onChange={(event) => { void selectModel(event.target.value).catch(() => {}) }}>
+                  <ChoiceOptions choices={models} value={choice?.model} />
+                </select>
+              </SelectShell>
+              {canUseCustomModel && <button className={`${uiStyles.button} ghost model-defaults-custom-action`} type="button"
+                aria-label="Enter custom default model" aria-expanded={customModelOpen} disabled={!ready || busy}
+                onClick={() => { setProblem(undefined); setCustomModelOpen(value => !value) }}>Custom…</button>}
+            </div>
+            {customModelOpen && canUseCustomModel && <CustomModelEntry key={providerId} initialValue={choice?.model ?? ''}
+              disabled={!ready || busy} onCancel={() => setCustomModelOpen(false)}
+              onApply={async value => { await selectModel(value); if (mounted.current) setCustomModelOpen(false) }} />}
+          </div>
         </SettingsRow>
         <SettingsRow as="label" label="Reasoning effort"
           description={efforts.length ? 'Available reasoning levels for this model' : 'This agent uses its default reasoning'}>
           <SelectShell>
             <select aria-label="Default reasoning effort" value={efforts.length ? selectedChoice(choice?.effort, efforts) : ''}
               disabled={!ready || busy || !provider || !efforts.length}
-              onChange={(event) => void save({ providerId, effort: event.target.value || null })}>
+              onChange={(event) => { void save({ providerId, effort: event.target.value || null }).catch(() => {}) }}>
               <ChoiceOptions choices={efforts} value={efforts.length ? choice?.effort : undefined} />
             </select>
           </SelectShell>
@@ -225,10 +256,10 @@ export function ModelDefaultsSettings({ host, workspace, saveDefaults }: {
       </div>
       {(!provider || staleModel) && <p className="model-defaults-note">The saved {provider ? 'model' : 'agent'} is currently unavailable. Choose an available option before starting a new chat.</p>}
       {staleEffort && <p className="model-defaults-note">Saved reasoning “{choice?.effort}” is unavailable for this model.
-        {' '}<button type="button" disabled={!ready || busy || !provider} onClick={() => void save({ providerId, effort: null })}>Use agent default</button>
+        {' '}<button type="button" disabled={!ready || busy || !provider} onClick={() => { void save({ providerId, effort: null }).catch(() => {}) }}>Use agent default</button>
       </p>}
       <div className="model-defaults-status" role="status" aria-live="polite">
-        {problem ? <span className="model-defaults-error">{problem}</span>
+        {problem && !customModelOpen ? <span className="model-defaults-error">{problem}</span>
           : !preferences ? 'Loading defaults…'
             : !hostState.connected ? 'Connect to Alto to change defaults.'
               : saving ? 'Saving…' : ''}

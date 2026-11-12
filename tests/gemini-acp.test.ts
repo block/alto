@@ -101,7 +101,7 @@ describe('Gemini ACP integration', () => {
         { value: 'gemini-test-flash', name: 'Flash' },
       ]),
     })
-    await expect(provider.configure(session.id, '__model', 'unoffered-model')).rejects.toThrow('Invalid agent configuration')
+    await expect(provider.configure(session.id, '__mode', 'unoffered-mode')).rejects.toThrow('Invalid agent configuration')
     expect(setModel).not.toHaveBeenCalled()
     const configured = await provider.configure(session.id, '__model', 'gemini-test-flash')
     expect(setModel).toHaveBeenCalledWith({ sessionId: session.id, modelId: 'gemini-test-flash' })
@@ -134,6 +134,23 @@ describe('Gemini ACP integration', () => {
     await provider.configure(session.id, '__model', 'gemini-4-argon')
     expect(setModel).toHaveBeenCalledWith({ sessionId: 'saved-gemini', modelId: 'gemini-4-argon' })
     expect(provider.snapshot().configOptions?.some(option => option.category === 'thought_level')).toBe(false)
+  })
+
+  it('lets the legacy agent validate a custom model and retains the previous choice on rejection', async () => {
+    const configured = vi.fn()
+    const { provider } = fixture(gemini()
+      .onRequest('session/new', () => ({ sessionId: 'custom-model', models, modes }))
+      .onRequest('session/set_model', z.object({ sessionId: z.string(), modelId: z.string() }), ctx => {
+        configured(ctx.params)
+        if (ctx.params.modelId === 'rejected-model') throw new Error('Gemini cannot use rejected-model')
+        return {}
+      }))
+    const session = await provider.createSession({ cwd: '/tmp', permissionMode: 'ask' })
+    const updated = await provider.configure(session.id, '__model', ' gemini-new-custom-model ')
+    expect(configured).toHaveBeenCalledExactlyOnceWith({ sessionId: session.id, modelId: 'gemini-new-custom-model' })
+    expect(updated.find(option => option.category === 'model')).toMatchObject({ currentValue: 'gemini-new-custom-model', allowCustom: true })
+    await expect(provider.configure(session.id, '__model', 'rejected-model')).rejects.toThrow('Gemini cannot use rejected-model')
+    expect(provider.snapshot().configOptions?.find(option => option.category === 'model')?.currentValue).toBe('gemini-new-custom-model')
   })
 
   it('keeps an explicit empty modern catalog authoritative after its discovery session closes', async () => {

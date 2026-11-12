@@ -88,7 +88,30 @@ describe('model defaults settings', () => {
     expect(choice.model).toBe('claude-opus-5-5')
     expect(native[0]!.options).toHaveLength(1)
     expect(defaultsModelChoices(claude, snapshot, { model: 'claude-opus-5-4' }, native).models)
-      .not.toContainEqual(expect.objectContaining({ value: 'claude-opus-5-4' }))
+      .toContainEqual({ value: 'claude-opus-5-4', name: 'claude-opus-5-4' })
+  })
+
+  it('keeps custom model IDs selectable in defaults while unsupported providers remain unavailable', () => {
+    const providers = defaultModelProviders(snapshot)
+    const claude = providers.find(provider => provider.id === 'claude')!
+    const codex = providers.find(provider => provider.id === 'codex')!
+    for (const provider of [claude, codex]) {
+      const selected = 'tenant/model-preview'
+      expect(defaultsModelChoices(provider, snapshot, { model: selected }).models).toContainEqual({ value: selected, name: selected })
+      const custom = { ...snapshot, extensions: { ...snapshot.extensions,
+        'model-defaults': { providerId: provider.id, choices: { [provider.id]: { model: selected } } },
+      } } as unknown as HarnessSnapshot
+      const call = vi.fn()
+      const state = { connected: true, snapshot: custom }
+      const host = { call, subscribe: () => () => undefined, snapshot: () => state } as unknown as ClientHostService
+      const markup = renderToStaticMarkup(<ModelDefaultsSettings host={host} workspace="/repo" />)
+      expect(markup).toContain('Enter custom default model')
+      expect(markup).not.toContain('saved; unavailable')
+      expect(markup).not.toContain('currently unavailable')
+      expect(call).not.toHaveBeenCalled()
+    }
+    const pi = providers.find(provider => provider.id === 'pi')!
+    expect(defaultsModelChoices(pi, snapshot, { model: 'unlisted' }).models).not.toContainEqual(expect.objectContaining({ value: 'unlisted' }))
   })
 
   it('shows persisted choices without starting discovery or configuring a chat at mount', () => {

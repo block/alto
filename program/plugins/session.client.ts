@@ -122,9 +122,8 @@ function sessionDefaults(
   const model = defaults?.model
     ?? harness?.codex.models.find((candidate) => candidate.isDefault)?.id
   const selected = harness?.codex.models.find((candidate) => candidate.id === model)
-    ?? harness?.codex.models.find((candidate) => candidate.isDefault)
   const effort = defaults?.effort ?? selected?.defaultReasoningEffort
-  const modelProvider = selected?.modelProvider ?? harness?.codex.defaults?.modelProvider
+  const modelProvider = selected?.modelProvider ?? defaults?.modelProvider ?? harness?.codex.defaults?.modelProvider
 
   return {
     workspace: workspace || defaultWorkspace(harness),
@@ -488,15 +487,16 @@ export class SessionService implements ClientSessionService {
   saveModelDefaults(update: ModelDefaultsUpdate): Promise<void> { return saveModelDefaults(this.host, update) }
 
   setModel(model: string | undefined): void {
-    const selected = this.state.harness?.codex.models.find((candidate) => candidate.id === model)
-      ?? this.state.harness?.codex.models.find((candidate) => candidate.isDefault)
+    const models = this.state.harness?.codex.models ?? []
+    const selected = model ? models.find((candidate) => candidate.id === model) : models.find((candidate) => candidate.isDefault)
+    const modelProvider = selected?.modelProvider ?? (model && !selected ? this.state.session.modelProvider : undefined)
     const nativeProvider = this.state.harness?.codex.defaults?.modelProvider ?? 'openai'
     if (this.state.threadId
-      && (selected?.modelProvider ?? nativeProvider) !== (this.state.session.modelProvider ?? nativeProvider)) {
+      && (modelProvider ?? nativeProvider) !== (this.state.session.modelProvider ?? nativeProvider)) {
       throw new Error('Start a new chat to use a different model provider')
     }
     const intent = beginModelChoice(this.host, 'codex')
-    const session = withModel(this.state.session, model, selected?.modelProvider)
+    const session = withModel(this.state.session, model, modelProvider)
     this.modelSelectionChanged = true
     this.effortSelectionChanged = true
     const effort = model === this.state.session.model ? this.state.session.effort : selected?.defaultReasoningEffort
@@ -515,8 +515,10 @@ export class SessionService implements ClientSessionService {
   }
 
   private rememberModelChoice(intent: ModelChoiceIntent): void {
-    const { model, effort } = this.state.session
-    rememberModelChoice(this.host, { providerId: 'codex', model: model ?? null, effort: effort ?? null }, intent)
+    const { model, modelProvider, effort } = this.state.session
+    const customRoute = model && !this.state.harness?.codex.models.some(option => option.id === model) ? modelProvider : undefined
+    rememberModelChoice(this.host, { providerId: 'codex', model: model ?? null, effort: effort ?? null,
+      ...(customRoute ? { modelProvider: customRoute } : {}) }, intent)
   }
 
   setPermissionMode(permissionMode: PermissionMode): void {
@@ -1032,7 +1034,6 @@ export class SessionService implements ClientSessionService {
         session = withModel({ ...session, workspace }, model, session.modelProvider)
       }
       const selected = harness.codex.models.find((candidate) => candidate.id === session.model)
-        ?? harness.codex.models.find((candidate) => candidate.isDefault)
       const efforts = selected?.supportedReasoningEfforts ?? []
       if (!session.effort || (
         efforts.length

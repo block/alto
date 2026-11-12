@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentChats } from '../program/plugins/agent-chats.js'
-import type { AgentEvent, AgentProvider, AgentRegistry, AgentSessionOptions } from '../src/server/services/agent-registry.js'
+import type { AgentConfigOption, AgentEvent, AgentProvider, AgentRegistry, AgentSessionOptions } from '../src/server/services/agent-registry.js'
 
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
 
-async function fixture() {
+async function fixture(settings: { configOptions?: AgentConfigOption[]; agentId?: string } = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'alto-agent-chats-'))
   cleanup.push(() => rm(directory, { recursive: true, force: true }))
   const sessions = new Map<string, string[]>()
@@ -18,23 +18,91 @@ async function fixture() {
   const permission = vi.fn(async () => {})
   const load = vi.fn(async (providerId: string, id: string, options: AgentSessionOptions) => {
     sessions.set(providerId, [id])
-    return { id, providerId, cwd: options.cwd, createdAt: new Date().toISOString() }
+    return { id, providerId, cwd: options.cwd, createdAt: new Date().toISOString(),
+      ...(settings.configOptions ? { configOptions: structuredClone(settings.configOptions) } : {}) }
+  })
+  const configure = vi.fn(async (_sessionId: string, configId: string, value: string) => (settings.configOptions ?? []).map(option => ({ ...structuredClone(option),
+    ...(option.id === configId ? { currentValue: value } : {}) })))
+  const closeSession = vi.fn(async (sessionId: string) => {
+    for (const [providerId, ids] of sessions) sessions.set(providerId, ids.filter(id => id !== sessionId))
   })
   const provider = (id: string) => ({
-    snapshot: () => ({ id, label: id, protocol: 'acp', activeSessionIds: sessions.get(id) ?? [] }),
+    snapshot: () => ({ id, label: id, protocol: 'acp', activeSessionIds: sessions.get(id) ?? [], ...(settings.agentId ? { agentId: settings.agentId } : {}) }),
     createSession: async (options: AgentSessionOptions) => load(id, `${id}-session`, options),
     loadSession: (sessionId: string, options: AgentSessionOptions) => load(id, sessionId, options),
-    prompt, steer, stopTask, resolvePermission: permission, setPermissionMode: vi.fn(),
+    prompt, steer, stopTask, configure, closeSession, resolvePermission: permission, setPermissionMode: vi.fn(),
   }) as unknown as AgentProvider
   const agents = { provider, cancel: vi.fn() } as unknown as AgentRegistry
   const changed = vi.fn()
   const chats = new AgentChats(agents, directory, changed)
   cleanup.push(() => chats.dispose())
   await chats.load()
-  return { chats, agents, directory, sessions, prompt, steer, stopTask, permission, load, changed }
+  return { chats, agents, directory, sessions, prompt, steer, stopTask, permission, load, configure, closeSession, changed }
 }
 
 describe('saved ACP chats', () => {
+  it('restores a saved custom model before prompting while keeping other selectors strict', async () => {
+    const catalog: AgentConfigOption[] = [
+      { id: 'model', name: 'Model', category: 'model', allowCustom: true, currentValue: 'default', options: [{ value: 'default', name: 'Default' }] },
+      { id: 'mode', name: 'Mode', category: 'mode', currentValue: 'old-mode', options: [{ value: 'old-mode', name: 'Old mode' }] },
+      { id: 'effort', name: 'Reasoning', category: 'thought_level', currentValue: 'old-effort', options: [{ value: 'old-effort', name: 'Old effort' }] },
+      { id: 'agent', name: 'Agent', category: 'agent', currentValue: 'old-agent', options: [{ value: 'old-agent', name: 'Old agent' }] },
+    ]
+    const f = await fixture({ configOptions: catalog, agentId: 'claude' })
+    const chat = await f.chats.create('routed-claude', '/tmp/project', 'ask')
+    await f.chats.configure(chat.summary.id, 'model', 'deployment/custom-model')
+    await f.chats.dispose()
+    for (const option of catalog.filter(option => option.category !== 'model')) {
+      option.currentValue = 'new-value'
+      option.options = [{ value: 'new-value', name: 'New value' }]
+    }
+    f.configure.mockClear(); f.prompt.mockClear()
+    const restored = new AgentChats(f.agents, f.directory, vi.fn())
+    cleanup.push(() => restored.dispose())
+    await restored.load()
+    await restored.send(chat.summary.id, [{ type: 'text', text: 'Continue with my model' }], 'ask')
+    expect(f.configure).toHaveBeenCalledExactlyOnceWith('routed-claude-session', 'model', 'deployment/custom-model')
+    expect(f.configure.mock.invocationCallOrder[0]).toBeLessThan(f.prompt.mock.invocationCallOrder[0]!)
+    expect(f.prompt).toHaveBeenCalledExactlyOnceWith('routed-claude-session', [{ type: 'text', text: 'Continue with my model' }])
+    expect((await restored.open(chat.summary.id)).configOptions?.find(option => option.category === 'model')?.currentValue).toBe('deployment/custom-model')
+  })
+
+  it('keeps a refused saved model and retries restoration without sending on the default model', async () => {
+    const catalog: AgentConfigOption[] = [{ id: 'model', name: 'Model', category: 'model', allowCustom: true, currentValue: 'default', options: [{ value: 'default', name: 'Default' }] }]
+    const f = await fixture({ configOptions: catalog })
+    const chat = await f.chats.create('claude', '/tmp/project', 'ask')
+    await f.chats.configure(chat.summary.id, 'model', 'deployment/custom-model')
+    await f.chats.dispose()
+    f.configure.mockClear(); f.closeSession.mockClear(); f.prompt.mockClear()
+    f.configure.mockRejectedValue(new Error('This account cannot use deployment/custom-model'))
+    const restored = new AgentChats(f.agents, f.directory, vi.fn())
+    cleanup.push(() => restored.dispose())
+    await restored.load()
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(restored.send(chat.summary.id, [{ type: 'text', text: 'Do not send on another model' }], 'ask')).rejects.toThrow('This account cannot use deployment/custom-model')
+      expect((await restored.open(chat.summary.id)).configOptions?.find(option => option.category === 'model')?.currentValue).toBe('deployment/custom-model')
+    }
+    expect(f.configure).toHaveBeenCalledTimes(2)
+    expect(f.closeSession).toHaveBeenCalledTimes(2)
+    expect(f.prompt).not.toHaveBeenCalled()
+    expect(f.sessions.get('claude')).toEqual([])
+  })
+
+  it('uses a routed provider\u2019s agent identity when resolving a saved model alias', async () => {
+    const catalog: AgentConfigOption[] = [{ id: 'model', name: 'Model', category: 'model', allowCustom: true, currentValue: 'default',
+      options: [{ value: 'default', name: 'Default' }, { value: 'opus', name: 'Opus 5.5' }] }]
+    const f = await fixture({ configOptions: catalog, agentId: 'claude' })
+    const chat = await f.chats.create('routed-claude', '/tmp/project', 'ask')
+    await f.chats.configure(chat.summary.id, 'model', 'claude-opus-5-5')
+    await f.chats.dispose()
+    f.configure.mockClear()
+    const restored = new AgentChats(f.agents, f.directory, vi.fn())
+    cleanup.push(() => restored.dispose())
+    await restored.load()
+    await restored.send(chat.summary.id, [{ type: 'text', text: 'Continue' }], 'ask')
+    expect(f.configure).toHaveBeenCalledExactlyOnceWith('routed-claude-session', 'model', 'opus')
+  })
+
   it('retains an entire streamed answer and resumes with the same provider identity', async () => {
     const f = await fixture()
     const chat = await f.chats.create('pi', '/tmp/project', 'ask')

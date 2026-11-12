@@ -1,6 +1,6 @@
 import { claudeSystemContext, claudeContextMeta, contextUpdates, type AgentContext } from './acp-context.js'
 import { promptBlock, updateContent, configOptions, mergeToolCall, toolCallFields, type AcpConfigResponse, type AcpToolCall } from './acp-format.js'
-import { initialAgentConfig, legacyAgentConfig } from './agent-model-options.js'
+import { initialAgentConfig, legacyAgentConfig, resolveDraftConfigValue } from './agent-model-options.js'
 import { randomUUID } from 'node:crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import path from 'node:path'
@@ -655,16 +655,28 @@ export class AcpProcessProvider implements AgentProvider {
   async configure(sessionId: string, configId: string, value: string): Promise<AgentConfigOption[]> {
     const session = this.sessions.get(sessionId)
     const option = session?.configOptions?.find((option) => option.id === configId)
-    if (!session || !option || !option.options.some((candidate) => candidate.value === value)) throw new Error('Invalid agent configuration option')
+    const resolved = option && resolveDraftConfigValue(this.options.id, option, value)
+    if (!session || !option || resolved === undefined) throw new Error('Invalid agent configuration option')
+    value = resolved
     const lifecycle = this.lifecycle
     let updated: AgentConfigOption[] | undefined
-    if (session.legacyConfig && configId === '__model') {
-      await this.connection().agent.request('session/set_model', { sessionId, modelId: value })
-    } else if (session.legacyConfig && configId === '__mode') {
-      await this.connection().agent.request(acp.methods.agent.session.setMode, { sessionId, modeId: value })
-    } else {
-      const response = await this.connection().agent.request(acp.methods.agent.session.setConfigOption, { sessionId, configId, value })
-      updated = configOptions(response)
+    try {
+      if (session.legacyConfig && configId === '__model') {
+        await this.connection().agent.request('session/set_model', { sessionId, modelId: value })
+      } else if (session.legacyConfig && configId === '__mode') {
+        await this.connection().agent.request(acp.methods.agent.session.setMode, { sessionId, modeId: value })
+      } else {
+        const response = await this.connection().agent.request(acp.methods.agent.session.setConfigOption, { sessionId, configId, value })
+        updated = this.sessionConfig(response)
+      }
+    } catch (error) {
+      // The SDK wraps an agent's ordinary Error message in data.details.
+      // Preserve the useful refusal instead of displaying only "Internal error".
+      if (error instanceof acp.RequestError && error.code === -32603 && error.message === 'Internal error'
+        && isRecord(error.data) && typeof error.data.details === 'string' && error.data.details.trim()) {
+        throw new acp.RequestError(error.code, error.data.details.trim().slice(0, 2_000), error.data)
+      }
+      throw error
     }
     if (lifecycle !== this.lifecycle || this.sessions.get(sessionId) !== session || this.stopping) {
       throw new Error('ACP session closed while changing configuration')
@@ -678,7 +690,7 @@ export class AcpProcessProvider implements AgentProvider {
   }
 
   private sessionConfig(response: AcpConfigResponse): AgentConfigOption[] {
-    const config = configOptions(response)
+    const config = initialAgentConfig(this.options.id, configOptions(response))
     return response.configOptions == null ? legacyAgentConfig(this.options.id, config) : config
   }
 
@@ -780,7 +792,7 @@ export class AcpProcessProvider implements AgentProvider {
       return
     }
     if (update.sessionUpdate === 'config_option_update') {
-      session.configOptions = configOptions(update)
+      session.configOptions = this.sessionConfig(update)
       session.legacyConfig = false
       this.rememberConfig(session)
       this.emit({ ...base, type: 'config.updated', configOptions: session.configOptions }); return

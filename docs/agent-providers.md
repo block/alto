@@ -2,7 +2,14 @@
 
 Alto can open Codex, Claude, Gemini, and Pi chats from the Agent row in the composer's model picker. An agent is fixed after the first message. Select a workspace before choosing the agent: its local process runs in that checkout. Codex continues to use App Server; ACP conversations use the same composer, transcript, approvals, file review, progress, and history components.
 
-Selecting an ACP agent changes the draft; its process and session start when the first prompt is sent. Model, reasoning, and mode options come from the agent once connected. Claude, Gemini, and configured Pi models also offer choices before the first message; Alto validates and applies the selection before submitting the prompt. Other ACP configuration selectors appear in the same menu. Alto restores saved choices when resuming a session if the agent still offers them.
+Selecting an ACP agent changes the draft; its process and session start when the first prompt is sent. Model, reasoning, and mode options come from the agent once connected. Claude, Gemini, and configured Pi models also offer choices before the first message; Alto validates and applies the selection before submitting the prompt. Other ACP configuration selectors appear in the same menu. Alto restores saved choices when resuming a session if the agent accepts them.
+
+Choose **Custom model…** in the model picker to enter a model name or ID when
+the agent supports custom values. Press Enter or **Use** to apply it while
+keeping the picker open. Custom choices are remembered for that agent and can
+also be entered in **Settings → Model & reasoning → Default model → Custom…**.
+The agent validates the requested ID; a rejected choice leaves the current
+model unchanged and shows its error in the picker.
 
 **Settings → Model & reasoning → New chat defaults** selects the default agent and location for newly created chats, including Codex, Claude, Gemini, Pi, and registered remote providers. Alto remembers separate model and reasoning choices for each provider. Changing these defaults does not change an existing chat. Reasoning choices follow the selected model and the options its provider supports; Gemini ACP does not expose a reasoning setting, so Alto displays **Agent default**.
 

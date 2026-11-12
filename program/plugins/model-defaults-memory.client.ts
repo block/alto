@@ -87,7 +87,7 @@ function wasPublished(choice: PendingChoice, source: JsonValue | undefined, pref
   // Compatibility with older servers: never mistake a matching pre-save value
   // for publication. The overlay remains bounded if no new state arrives.
   const stored = preferences?.choices[choice.update.providerId]
-  return preferences !== undefined && source !== choice.source && (['model', 'effort'] as const).every((key) =>
+  return preferences !== undefined && source !== choice.source && (['model', 'modelProvider', 'effort'] as const).every((key) =>
     choice.update[key] === undefined || stored?.[key] === (choice.update[key] ?? undefined))
 }
 
