@@ -21,6 +21,7 @@ import { beginModelChoice, rememberedModelDefaults, rememberModelChoice, saveMod
 import { AgentSessionService } from './agent-session.client.js'
 import { isAgentChatId } from './agent-chats-api.js'
 import type {
+  AgentConfigSelection,
   ClientSessionCreateOptions,
   ClientSessionFactoryService,
   ClientSessionHandle,
@@ -1510,7 +1511,7 @@ export class RoutedSessionService implements ClientSessionService, ClientSession
   async loadModels(): Promise<void> { await this.activeSession().loadModels?.() }
   async saveModelDefaults(update: ModelDefaultsUpdate): Promise<void> { await this.base.saveModelDefaults?.(update) }
   setAgentConfig(id: string, value: string): void | Promise<void> { return this.activeSession().setAgentConfig?.(id, value) }
-  setProvider(id: string): void { this.activeSession().setProvider?.(id) }
+  setProvider(id: string, selection?: AgentConfigSelection): void | Promise<void> { return this.activeSession().setProvider?.(id, selection) }
   setModel(model: string | undefined): void | Promise<void> { return this.activeSession().setModel(model) }
   setEffort(effort: string | undefined): void { this.activeSession().setEffort(effort) }
   setPermissionMode(mode: PermissionMode): void { this.activeSession().setPermissionMode(mode) }

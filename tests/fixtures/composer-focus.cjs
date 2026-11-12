@@ -64,6 +64,12 @@ async function check() {
           if(!button) throw new Error('Missing picker button: '+label);
           button.click();
         });
+        window.clickPickerAgent = label => flushSync(()=>{
+          const button = [...document.querySelectorAll('[data-composer-agents] [role=option]')]
+            .find(button=>button.getAttribute('aria-label')===label+' · Local');
+          if(!button || button.getBoundingClientRect().width<=0) throw new Error('Missing visible agent choice: '+label);
+          button.click();
+        });
         const cleanup = [];
         composerClient({
           clientSession:session,
@@ -109,6 +115,7 @@ async function check() {
     webPreferences: { offscreen: true, sandbox: true, contextIsolation: true, backgroundThrottling: false },
   })
   const run = code => window.webContents.executeJavaScript(code)
+  const frames = () => run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
   try {
     await window.loadURL(`http://127.0.0.1:${server.address().port}`)
     await run(bundle.outputFiles[0].text)
@@ -237,17 +244,20 @@ async function check() {
     ],harness:{codex:{status:'stopped',models:[]}}})`)
     assert.equal((await run('focusState()')).sendDisabled, false)
     await run("document.querySelector('.composer-model-trigger').click()")
-    await run("clickPicker('Agent')")
     assert.equal(await run('modelRequests'), 0)
-    await run("clickPicker('Claude')")
+    await run("clickPickerAgent('Claude')")
+    await frames()
     assert.equal(await run('modelRequests'), 0)
     assert.equal((await run('focusState()')).sendDisabled, false)
     assert.equal(await run("!!document.querySelector('.composer-model-picker')"), true)
-    await run("clickPicker('Agent'); clickPicker('Codex')")
+    await run("clickPickerAgent('Codex')")
+    await frames()
     await run("clickPicker('Load models')")
+    await frames()
     assert.equal(await run('modelRequests'), 1)
     assert.equal(await run("document.querySelector('[role=alert]')?.textContent"), 'Codex CLI is not installed')
-    await run("clickPicker('Retry')")
+    await run("clickPicker('Load models')")
+    await frames()
     assert.equal(await run('modelRequests'), 2)
     assert.equal(await run("document.querySelector('[role=alert]')?.textContent"), undefined)
     assert.match(await run("document.querySelector('.composer-picker-options').textContent"), /Test model/)

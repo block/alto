@@ -206,6 +206,13 @@ describe('session thread cache', () => {
       expect(pane.snapshot().session.permissionMode).toBe('full')
       expect(base.snapshot().session.permissionMode).toBe('ask')
 
+      const pending = Promise.resolve(), selected = vi.fn(() => pending), defaultSelected = vi.fn()
+      Object.assign(pane, { setProvider: selected })
+      Object.assign(base, { setProvider: defaultSelected })
+      expect(router.setProvider('remote', { configId: 'worker', value: 'second' })).toBe(pending)
+      expect(selected).toHaveBeenCalledExactlyOnceWith('remote', { configId: 'worker', value: 'second' })
+      expect(defaultSelected).not.toHaveBeenCalled()
+
       router.clearActive('view-a:pane-a')
       expect(router.snapshot()).toBe(base.snapshot())
     } finally {

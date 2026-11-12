@@ -38,7 +38,7 @@ import type { ClientSubmitMode } from '../../../src/client/plugin-api.js'
 import { requestConversationFollowLatest } from './conversation-scroll.js'
 import { focusComposerEditor } from './composer-focus.js'
 import { agentSelection } from './agent-selection.js'
-import { ComposerModelPicker } from './composer-model-picker.js'
+import { ComposerModelPicker, type ComposerPickerFocus } from './composer-model-picker.js'
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -650,6 +650,7 @@ export function Composer({
   model,
   effort,
   permissionMode,
+  permissionModesAvailable = true,
   workspaceId,
   workspaceLabel,
   workspaceOptions,
@@ -690,12 +691,13 @@ export function Composer({
   providers?: import('../session-api.js').ClientSessionSnapshot['providers'] | undefined
   providerId?: string | undefined
   agentConfig?: import('../../../src/server/services/agent-registry.js').AgentConfigOption[] | undefined
-  onAgentConfigChange?: (id: string, value: string) => void
+  onAgentConfigChange?: (id: string, value: string) => void | Promise<void>
   providerLocked?: boolean
-  onProviderChange?: (id: string) => void
+  onProviderChange?: (id: string, selection?: import('../session-api.js').AgentConfigSelection) => void | Promise<void>
   model: string | undefined
   effort: string | undefined
   permissionMode: PermissionMode
+  permissionModesAvailable?: boolean
   workspaceId: string | undefined
   workspaceLabel: string
   workspaceOptions: ComposerWorkspaceOption[]
@@ -755,10 +757,10 @@ export function Composer({
   const [instantFocus, setInstantFocus] = useState(false)
   const [attachmentError, setAttachmentError] = useState<string>()
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [modelPickerFocus, setModelPickerFocus] = useState<ComposerPickerFocus>('models')
   const [permissionPickerOpen, setPermissionPickerOpen] = useState(false)
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
-  const [locationPickerOpen, setLocationPickerOpen] = useState(false)
-  const selection = agentSelection(providers, providerId)
+  const selection = agentSelection(providers, providerId, agentConfig)
 
   const updateLiveValue = (nextValue: string): void => {
     const hadMessage = Boolean(liveValue.current.trim())
@@ -772,12 +774,13 @@ export function Composer({
     const input = editor.current
     const selection = input?.ownerDocument.getSelection()
     if (open) {
-      modelPickerSelection.current = input && selection?.anchorNode && selection.focusNode
-        && input.contains(selection.anchorNode) && input.contains(selection.focusNode)
-        ? { value: liveValue.current, anchor: selection.anchorNode, anchorOffset: selection.anchorOffset,
-            focus: selection.focusNode, focusOffset: selection.focusOffset }
-        : undefined
-      setLocationPickerOpen(false)
+      if (!modelPickerOpen) {
+        modelPickerSelection.current = input && selection?.anchorNode && selection.focusNode
+          && input.contains(selection.anchorNode) && input.contains(selection.focusNode)
+          ? { value: liveValue.current, anchor: selection.anchorNode, anchorOffset: selection.anchorOffset,
+              focus: selection.focusNode, focusOffset: selection.focusOffset }
+          : undefined
+      }
       setPermissionPickerOpen(false)
       setWorkspacePickerOpen(false)
     } else {
@@ -907,6 +910,10 @@ export function Composer({
   useEffect(() => setActiveSkill(0), [query?.query])
 
   useEffect(() => {
+    if (!permissionModesAvailable) {
+      setPermissionPickerOpen(false)
+      return
+    }
     if (!permissionPickerOpen) return
     const closeOnPointerDown = (event: PointerEvent): void => {
       if (!permissionControl.current?.contains(event.target as Node)) setPermissionPickerOpen(false)
@@ -920,7 +927,7 @@ export function Composer({
       document.removeEventListener('pointerdown', closeOnPointerDown)
       document.removeEventListener('keydown', closeOnEscape)
     }
-  }, [permissionPickerOpen])
+  }, [permissionModesAvailable, permissionPickerOpen])
 
   useEffect(() => {
     if (!workspacePickerOpen) return
@@ -937,22 +944,6 @@ export function Composer({
       document.removeEventListener('keydown', closeOnEscape)
     }
   }, [workspacePickerOpen])
-
-  useEffect(() => {
-    if (!locationPickerOpen) return
-    const closeOnPointerDown = (event: PointerEvent): void => {
-      if (!locationControl.current?.contains(event.target as Node)) setLocationPickerOpen(false)
-    }
-    const closeOnEscape = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape') setLocationPickerOpen(false)
-    }
-    document.addEventListener('pointerdown', closeOnPointerDown)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('pointerdown', closeOnPointerDown)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [locationPickerOpen])
 
   const addFiles = async (files: File[]): Promise<void> => {
     setAttachmentError(undefined)
@@ -1354,24 +1345,24 @@ export function Composer({
         <div className="composer-context-controls">
           <div className="composer-permission-control" ref={permissionControl}>
             <button
-              className={`composer-permission-trigger mode-${permissionMode}`}
+              className={`composer-permission-trigger mode-${permissionModesAvailable ? permissionMode : 'ask'}`}
               type="button"
-              aria-label={`Permissions: ${permissionLabel(permissionMode)}`}
-              aria-haspopup="menu"
-              aria-expanded={permissionPickerOpen}
-              disabled={disabled || (activeTurn && !agentModes.length)}
+              title={permissionModesAvailable ? undefined : 'Permissions are managed by the agent provider'}
+              aria-label={`Permissions: ${permissionModesAvailable ? permissionLabel(permissionMode) : 'Managed'}`}
+              aria-haspopup={permissionModesAvailable ? 'menu' : undefined}
+              aria-expanded={permissionModesAvailable ? permissionPickerOpen : undefined}
+              disabled={!permissionModesAvailable || disabled || (activeTurn && !agentModes.length)}
               onClick={() => {
                 setPermissionPickerOpen((open) => !open)
                 changeModelPickerOpen(false)
                 setWorkspacePickerOpen(false)
-                setLocationPickerOpen(false)
               }}
             >
-              <PermissionIcon mode={permissionMode} />
-              <span>{permissionLabel(permissionMode)}</span>
+              <PermissionIcon mode={permissionModesAvailable ? permissionMode : 'ask'} />
+              <span>{permissionModesAvailable ? permissionLabel(permissionMode) : 'Managed'}</span>
             </button>
 
-            {permissionPickerOpen && (
+            {permissionModesAvailable && permissionPickerOpen && (
               <div className="composer-permission-picker" role="menu" aria-label="Permissions">
                 {agentModes.length > 0 && <header className="composer-picker-header"><strong>Approvals</strong></header>}
                 {(providerId === 'codex' ? permissionOptions : [
@@ -1423,42 +1414,18 @@ export function Composer({
                 className="composer-workspace-trigger"
                 type="button"
                 aria-label={`Run on: ${selection.locationLabel}`}
-                aria-haspopup="menu"
-                aria-expanded={locationPickerOpen}
-                title={providerLocked ? `Runs on ${selection.locationLabel}. Start a new chat to change location.` : 'Choose where the agent runs'}
+                aria-haspopup="dialog"
+                aria-expanded={modelPickerOpen && modelPickerFocus === 'agents'}
+                disabled={providerLocked}
+                title={providerLocked ? `Runs on ${selection.locationLabel}. Start a new chat to change agent.` : 'Choose agent and run location'}
                 onClick={() => {
-                  setLocationPickerOpen((open) => !open)
-                  setPermissionPickerOpen(false)
-                  setWorkspacePickerOpen(false)
-                  changeModelPickerOpen(false)
+                  setModelPickerFocus('agents')
+                  changeModelPickerOpen(!modelPickerOpen || modelPickerFocus !== 'agents')
                 }}
               >
                 {selection.locationId === 'local' ? <Laptop size={14} strokeWidth={1.7} /> : <Cloud size={14} strokeWidth={1.7} />}
                 <span>{selection.locationLabel}</span>
               </button>
-              {locationPickerOpen && (
-                <div className="composer-workspace-picker" role="menu" aria-label="Run on">
-                  {selection.locations.map((location) => (
-                    <button
-                      key={location.id}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={location.id === selection.locationId}
-                      disabled={providerLocked || !location.provider}
-                      title={!location.provider ? `${selection.label} is not available on ${location.label}` : undefined}
-                      onClick={() => {
-                        if (location.provider && location.id !== selection.locationId) onProviderChange?.(location.provider.id)
-                        setLocationPickerOpen(false)
-                      }}
-                    >
-                      {location.id === 'local' ? <Laptop size={14} /> : <Cloud size={14} />}
-                      <span>{location.label}</span>
-                      {location.id === selection.locationId && <Check size={14} />}
-                    </button>
-                  ))}
-                  {providerLocked && <div className="composer-workspace-empty">Start a new chat to change location.</div>}
-                </div>
-              )}
             </div>
           )}
 
@@ -1483,7 +1450,6 @@ export function Composer({
                 onClick={() => {
                   setWorkspacePickerOpen((open) => !open)
                   setPermissionPickerOpen(false)
-                  setLocationPickerOpen(false)
                   changeModelPickerOpen(false)
                 }}
               >
@@ -1536,6 +1502,9 @@ export function Composer({
           agentConfig={agentConfig}
           disabled={disabled}
           open={modelPickerOpen}
+          focus={modelPickerFocus}
+          onFocusChange={setModelPickerFocus}
+          agentControlRef={locationControl}
           onOpenChange={changeModelPickerOpen}
           onModelChange={onModelChange}
           onEffortChange={onEffortChange}

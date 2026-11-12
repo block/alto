@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AgentSessionService } from '../program/plugins/agent-session.client.js'
 import { initialAgentConfig } from '../program/plugins/agent-model-options.js'
-import { agentChatStateKey, type AgentChat } from '../program/plugins/agent-chats-api.js'
+import { agentChatStateKey, type AgentChat, type AgentChatCatalog } from '../program/plugins/agent-chats-api.js'
 import type { ClientSessionService, ClientSessionSnapshot } from '../program/plugins/session-api.js'
 import type { ClientHostService } from '../src/client/plugin-api.js'
 import type { HarnessSnapshot, JsonValue } from '../src/shared/protocol.js'
@@ -262,6 +262,315 @@ describe('local ACP draft selections', () => {
     try {
       await expect(f.session.send(draft)).rejects.toThrow('Model "Cached model" is unavailable')
       expect(f.call.mock.calls.map(([method]) => method)).toEqual(['agent-chats.create'])
+    } finally { f.session.dispose() }
+  })
+})
+
+describe('managed agent draft selections', () => {
+  function managedDraft() {
+    const f = fixture()
+    const config: AgentConfigOption[] = [
+      { id: 'reasoning', name: 'Reasoning', category: 'thought_level', currentValue: 'low',
+        options: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] },
+      { id: 'model', name: 'Model', category: 'model', currentValue: 'fast',
+        options: [{ value: 'fast', name: 'Fast' }, { value: 'balanced', name: 'Balanced' }] },
+      { id: 'worker', name: 'Agent', category: 'agent', currentValue: 'first', options: [
+        { value: 'first', name: 'First worker' }, { value: 'second', name: 'Second worker' }, { value: 'high', name: 'High worker' },
+      ] },
+    ]
+    const created = { ...structuredClone(chat), summary: { ...chat.summary, providerId: 'managed' }, configOptions: structuredClone(config) }
+    created.configOptions[0]!.options = [{ value: 'low', name: 'Low' }]
+    created.configOptions[1]!.options = [{ value: 'fast', name: 'Fast' }]
+    f.extensions['agent-chats'] = { providers: [{ id: 'managed', label: 'Managed agent', capabilities: {},
+      configOptions: config as unknown as JsonValue }], threads: [] }
+    f.call.mockImplementation(async (method, payload) => {
+      if (method === 'agent-chats.configure') {
+        const { configId, value } = payload as { configId: string; value: string }
+        const option = created.configOptions.find((option) => option.id === configId)!
+        if (!option.options.some((candidate) => candidate.value === value)) throw new Error('Choice is not available yet')
+        option.currentValue = value
+        if (configId === 'worker') created.configOptions[1]!.options = structuredClone(config[1]!.options)
+        if (configId === 'model') created.configOptions[0]!.options = structuredClone(config[0]!.options)
+        return { configOptions: structuredClone(created.configOptions) } as unknown as JsonValue
+      }
+      return structuredClone(created) as unknown as JsonValue
+    })
+    f.update()
+    f.session.setProvider('managed')
+    return { ...f, created, config }
+  }
+
+  it('keeps an explicit current-agent choice when saved defaults arrive later', () => {
+    const f = fixture()
+    try {
+      f.session.setProvider('codex')
+      f.extensions['model-defaults'] = { providerId: 'pi', choices: {} }
+      f.update()
+      expect(f.session.snapshot().providerId).toBe('codex')
+      expect(f.call).not.toHaveBeenCalled()
+    } finally { f.session.dispose() }
+  })
+
+  it('publishes named agents before provider selection without projecting model and permission controls', () => {
+    const f = managedDraft()
+    try {
+      f.session.setProvider('codex')
+      const providers = f.session.snapshot().providers!
+      expect(providers.find((provider) => provider.id === 'managed')?.configOptions).toEqual([f.config[2]])
+      const catalog = f.extensions['agent-chats'] as unknown as AgentChatCatalog
+      const publish = (configOptions: AgentConfigOption[]): void => {
+        f.extensions['agent-chats'] = { ...catalog, providers: catalog.providers.map((provider) => ({ ...provider, configOptions })) } as unknown as JsonValue
+        f.update()
+      }
+      publish(f.config.map((option) => option.category === 'model' ? { ...option, currentValue: 'balanced' } : option))
+      expect(f.session.snapshot().providers).toBe(providers)
+      publish(f.config.map((option) => option.category === 'agent'
+        ? { ...option, options: option.options.map((choice) => choice.value === 'second' ? { ...choice, name: 'Renamed worker' } : choice) } : option))
+      expect(f.session.snapshot().providers).not.toBe(providers)
+      expect(f.session.snapshot().providers?.find((provider) => provider.id === 'managed')?.configOptions?.[0]?.options)
+        .toContainEqual({ value: 'second', name: 'Renamed worker' })
+      expect(f.session.snapshot().providerId).toBe('codex')
+      expect(f.call).not.toHaveBeenCalled()
+    } finally { f.session.dispose() }
+  })
+
+  it('publishes provider availability while keeping picker metadata stable across model-only changes', () => {
+    const f = managedDraft()
+    try {
+      f.session.setProvider('codex')
+      const catalog = f.extensions['agent-chats'] as unknown as AgentChatCatalog
+      const publish = (status: 'stopped' | 'failed' | 'ready', error: string | undefined, configOptions: AgentConfigOption[]): void => {
+        f.extensions['agent-chats'] = { ...catalog, providers: catalog.providers.map((provider) => ({ ...provider, status,
+          ...(error === undefined ? {} : { error }), configOptions })) } as unknown as JsonValue
+        f.update()
+      }
+      publish('stopped', 'Sign in in Settings first.', [])
+      expect(f.session.snapshot().providers?.find((provider) => provider.id === 'managed')).toEqual({
+        id: 'managed', label: 'Managed agent', status: 'stopped', error: 'Sign in in Settings first.',
+      })
+      const unavailable = f.session.snapshot().providers
+      publish('stopped', 'Sign in in Settings first.', [f.config[1]!])
+      expect(f.session.snapshot().providers).toBe(unavailable)
+      publish('failed', 'Agent is unavailable.', [])
+      expect(f.session.snapshot().providers?.find((provider) => provider.id === 'managed')).toMatchObject({
+        status: 'failed', error: 'Agent is unavailable.',
+      })
+      publish('ready', undefined, f.config)
+      const ready = f.session.snapshot().providers
+      expect(ready?.find((provider) => provider.id === 'managed')).toMatchObject({ status: 'ready', configOptions: [f.config[2]] })
+      expect(ready?.find((provider) => provider.id === 'managed')).not.toHaveProperty('error')
+      publish('ready', undefined, f.config.map((option) => option.category === 'model' ? { ...option, currentValue: 'balanced' } : option))
+      expect(f.session.snapshot().providers).toBe(ready)
+      expect(f.call).not.toHaveBeenCalled()
+    } finally { f.session.dispose() }
+  })
+
+  it('selects the provider and named agent atomically before configuring its first prompt', async () => {
+    const f = managedDraft()
+    try {
+      f.session.setProvider('codex')
+      const selected: Array<{ providerId: string | undefined; agent: string | undefined }> = []
+      const unsubscribe = f.session.subscribe(() => selected.push({ providerId: f.session.snapshot().providerId,
+        agent: f.session.snapshot().agentConfig?.find((option) => option.category === 'agent')?.currentValue }))
+      f.session.setProvider('managed', { configId: 'worker', value: 'second' })
+      unsubscribe()
+      expect(selected).toEqual([{ providerId: 'managed', agent: 'second' }])
+      expect(f.session.snapshot().threadId).toBeUndefined()
+      expect(f.call).not.toHaveBeenCalled()
+      f.session.setModel('balanced')
+      f.session.setEffort('high')
+      await f.session.send(draft)
+      expect(f.call.mock.calls.map(([method]) => method)).toEqual([
+        'agent-chats.create', 'agent-chats.configure', 'agent-chats.configure', 'agent-chats.configure', 'agent-chats.send',
+      ])
+      expect(f.call.mock.calls.slice(1, 4)).toEqual([
+        ['agent-chats.configure', { id, configId: 'worker', value: 'second' }],
+        ['agent-chats.configure', { id, configId: 'model', value: 'balanced' }],
+        ['agent-chats.configure', { id, configId: 'reasoning', value: 'high' }],
+      ])
+    } finally { f.session.dispose() }
+  })
+
+  it('preserves the model and reasoning when choosing another named agent on the same provider', () => {
+    const f = managedDraft()
+    try {
+      f.session.setModel('balanced')
+      f.session.setEffort('high')
+      const initial = f.session.snapshot()
+      f.session.setProvider('managed', { configId: 'worker', value: 'first' })
+      expect(f.session.snapshot()).toBe(initial)
+      f.session.setProvider('managed', { configId: 'worker', value: 'second' })
+      expect(f.session.snapshot().session).toMatchObject({ model: 'balanced', effort: 'high' })
+      expect(f.session.snapshot().agentConfig?.find((option) => option.category === 'agent')?.currentValue).toBe('second')
+      const selected = f.session.snapshot()
+      f.session.setProvider('managed', { configId: 'worker', value: 'second' })
+      f.session.setProvider('managed')
+      expect(f.session.snapshot()).toBe(selected)
+      expect(f.call).not.toHaveBeenCalled()
+    } finally { f.session.dispose() }
+  })
+
+  it('keeps named-agent choices when remote Codex projects its native model catalog', async () => {
+    const f = managedDraft()
+    try {
+      f.session.setProvider('codex')
+      f.native.snapshot().harness!.codex.models = [{ id: 'balanced', displayName: 'Balanced', isDefault: true,
+        defaultReasoningEffort: 'high', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }] }]
+      const catalog = f.extensions['agent-chats'] as unknown as AgentChatCatalog
+      f.extensions['agent-chats'] = { ...catalog, providers: catalog.providers.map((provider) => ({ ...provider, agentId: 'codex' })) } as unknown as JsonValue
+      f.update()
+      f.session.setProvider('managed', { configId: 'worker', value: 'second' })
+      expect(f.session.snapshot().agentConfig?.find((option) => option.category === 'agent')?.currentValue).toBe('second')
+      expect(f.session.snapshot().session).toMatchObject({ model: 'balanced', effort: 'high' })
+      expect(f.call).not.toHaveBeenCalled()
+      await f.session.send(draft)
+      expect(f.call.mock.calls.slice(1, 4)).toEqual([
+        ['agent-chats.configure', { id, configId: 'worker', value: 'second' }],
+        ['agent-chats.configure', { id, configId: 'model', value: 'balanced' }],
+        ['agent-chats.configure', { id, configId: 'reasoning', value: 'high' }],
+      ])
+    } finally { f.session.dispose() }
+  })
+
+  it.each([
+    { providerId: 'managed', configId: 'worker', value: 'removed' },
+    { providerId: 'managed', configId: 'model', value: 'balanced' },
+    { providerId: 'managed', configId: 'missing', value: 'second' },
+    { providerId: 'claude', configId: 'worker', value: 'second' },
+    { providerId: 'missing', configId: 'worker', value: 'second' },
+  ])('leaves the current selection unchanged when a picker choice is invalid: $providerId/$configId/$value', ({ providerId, configId, value }) => {
+    const f = managedDraft()
+    try {
+      f.session.setModel('balanced')
+      f.session.setEffort('high')
+      const previous = f.session.snapshot()
+      expect(() => f.session.setProvider(providerId, { configId, value })).toThrow('no longer available')
+      expect(f.session.snapshot()).toBe(previous)
+      expect(f.call).not.toHaveBeenCalled()
+    } finally { f.session.dispose() }
+  })
+
+  it('configures an existing pristine binding without creating another session', async () => {
+    const f = managedDraft()
+    try {
+      await f.session.ensureThread()
+      f.call.mockClear()
+      const selection = f.session.setProvider('managed', { configId: 'worker', value: 'second' })
+      expect(selection).toBeInstanceOf(Promise)
+      await selection
+      expect(f.call).toHaveBeenCalledExactlyOnceWith('agent-chats.configure', { id, configId: 'worker', value: 'second' })
+      expect(f.session.snapshot().threadId).toBe(id)
+    } finally { f.session.dispose() }
+  })
+
+  it.each(['creating', 'sending'])('reports a retryable error for a different named agent while the chat is %s', async (phase) => {
+    const f = managedDraft()
+    let acknowledge!: (value: JsonValue) => void
+    const original = f.call.getMockImplementation()!
+    f.call.mockImplementation((method, payload) => method === 'agent-chats.create'
+      ? new Promise((resolve) => { acknowledge = resolve }) : original(method, payload))
+    const starting = phase === 'creating' ? f.session.ensureThread() : f.session.send(draft)
+    try {
+      const previous = f.session.snapshot()
+      expect(() => f.session.setProvider('managed', { configId: 'worker', value: 'second' })).toThrow('Wait for this chat to finish starting')
+      expect(f.session.snapshot()).toBe(previous)
+      expect(() => f.session.setProvider('managed', { configId: 'worker', value: 'first' })).not.toThrow()
+      expect(f.call).toHaveBeenCalledExactlyOnceWith('agent-chats.create', { providerId: 'managed', cwd: '/tmp/project', permissionMode: 'ask' })
+    } finally {
+      acknowledge(structuredClone(f.created) as unknown as JsonValue)
+      await starting
+      f.session.dispose()
+    }
+  })
+
+  it('keeps established chats bound to their agent while allowing the current choice to be reselected', async () => {
+    const f = managedDraft()
+    try {
+      await f.session.ensureThread()
+      f.extensions[agentChatStateKey(id)] = { ...f.created, activities: [{ id: 'saved-user', kind: 'user', title: 'You', content: 'Saved prompt' }] } as unknown as JsonValue
+      f.update()
+      f.call.mockClear()
+      const previous = f.session.snapshot()
+      expect(() => f.session.setProvider('managed', { configId: 'worker', value: 'second' })).toThrow('Start a new chat')
+      expect(() => f.session.setProvider('managed', { configId: 'worker', value: 'first' })).not.toThrow()
+      expect(f.session.snapshot()).toBe(previous)
+      expect(f.call).not.toHaveBeenCalled()
+    } finally { f.session.dispose() }
+  })
+
+  it('preserves a draft agent choice without treating reasoning defaults as agent choices', () => {
+    const f = managedDraft()
+    try {
+      f.extensions['model-defaults'] = { providerId: 'managed', choices: { managed: { effort: 'high' } } }
+      f.update()
+      const selectedAgent = (): AgentConfigOption | undefined => f.session.snapshot().agentConfig?.find((option) => option.category === 'agent')
+      expect(selectedAgent()?.currentValue).toBe('first')
+      expect(f.session.snapshot().session.effort).toBe('high')
+      f.session.setAgentConfig('worker', 'second')
+      expect(selectedAgent()?.currentValue).toBe('second')
+      f.extensions['model-defaults'] = { providerId: 'managed', choices: { managed: { effort: 'low' } } }
+      f.update()
+      expect(selectedAgent()?.currentValue).toBe('second')
+      expect(f.session.snapshot().session.effort).toBe('low')
+      expect(f.session.snapshot().threadId).toBeUndefined()
+      expect(f.call).not.toHaveBeenCalled()
+    } finally { f.session.dispose() }
+  })
+
+  it('waits for the agent choice before configuring model and reasoning and sending the first prompt', async () => {
+    const f = managedDraft()
+    let acknowledge!: () => void
+    const acknowledged = new Promise<void>((resolve) => { acknowledge = resolve })
+    const configure = f.call.getMockImplementation()!
+    f.call.mockImplementation(async (method, payload) => {
+      if (method === 'agent-chats.configure' && (payload as { configId: string }).configId === 'worker') await acknowledged
+      return configure(method, payload)
+    })
+    try {
+      f.session.setAgentConfig('worker', 'second')
+      f.session.setModel('balanced')
+      f.session.setEffort('high')
+      const sending = f.session.send(draft)
+      void sending.catch(() => {})
+      await vi.waitFor(() => expect(f.call).toHaveBeenCalledTimes(2))
+      expect(f.call.mock.calls).toEqual([
+        ['agent-chats.create', { providerId: 'managed', cwd: '/tmp/project', permissionMode: 'ask' }],
+        ['agent-chats.configure', { id, configId: 'worker', value: 'second' }],
+      ])
+      acknowledge()
+      await sending
+      expect(f.call.mock.calls.slice(2, 4)).toEqual([
+        ['agent-chats.configure', { id, configId: 'model', value: 'balanced' }],
+        ['agent-chats.configure', { id, configId: 'reasoning', value: 'high' }],
+      ])
+      expect(f.call.mock.calls.map(([method]) => method)).toEqual([
+        'agent-chats.create', 'agent-chats.configure', 'agent-chats.configure', 'agent-chats.configure', 'agent-chats.send',
+      ])
+      expect(f.session.snapshot().agentConfig?.find((option) => option.category === 'agent')?.currentValue).toBe('second')
+      expect(f.session.snapshot().session).toMatchObject({ model: 'balanced', effort: 'high' })
+    } finally { acknowledge(); f.session.dispose() }
+  })
+
+  it.each(['unavailable', 'rejected'])('keeps model writes and the prompt unsent when the agent choice is %s', async (failure) => {
+    const f = managedDraft()
+    try {
+      f.session.setAgentConfig('worker', 'second')
+      f.session.setModel('balanced')
+      f.session.setEffort('high')
+      if (failure === 'unavailable') f.created.configOptions.find((option) => option.category === 'agent')!.options = [{ value: 'first', name: 'First worker' }]
+      else {
+        const configure = f.call.getMockImplementation()!
+        f.call.mockImplementation(async (method, payload) => {
+          if (method === 'agent-chats.configure' && (payload as { configId: string }).configId === 'worker') throw new Error('Agent access denied')
+          return configure(method, payload)
+        })
+      }
+      await expect(f.session.send(draft)).rejects.toThrow(failure === 'unavailable'
+        ? 'Agent "Second worker" is unavailable' : 'Agent access denied')
+      expect(f.call.mock.calls.map(([method]) => method)).toEqual(failure === 'unavailable'
+        ? ['agent-chats.create'] : ['agent-chats.create', 'agent-chats.configure'])
+      if (failure === 'rejected') expect(f.call.mock.calls[1]).toEqual(['agent-chats.configure', { id, configId: 'worker', value: 'second' }])
+      expect(f.session.snapshot().turn.tag).toBe('idle')
     } finally { f.session.dispose() }
   })
 })
@@ -707,6 +1016,34 @@ describe('provider-aware browser sessions', () => {
       ], threads: [] }
       f.update()
       expect(f.session.snapshot().providers?.[1]?.location?.label).toBe('Renamed cloud')
+    } finally { f.session.dispose() }
+  })
+
+  it('publishes permission mode support and preserves choices across unrelated provider updates', () => {
+    const f = fixture()
+    const publish = (capabilities: Record<string, JsonValue>): void => {
+      f.extensions['agent-chats'] = { providers: [{ id: 'managed', label: 'Managed agent', capabilities }], threads: [] }
+      f.update()
+    }
+    try {
+      publish({ permissionModes: false, images: true })
+      const managed = f.session.snapshot().providers
+      expect(managed).toEqual([
+        { id: 'codex', label: 'Codex' },
+        { id: 'managed', label: 'Managed agent', capabilities: { permissionModes: false } },
+      ])
+      publish({ permissionModes: false, images: false, steering: true })
+      expect(f.session.snapshot().providers).toBe(managed)
+      publish({ permissionModes: true })
+      const supported = f.session.snapshot().providers
+      expect(supported).not.toBe(managed)
+      expect(supported?.[1]?.capabilities?.permissionModes).toBe(true)
+      publish({})
+      const omitted = f.session.snapshot().providers
+      expect(omitted).not.toBe(supported)
+      expect(omitted).toEqual([{ id: 'codex', label: 'Codex' }, { id: 'managed', label: 'Managed agent' }])
+      publish({ images: true })
+      expect(f.session.snapshot().providers).toBe(omitted)
     } finally { f.session.dispose() }
   })
 

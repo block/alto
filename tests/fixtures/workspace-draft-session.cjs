@@ -100,13 +100,23 @@ async function check() {
     throw Error('Timed out: ' + expression + '\n' + JSON.stringify(await run('inspect()')))
   }
   const click = async expression => {
-    const point = await run(`(()=>{const node=${expression};if(!node)throw Error('Missing click target');node.scrollIntoView({block:'nearest'});const r=node.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`)
+    const point = await run(`(()=>{const node=${expression};if(!node)throw Error('Missing click target');node.scrollIntoView({block:'nearest'});const r=node.getBoundingClientRect();if(r.width<=0||r.height<=0)throw Error('Click target is hidden');return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`)
     win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point })
     win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point })
     await frames()
   }
   const pane = id => `document.querySelector('[data-workspace-pane-id="${id}"]')`
   const button = label => `([...document.querySelectorAll('.composer-model-picker button')].find(button=>button.textContent.trim()===${JSON.stringify(label)}||button.firstElementChild?.textContent===${JSON.stringify(label)}))`
+  const chooseAgent = async (id, name, location = 'Local') => {
+    const native = pane(id) + '.querySelector("select[aria-label=Agent]")'
+    if (await run(native + '?.getBoundingClientRect().width>0')) {
+      await run(`(()=>{const select=${native},option=[...select.options].find(option=>option.textContent===${JSON.stringify(name)}&&option.parentElement.label===${JSON.stringify(location)});
+        if(!option)throw Error('Missing native agent choice');select.focus();select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));})()`)
+      await frames()
+    } else {
+      await click(`([...${pane(id)}.querySelectorAll('[data-composer-agents] [role=option]')].find(option=>option.getAttribute('aria-label')===${JSON.stringify(name + ' · ' + location)}))`)
+    }
+  }
   const escape = async () => {
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
@@ -126,7 +136,7 @@ async function check() {
     await until('inspect().available&&read("draft-pane")?.projectId==="atlas"')
     await enterDraft('draft-pane', 'First unsent chat', 'first.txt')
     await click(pane('draft-pane') + '.querySelector(".composer-model-trigger")')
-    await click(button('Agent')); await click(button('Claude'))
+    await chooseAgent('draft-pane', 'Claude')
     await click(button('Opus (latest)')); await click(button('Max'))
     await escape()
     const first = await run('read("draft-pane")')

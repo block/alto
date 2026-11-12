@@ -8,7 +8,7 @@ import type {
   SkillOption,
   ThreadSummary,
 } from '../../src/shared/protocol.js'
-import type { AgentConfigOption, AgentPlanEntry } from '../../src/server/services/agent-registry.js'
+import type { AgentConfigOption, AgentPlanEntry, AgentProviderStatus } from '../../src/server/services/agent-registry.js'
 import type { ClientDraft } from '../../src/client/plugin-api.js'
 import type { ActivityItem } from './ui/activity.js'
 import type { HistoryState } from './ui/history.js'
@@ -19,6 +19,11 @@ export const SESSION_THREAD_RENAME = 'session.thread.rename'
 export const SESSION_CODEX_START = 'session.codex.start'
 export const SESSION_WORKSPACE_STATE = 'session.workspace'
 
+export interface AgentConfigSelection {
+  configId: string
+  value: string
+}
+
 export interface ClientSessionSnapshot {
   revision: number
   remoteLocation?: string
@@ -26,7 +31,13 @@ export interface ClientSessionSnapshot {
   remoteWorkspaceName?: string
   remoteWorkspace?: RemoteWorkspace
   providerId?: string
-  providers?: Array<Pick<import('../../src/server/services/agent-registry.js').AgentProviderSnapshot, 'id' | 'label' | 'agentId' | 'location'>>
+  providers?: Array<Pick<import('../../src/server/services/agent-registry.js').AgentProviderSnapshot, 'id' | 'label' | 'agentId' | 'location'> & {
+    status?: AgentProviderStatus
+    error?: string
+    capabilities?: Pick<import('../../src/server/services/agent-registry.js').AgentProviderCapabilities, 'permissionModes'>
+    /** Named agent choices for the picker; model and permission controls stay provider-local. */
+    configOptions?: AgentConfigOption[]
+  }>
   models?: ModelOption[]
   agentConfig?: AgentConfigOption[]
   agentPlan?: AgentPlanEntry[]
@@ -56,7 +67,7 @@ export interface ClientSessionSnapshot {
 export interface ClientSessionService {
   saveModelDefaults?(update: import('./model-defaults-api.js').ModelDefaultsUpdate): Promise<void>
   loadModels?(): Promise<void>
-  setProvider?(id: string): void
+  setProvider?(id: string, selection?: AgentConfigSelection): void | Promise<void>
   setAgentConfig?(id: string, value: string): void | Promise<void>
   subscribe(listener: () => void): () => void
   snapshot(): ClientSessionSnapshot

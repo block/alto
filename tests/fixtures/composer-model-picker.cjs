@@ -28,30 +28,44 @@ async function check() {
       ];
       const catalogs={codex:native,claude,gemini:[{id:'gemini-auto',displayName:'Agent default',isDefault:true}],
         'cloud-codex':[{id:'remote-native',displayName:'Remote Codex',isDefault:true,defaultReasoningEffort:'medium',supportedReasoningEfforts:efforts(['low','medium','high'])}],
-        'cloud-claude':claude};
+        'cloud-claude':claude,
+        'managed-remote':[{id:'managed-reasoner',displayName:'Reasoner',isDefault:true,defaultReasoningEffort:'high',supportedReasoningEfforts:efforts(['low','high'])}]};
       const providers=[{id:'codex',label:'Codex'},{id:'claude',agentId:'claude',label:'Claude'},
         {id:'gemini',agentId:'gemini',label:'Gemini'},
         {id:'cloud-codex',agentId:'codex',label:'Codex',location:{id:'cloud',label:'Cloud'}},
-        {id:'cloud-claude',agentId:'claude',label:'Claude',location:{id:'cloud',label:'Cloud'}}];
+        {id:'cloud-claude',agentId:'claude',label:'Claude',location:{id:'cloud',label:'Cloud'}},
+        {id:'managed-remote',agentId:'managed',label:'Managed',location:{id:'managed',label:'Hosted'}}];
       const extraConfig=()=>[{id:'verbosity',name:'Verbosity',currentValue:'quiet',category:'verbosity',options:[{value:'quiet',name:'Quiet'},{value:'full',name:'Full'}]}];
+      const managedConfig=()=>[{id:'agent',name:'Managed agent',currentValue:'worker-a',category:'agent',options:[{value:'worker-a',name:'Primary worker'},{value:'worker-b',name:'Backup worker'}]},...extraConfig()];
+      providers.find(provider=>provider.id==='managed-remote').configOptions=managedConfig().filter(option=>option.category==='agent');
       let state={revision:1,connected:true,providerId:'codex',providers,models:native,agentConfig:[],
         session:{workspace:'/repo',permissionMode:'full',model:'balanced',effort:'high'},turn:{tag:'idle'},
         harness:{codex:{status:'ready',models:native},extensions:{}},projects:[],skills:[],activities:[],
         canAcceptDirectInput:true,projectScope:'unscoped'};
       let draft={message:'Draft kept while choosing models.',images:[],attachments:[]};
-      window.changes=[];window.pendingLoads=[];window.pendingModelRequests=[];window.modelRequests=0;window.clickCount=0;window.sent=[];window.activityClicks=0;
+      window.changes=[];window.pendingLoads=[];window.pendingModelRequests=[];window.pendingAgentRequests=[];window.modelRequests=0;window.clickCount=0;window.sent=[];window.activityClicks=0;
       document.addEventListener('click',()=>clickCount++,true);
       const publish=next=>flushSync(()=>{state={...state,...next,revision:state.revision+1};for(const listener of listeners)listener()});
-      const selectProvider=providerId=>{
+      const selectProvider=(providerId,selection,reset=false)=>{
+        const same=providerId===state.providerId&&!reset;
         const models=catalogs[providerId],model=models.find(option=>option.isDefault)??models[0];
-        publish({providerId,models,agentConfig:providerId.includes('claude')?extraConfig():[],
-          session:{...state.session,model:model?.id,effort:model?.defaultReasoningEffort}});
+        let config=same?state.agentConfig:providerId==='managed-remote'?managedConfig():providerId.includes('claude')?extraConfig():[];
+        if(selection){
+          const option=config.find(option=>option.id===selection.configId&&option.category==='agent');
+          if(!option?.options.some(option=>option.value===selection.value))throw new Error('Agent is unavailable');
+          config=config.map(option=>option.id===selection.configId?{...option,currentValue:selection.value}:option);
+        }
+        publish({providerId,models,agentConfig:config,
+          session:same?state.session:{...state.session,model:model?.id,effort:model?.defaultReasoningEffort}});
       };
-      let holdModel=false;
+      let holdModel=false,holdAgent=false;
       const selectModel=id=>{const model=state.models.find(option=>option.id===id)??state.models.find(option=>option.isDefault);
         publish({session:{...state.session,model:id,effort:model?.defaultReasoningEffort}})};
       const session={snapshot:()=>state,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)},
-        setProvider:id=>{changes.push(['provider',id]);selectProvider(id)},
+        setProvider:(id,selection)=>{changes.push(selection?['provider',id,selection]:['provider',id]);
+          if(holdAgent){holdAgent=false;let resolve,reject;const promise=new Promise((accepted,failed)=>{resolve=accepted;reject=failed});
+            pendingAgentRequests.push({id,selection,promise,resolve,reject});return promise}
+          selectProvider(id,selection)},
         setModel:id=>{changes.push(['model',id]);if(holdModel){holdModel=false;let resolve,reject;
           const promise=new Promise((accepted,failed)=>{resolve=accepted;reject=failed});pendingModelRequests.push({model:id,promise,resolve,reject});return promise}else selectModel(id)},
         setEffort:effort=>{changes.push(['effort',effort]);publish({session:{...state.session,effort}})},
@@ -76,21 +90,32 @@ async function check() {
         <ComposerSurface surface={surface} session={session} composer={composer}
           preferences={preferences} ui={ui} autoFocus draftStore={draftStore}/>
       </>));
-      window.chooseProvider=id=>selectProvider(id);
+      window.expandComposer=()=>{originalDraftNode.textContent=Array.from({length:16},(_,index)=>'Expanded draft line '+index+'.').join('\\n');editor().dispatchEvent(new Event('input',{bubbles:true}))};
+      window.chooseProvider=id=>selectProvider(id,undefined,true);
+      window.holdNextAgent=()=>{holdAgent=true};
+      window.ackAgent=()=>{const pending=pendingAgentRequests.shift();selectProvider(pending.id,pending.selection);pending.resolve();return pending.promise};
+      window.rejectAgent=error=>{const pending=pendingAgentRequests.shift();pending.reject(new Error(error));return pending.promise.catch(()=>{})};
+      window.manyHostedAgents=()=>publish({providers:state.providers.map(provider=>provider.id==='managed-remote'?{...provider,configOptions:managedConfig().filter(option=>option.category==='agent').map(option=>({...option,options:[...option.options,...Array.from({length:18},(_,index)=>({value:'extra-worker-'+index,name:'Additional remote agent '+index}))]}))}:provider)});
+      window.hostedUnavailable=()=>publish({providers:state.providers.map(provider=>provider.id==='managed-remote'?{...provider,status:'stopped',error:'Sign in to Hosted in Settings first.'}:provider)});
+      window.emptyHostedAgents=()=>publish({providers:state.providers.map(provider=>provider.id==='managed-remote'?{...provider,configOptions:managedConfig().filter(option=>option.category==='agent').map(option=>({...option,options:[]}))}:provider)});
+      window.restoreHostedAgents=()=>publish({providers:state.providers.map(provider=>provider.id==='managed-remote'?{...provider,status:'ready',error:undefined,configOptions:managedConfig().filter(option=>option.category==='agent')}:provider)});
       window.holdNextModel=()=>{holdModel=true};
       window.ackModel=()=>{const pending=pendingModelRequests.shift();selectModel(pending.model);pending.resolve();return pending.promise};
       window.rejectModel=error=>{const pending=pendingModelRequests.shift();pending.reject(new Error(error));return pending.promise.catch(()=>{})};
       window.replaceCatalog=()=>publish({models:state.models.map(model=>({...model}))});
       window.patch=change=>publish(change);
+      window.setPermissionModesAvailable=(available,providerId=state.providerId)=>publish({providers:state.providers.map(provider=>
+        provider.id===providerId?{...provider,capabilities:{...provider.capabilities,permissionModes:available}}:provider)});
       window.emptyCodex=()=>{selectProvider('codex');publish({models:[],harness:{...state.harness,codex:{status:'stopped',models:[]}},
         session:{...state.session,model:undefined,effort:undefined}})};
       window.finishLoad=error=>{const pending=pendingLoads.shift();if(!pending)throw new Error('No pending catalog request');
         if(error)pending.reject(new Error(error));else{if(state.providerId==='codex')publish({models:native,harness:{...state.harness,codex:{status:'ready',models:native}}});pending.resolve()}};
       window.resetChanges=()=>{changes.length=0;clickCount=0};
-      window.read=()=>({providerId:state.providerId,model:state.session.model,effort:state.session.effort,changes:[...changes],
+      window.read=()=>({providerId:state.providerId,model:state.session.model,effort:state.session.effort,agentConfig:state.agentConfig,changes:[...changes],
         draft:draft.message,clicks:clickCount,requests:modelRequests,pending:pendingLoads.length,
         open:!!document.querySelector('.composer-model-picker'),
         models:[...document.querySelectorAll('[role="listbox"][aria-label="Models"] [role="option"]')].map(option=>({name:option.textContent,selected:option.getAttribute('aria-selected')})),
+        agents:[...document.querySelectorAll('[data-composer-agents] [role=option]')].map(option=>({name:option.getAttribute('aria-label'),selected:option.getAttribute('aria-selected')})),
         reasoning:[...document.querySelectorAll('[aria-label="Reasoning"] button')].map(button=>({name:button.textContent,selected:button.getAttribute('aria-pressed')})),
         focus:document.activeElement?.getAttribute('aria-label')??document.activeElement?.textContent});
       window.geometry=()=>{
@@ -98,7 +123,10 @@ async function check() {
         const box=node=>{const r=node.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}};
         return {width:innerWidth,height:innerHeight,page:document.documentElement.scrollWidth,popup:box(popup),
           list:{...box(list),scroll:list.scrollHeight,visible:list.clientHeight},
-          controls:[...popup.querySelectorAll('button')].filter(node=>!node.closest('[data-composer-models]')).map(box),
+          controls:[...popup.querySelectorAll('button,select')].filter(node=>!node.closest('[data-composer-models],[data-composer-agents]')&&node.getBoundingClientRect().width>0).map(box),
+          agents:box(popup.querySelector('[data-composer-agents]')),
+          rail:box(popup.querySelector('.composer-picker-agents-rail')),
+          nativeAgent:box(popup.querySelector('select[aria-label=Agent]')),
           models:[...list.querySelectorAll('[role=option]')].map(node=>({name:node.textContent,...box(node)})),
           reasoning:[...popup.querySelectorAll('[aria-label=Reasoning] button')].map(box),
           radius:getComputedStyle(popup).borderRadius};
@@ -125,7 +153,10 @@ async function check() {
   const win = new BrowserWindow({ show: false, width: 1000, height: 800, webPreferences: {
     offscreen: true, sandbox: true, contextIsolation: true, backgroundThrottling: false,
   } })
-  const run = code => win.webContents.executeJavaScript(code)
+  const run = async code => {
+    try { return await win.webContents.executeJavaScript(code) }
+    catch (error) { throw new Error('Browser expression failed: ' + code.slice(0, 300), { cause: error }) }
+  }
   const frames = () => run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
   const until = async expression => {
     for (let index = 0; index < 100; index++) { if (await run(expression)) return; await frames() }
@@ -147,6 +178,22 @@ async function check() {
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
     await frames()
   }
+  const agent = (name, location) => `([...document.querySelectorAll('[data-composer-agents] [role=option]')].find(node=>node.getAttribute('aria-label')===${JSON.stringify(name + ' · ' + location)}))`
+  const selectOption = async (label, name, group) => {
+    const selector = JSON.stringify(`select[aria-label="${label}"]`)
+    await run(`(()=>{const select=document.querySelector(${selector});
+      const option=[...select.options].find(option=>option.textContent.trim()===${JSON.stringify(name)}&&(!${JSON.stringify(group)}||option.parentElement.label===${JSON.stringify(group)}));
+      if(!option)throw new Error('Missing native option: '+${JSON.stringify(name)});select.focus();select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));})()`)
+    await frames()
+  }
+  const chooseAgent = async (name, location) => {
+    if (await run('document.querySelector("select[aria-label=Agent]").getBoundingClientRect().width>0')) await selectOption('Agent', name, location)
+    else await click(agent(name, location))
+  }
+  const moreControl = `document.querySelector(${JSON.stringify('[aria-label="More options"]')})`
+  const showOptions = async () => {
+    if (await run(moreControl + '.getAttribute("aria-expanded")!=="true"')) await click(moreControl)
+  }
   const open = () => click('document.querySelector(".composer-model-trigger")')
   const outside = () => click('document.getElementById("outside")')
   const retained = async () => {
@@ -167,218 +214,260 @@ async function check() {
     await run(bundle.outputFiles[0].text)
     await frames()
 
-    await run('resetChanges()')
-    await open()
-    assert.equal((await run('read()')).models[0].name, 'Balanced')
-    assert.equal(await run('document.activeElement.textContent'), 'Balanced')
-    assert.equal(await run('document.activeElement.getAttribute("aria-selected")'), 'true')
-    assert.equal(await run('document.querySelector(".composer-model-picker input")'), null, 'The picker opens directly to model choices')
-    assert.equal(await run('modelRequests'), 0, 'Opening a populated picker does not start or reload a CLI')
-    await click(button('Swift'))
-    assert.equal((await run('read()')).open, true)
-    assert.deepEqual((await run('read()')).reasoning.map(option => option.name), ['Low', 'Medium'])
-    await click(button('Medium', '[aria-label="Reasoning"]'))
-    assert.deepEqual((await run('read()')).changes, [['model', 'swift-v2'], ['effort', 'medium']])
-    assert.equal((await run('read()')).clicks, 3, 'Model and reasoning require three clicks total')
-    assert.equal((await run('read()')).open, true, 'Choosing reasoning keeps the picker open')
-    assert.deepEqual((await run('read()')).models.filter(option => option.selected === 'true').map(option => option.name), ['Swift'])
-    assert.deepEqual((await run('read()')).reasoning.filter(option => option.selected === 'true').map(option => option.name), ['Medium'])
-    await click(button('Balanced'))
-    await click(button('High', '[aria-label="Reasoning"]'))
-    await click(button('Swift'))
-    await click(button('Low', '[aria-label="Reasoning"]'))
-    assert.equal((await run('read()')).open, true, 'Models and reasoning can be changed repeatedly in the same popup')
-    assert.deepEqual((await run('read()')).models.filter(option => option.selected === 'true').map(option => option.name), ['Swift'])
-    assert.deepEqual((await run('read()')).reasoning.filter(option => option.selected === 'true').map(option => option.name), ['Low'])
-    await key('Escape')
-    assert.equal((await run('read()')).open, false)
-    assert.equal(await run('document.activeElement.classList.contains("composer-model-trigger")'), true)
+    await click('document.querySelector(".composer-permission-trigger")')
+    assert.equal(await run('document.querySelectorAll(".composer-permission-picker [role=menuitemradio]").length'), 3,
+      'Providers without the optional capability retain Ask, Auto, and Full access')
+    await run('setPermissionModesAvailable(false,"claude")')
+    assert.equal(await run('!!document.querySelector(".composer-permission-picker")'), true,
+      'A different provider capability does not change the active permission menu')
+    await run('chooseProvider("claude")')
+    await frames()
+    assert.deepEqual(await run('(()=>{const button=document.querySelector(".composer-permission-trigger");return {label:button.textContent,title:button.title,disabled:button.disabled,popup:button.getAttribute("aria-haspopup")}})()'),
+      { label: 'Managed', title: 'Permissions are managed by the agent provider', disabled: true, popup: null })
+    assert.equal(await run('!!document.querySelector(".composer-permission-picker")'), false,
+      'Switching to a managed provider closes an already open menu')
+    await click('document.querySelector(".composer-permission-trigger")')
+    assert.equal(await run('!!document.querySelector(".composer-permission-picker")'), false,
+      'Managed permissions cannot open Ask or Full access choices')
+    await run('setPermissionModesAvailable(true)')
+    await frames()
+    assert.equal(await run('!!document.querySelector(".composer-permission-picker")'), false,
+      'Restoring permission modes does not reopen a stale menu')
+    await click('document.querySelector(".composer-permission-trigger")')
+    assert.equal(await run('document.querySelectorAll(".composer-permission-picker [role=menuitemradio]").length'), 2,
+      'An explicitly supported non-native provider retains Ask and Full access')
+    await run('setPermissionModesAvailable(false)')
+    await frames()
+    assert.equal(await run('!!document.querySelector(".composer-permission-picker")'), false,
+      'A capability withdrawn from the active provider closes the permission menu')
+    await run('setPermissionModesAvailable(undefined);chooseProvider("codex")')
     await retained()
 
     await run('resetChanges()')
     await open()
-    await click(button('Balanced'))
-    assert.equal((await run('read()')).clicks, 2, 'Changing only the model requires two clicks')
-    assert.deepEqual((await run('read()')).changes, [['model', 'balanced']])
+    const nativeOrder = (await run('read()')).models.map(option => option.name)
+    assert.deepEqual(nativeOrder.slice(0, 3), ['Swift', 'Balanced', 'Automatic'], 'The model catalog keeps its familiar order')
+    assert.equal(await run('document.activeElement.textContent'), 'Balanced')
+    assert.equal(await run('document.activeElement.getAttribute("aria-selected")'), 'true')
+    assert.equal(await run('document.querySelector(".composer-model-picker input")'), null, 'The picker opens directly to model choices')
+    assert.equal(await run('document.querySelectorAll(".composer-model-picker [role=tab],.composer-picker-header").length'), 0, 'Agent, model, and reasoning choices share one surface without navigation pages')
+    assert.deepEqual((await run('read()')).agents.map(option => option.name), ['Codex · Local', 'Claude · Local', 'Gemini · Local', 'Codex · Cloud', 'Claude · Cloud', 'Primary worker · Hosted', 'Backup worker · Hosted'])
+    assert.equal(await run('modelRequests'), 0, 'Opening a populated picker does not start or reload a CLI')
+    await click(button('Swift', '[data-composer-models]'))
+    assert.equal((await run('read()')).open, true)
+    assert.deepEqual((await run('read()')).reasoning.map(option => option.name), ['Low', 'Medium'])
+    await click(button('Medium', '[aria-label="Reasoning"]'))
+    assert.deepEqual((await run('read()')).changes, [['model', 'swift-v2'], ['effort', 'medium']])
+    assert.equal((await run('read()')).clicks, 3, 'Opening, choosing a model, and choosing reasoning take three clicks total')
+    assert.deepEqual((await run('read()')).models.map(option => option.name), nativeOrder, 'Choosing a model never reorders the list')
+    await click(agent('Claude', 'Local'))
+    assert.equal((await run('read()')).clicks, 4, 'Changing an agent is one direct click in the open picker')
+    assert.equal((await run('read()')).providerId, 'claude')
+    assert.equal((await run('read()')).open, true)
+    assert.deepEqual((await run('read()')).models.map(option => option.name), ['Opus', 'Haiku', 'Sonnet'])
+    assert.deepEqual((await run('read()')).reasoning.map(option => option.name), ['Low', 'Medium', 'High', 'Max'])
+    await click(button('Sonnet', '[data-composer-models]'))
+    await click(button('Medium', '[aria-label="Reasoning"]'))
+    assert.equal((await run('read()')).clicks, 6, 'Agent, model, and reasoning each require one direct click after opening')
+    assert.equal((await run('read()')).model, 'sonnet')
+    assert.equal((await run('read()')).effort, 'medium')
+    assert.equal((await run('read()')).open, true)
+    await retained()
+    await capture('picker-direct-choices')
+    await key('Escape')
+    assert.equal((await run('read()')).open, false)
+    assert.equal(await run('document.activeElement.classList.contains("composer-model-trigger")'), true)
+
+    await run('chooseProvider("codex");resetChanges()')
+    await open()
+    await click(button('Swift', '[data-composer-models]'))
+    assert.equal((await run('read()')).clicks, 2, 'Changing only the model requires opening plus one choice')
     await outside()
     assert.equal((await run('read()')).open, false)
     assert.equal(await run('document.activeElement.id'), 'outside', 'Outside dismissal keeps the clicked control focused')
     await run('resetChanges()')
     await open()
-    await click(button('High', '[aria-label="Reasoning"]'))
-    assert.equal((await run('read()')).clicks, 2, 'Changing only reasoning requires two clicks')
-    assert.equal((await run('read()')).open, true)
+    await click(button('Medium', '[aria-label="Reasoning"]'))
+    assert.equal((await run('read()')).clicks, 2, 'Changing reasoning requires opening plus one choice')
     await run('resetChanges()')
-    await click(button('Balanced'))
-    assert.deepEqual((await run('read()')).changes, [], 'Clicking the current model does not reset reasoning')
-    assert.equal((await run('read()')).effort, 'high')
-
-    await run(button('Swift') + '.focus()')
-    await run("for(const key of ['Enter','Escape','ArrowDown'])document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key,isComposing:true,bubbles:true,cancelable:true}))")
-    assert.equal((await run('read()')).model, 'balanced', 'IME confirmation is not a model selection')
+    await click(button('Swift', '[data-composer-models]'))
+    assert.deepEqual((await run('read()')).changes, [], 'Clicking the current model preserves reasoning')
+    assert.equal((await run('read()')).effort, 'medium')
+    await run(button('Balanced', '[data-composer-models]') + '.focus()')
+    await run("for(const key of ['Enter','Escape','ArrowDown','ArrowLeft'])document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key,isComposing:true,bubbles:true,cancelable:true}))")
+    assert.equal((await run('read()')).model, 'swift-v2', 'IME confirmation is not a model selection')
     assert.equal((await run('read()')).open, true, 'IME Escape does not dismiss the picker')
-    assert.equal(await run('document.activeElement.textContent'), 'Swift', 'IME arrow keys do not move model focus')
+    assert.equal(await run('document.activeElement.textContent'), 'Balanced', 'IME arrows do not move model focus')
     await key('Return')
-    assert.equal((await run('read()')).model, 'swift-v2')
-    assert.equal((await run('read()')).open, true)
-    await key('Down')
-    assert.equal(await run('document.activeElement.textContent'), 'Balanced')
+    assert.equal((await run('read()')).model, 'balanced')
     await key('End')
     assert.equal(await run('document.activeElement.textContent'), 'Additional model 8 with a longer descriptive label')
     await key('Home')
     assert.equal(await run('document.activeElement.textContent'), 'Swift')
-    await key('Escape')
-    assert.equal((await run('read()')).open, false)
-    assert.equal(await run('document.activeElement.classList.contains("composer-model-trigger")'), true)
-    await open()
-    await run("document.querySelector('[aria-label=\"Reasoning\"] button').focus()")
+    await key('Left')
+    assert.equal(await run('document.activeElement.getAttribute("aria-label")'), 'Codex · Local', 'Left reaches the selected agent from the model list')
+    await key('End')
+    assert.equal(await run('document.activeElement.getAttribute("aria-label")'), 'Backup worker · Hosted')
+    await key('Home')
+    assert.equal(await run('document.activeElement.getAttribute("aria-label")'), 'Codex · Local')
+    await key('Down')
+    assert.equal(await run('document.activeElement.getAttribute("aria-label")'), 'Claude · Local')
+    assert.equal((await run('read()')).providerId, 'codex', 'Arrow navigation does not change the agent until confirmed')
+    await key('Return')
+    assert.equal((await run('read()')).providerId, 'claude')
+    await run(agent('Claude', 'Local') + '.focus()')
+    await key('Right')
+    assert.equal(await run('document.activeElement.textContent'), 'Opus', 'Right reaches the selected model from the agent list')
+    await run('document.querySelector("[aria-label=Reasoning] button").focus()')
     await key('Right')
     assert.equal(await run('document.activeElement.textContent'), 'Medium')
-    await key('Home')
-    assert.equal(await run('document.activeElement.textContent'), 'Low')
-    await key('Return')
+    await key('Home'); await key('Return')
     assert.equal((await run('read()')).effort, 'low')
-    assert.equal((await run('read()')).open, true, 'Keyboard reasoning selection keeps the popup open')
-    assert.equal(await run('document.activeElement.getAttribute("aria-pressed")'), 'true')
-    await key('Right')
-    await key('Return')
-    assert.equal((await run('read()')).effort, 'medium')
-    assert.equal((await run('read()')).open, true)
-    assert.deepEqual((await run('read()')).reasoning.filter(option => option.selected === 'true').map(option => option.name), ['Medium'])
+    await key('End'); await key('Return')
+    assert.equal((await run('read()')).effort, 'max')
+    assert.equal((await run('read()')).open, true, 'Keyboard reasoning changes keep the popup open')
+    await showOptions()
+    await selectOption('Verbosity', 'Full')
+    assert.deepEqual((await run('read()')).changes.at(-1), ['config', 'verbosity', 'full'])
+    assert.equal((await run('read()')).open, true, 'Optional provider settings stay in the same picker')
+    assert.equal(await run('document.querySelectorAll("[data-composer-models] [role=option]").length'), 3, 'Opening options leaves model choices visible')
+    await capture('picker-options')
 
-    await click(button('Reset to default'))
-    assert.equal((await run('read()')).open, true, 'Resetting defaults keeps the popup open')
-    assert.equal((await run('read()')).model, undefined)
-    assert.equal((await run('read()')).effort, undefined)
-    assert.deepEqual((await run('read()')).models.filter(option => option.selected === 'true').map(option => option.name), ['Balanced'])
-    assert.deepEqual((await run('read()')).reasoning.filter(option => option.selected === 'true').map(option => option.name), ['Medium'])
-
-    await click(button('Automatic'))
-    assert.deepEqual((await run('read()')).reasoning, [], 'Models without reasoning do not show invented levels')
-    await run('window.agentPicker=document.querySelector(".composer-model-picker")')
-    await click(button('Agent')); await click(button('Claude'))
-    assert.equal((await run('read()')).providerId, 'claude')
-    assert.equal((await run('read()')).open, true, 'Changing agents keeps the model picker open')
-    assert.equal(await run('document.querySelector(".composer-model-picker")===agentPicker'), true, 'Agent changes retain the same popup')
-    assert.deepEqual((await run('read()')).models.map(option => option.name), ['Opus', 'Haiku', 'Sonnet'])
-    assert.deepEqual((await run('read()')).reasoning.map(option => option.name), ['Low', 'Medium', 'High', 'Max'])
-    assert.equal(await run('document.activeElement.textContent'), 'Opus', 'The new agent opens directly to its selected model')
-    await click(button('Haiku'))
-    assert.deepEqual((await run('read()')).reasoning, [])
-    await click(button('Sonnet'))
-    assert.equal((await run('read()')).reasoning.some(option => option.name === 'Max'), false)
-    await click(button('Medium', '[aria-label="Reasoning"]'))
-    assert.equal((await run('read()')).effort, 'medium')
-    assert.equal((await run('read()')).open, true, 'Agent, model, and reasoning can be chosen in one popup')
+    await click(button('Sonnet', '[data-composer-models]'))
+    const heldModelPositions = await run('[...document.querySelectorAll("[data-composer-models] [role=option]")].map(node=>({name:node.textContent,top:node.getBoundingClientRect().top,height:node.getBoundingClientRect().height}))')
     await run('holdNextModel()')
-    await click(button('Opus'))
-    assert.equal(await run('document.querySelector(".composer-model-picker [role=status]").textContent'), 'Changing model…')
-    assert.equal(await run('[...document.querySelectorAll("[aria-label=Reasoning] button")].every(button=>button.disabled)'), true)
-    assert.equal(await run('[...document.querySelectorAll("[data-composer-models] [role=option]")].every(button=>button.disabled)'), true)
+    await click(button('Opus', '[data-composer-models]'))
+    assert.deepEqual(await run('[...document.querySelectorAll("[data-composer-models] [role=option]")].map(node=>({name:node.textContent,top:node.getBoundingClientRect().top,height:node.getBoundingClientRect().height}))'), heldModelPositions, 'Pending acknowledgement does not move or reorder model rows')
+    assert.equal(await run('[...document.querySelectorAll("[aria-label=Reasoning] button,[data-composer-models] [role=option]")].every(button=>button.disabled)'), true, 'Pending models disable old reasoning and model options')
     await run('replaceCatalog()')
-    assert.equal(await run('[...document.querySelectorAll("[aria-label=Reasoning] button,[data-composer-models] [role=option]")].every(button=>button.disabled)'), true, 'An unrelated catalog replacement cannot acknowledge the pending model')
-    const changesBeforeAck = (await run('read()')).changes.length
+    assert.equal(await run('[...document.querySelectorAll("[aria-label=Reasoning] button,[data-composer-models] [role=option]")].every(button=>button.disabled)'), true, 'Unrelated catalog updates cannot acknowledge a pending model')
+    const beforeAck = (await run('read()')).changes.length
     await click(button('Medium', '[aria-label="Reasoning"]'))
-    assert.equal((await run('read()')).changes.length, changesBeforeAck, 'Old reasoning cannot apply while the new model is pending')
+    assert.equal((await run('read()')).changes.length, beforeAck)
     assert.equal((await run('read()')).model, 'sonnet')
     await run('ackModel()')
     await until('document.querySelector("[aria-label=Reasoning] button:last-child")?.disabled===false')
     assert.equal((await run('read()')).model, 'opus')
     await click(button('Max', '[aria-label="Reasoning"]'))
-    assert.equal((await run('read()')).effort, 'max')
-    assert.equal((await run('read()')).open, true)
     await run('holdNextModel()')
-    await click(button('Sonnet'))
+    await click(button('Sonnet', '[data-composer-models]'))
     await run("rejectModel('Model selection was refused')")
-    await until('document.querySelector(".composer-model-picker [role=alert]")?.textContent==="Model selection was refused"')
-    assert.equal((await run('read()')).model, 'opus', 'A rejected model change leaves the previous model selected')
-    assert.equal(await run('[...document.querySelectorAll("[aria-label=Reasoning] button,[data-composer-models] [role=option]")].every(button=>!button.disabled)'), true, 'A rejected model change re-enables the old choices')
-    await click(button('Sonnet'))
-    assert.equal((await run('read()')).model, 'sonnet', 'The failed model can be retried')
+    await until('[...document.querySelectorAll(".composer-model-picker [role=alert]")].some(node=>node.textContent.includes("Model selection was refused"))')
+    assert.equal((await run('read()')).model, 'opus')
+    assert.equal(await run('[...document.querySelectorAll("[aria-label=Reasoning] button,[data-composer-models] [role=option]")].every(button=>!button.disabled)'), true)
+    await click(button('Sonnet', '[data-composer-models]'))
+    assert.equal((await run('read()')).model, 'sonnet', 'A failed model can be retried')
     assert.equal(await run('!!document.querySelector(".composer-model-picker [role=alert]")'), false)
-
     await run('holdNextModel()')
-    await click(button('Opus'))
+    await click(button('Opus', '[data-composer-models]'))
     await key('Escape')
     await run("rejectModel('A dismissed request failed')")
     await open()
-    assert.equal(await run('!!document.querySelector(".composer-model-picker [role=alert]")'), false, 'A dismissed model request does not leak its late failure on reopen')
+    assert.equal(await run('!!document.querySelector(".composer-model-picker [role=alert]")'), false, 'Late failure from a dismissed request is not shown on reopen')
     await run('holdNextModel()')
-    await click(button('Opus'))
-    await click(button('Agent')); await click(button('Gemini'))
+    await click(button('Opus', '[data-composer-models]'))
+    await run('chooseProvider("gemini")')
     await run("rejectModel('The previous provider refused a model')")
     assert.equal((await run('read()')).providerId, 'gemini')
     assert.equal((await run('read()')).open, true)
     assert.deepEqual((await run('read()')).models.map(option => option.name), ['Agent default'])
     assert.deepEqual((await run('read()')).reasoning, [])
-    assert.equal(await run('!!document.querySelector(".composer-model-picker [role=alert]")'), false, 'A previous provider model request cannot publish an error into this picker')
+    assert.equal(await run('!!document.querySelector(".composer-model-picker [role=alert]")'), false, 'Previous-provider model failures cannot leak into a new provider')
+
+    await run('window.samePicker=document.querySelector(".composer-model-picker")')
+    await click('document.querySelector(".composer-location-control > button")')
+    assert.equal(await run('document.querySelector(".composer-model-picker")===samePicker'), true, 'The location shortcut uses the already open picker')
+    assert.equal(await run('document.activeElement.getAttribute("aria-label")'), 'Gemini · Local')
+    assert.equal(await run('!!document.querySelector(".composer-location-control [role=menu]")'), false, 'There is no independent run-location menu')
     await key('Escape')
-    await run('chooseProvider("claude")')
-    await open()
-    await click(button('Verbosity')); await click(button('Full'))
-    assert.deepEqual((await run('read()')).changes.at(-1), ['config', 'verbosity', 'full'])
-    assert.equal(await run('document.activeElement.getAttribute("aria-selected")'), 'true', 'Returning from extra settings focuses the selected model')
-    await click(button('Agent'))
-    assert.deepEqual(await run('[...document.querySelectorAll(".composer-picker-options [role=menuitemradio]")].map(node=>node.textContent)'), ['Codex', 'Claude', 'Gemini'])
-    await click(button('Claude'))
-    assert.equal((await run('read()')).open, true, 'Reselecting the current agent returns to model controls without dismissing')
-    assert.equal((await run('read()')).providerId, 'claude')
-    assert.equal(await run('document.activeElement.textContent'), 'Opus')
-    assert.deepEqual((await run('read()')).reasoning.map(option => option.name), ['Low', 'Medium', 'High', 'Max'])
-    await click(button('Agent'))
-    await click(button('Gemini'))
+    assert.equal(await run('document.activeElement===document.querySelector(".composer-location-control > button")'), true, 'Escape restores the shortcut that opened the picker')
+    await click('document.querySelector(".composer-location-control > button")')
+    await click(agent('Claude', 'Cloud'))
+    assert.equal((await run('read()')).providerId, 'cloud-claude', 'Remote agents are directly selectable without a location-navigation step')
     assert.equal((await run('read()')).open, true)
-    assert.deepEqual((await run('read()')).reasoning, [], 'Automatic agents expose no invented reasoning choices')
-    await outside()
-    assert.equal((await run('read()')).open, false, 'Outside interaction still dismisses after agent selection')
-    await click('document.querySelector(".composer-location-control > button")')
-    assert.equal(await run(button('Cloud', '.composer-location-control') + '.disabled'), true, 'A missing remote agent does not switch to a different agent')
-    await outside()
-    await run('chooseProvider("claude")')
-    await click('document.querySelector(".composer-location-control > button")')
-    await click(button('Cloud', '.composer-location-control'))
-    assert.equal((await run('read()')).providerId, 'cloud-claude')
-    await open(); await click(button('Agent'))
-    assert.deepEqual(await run('[...document.querySelectorAll(".composer-picker-options [role=menuitemradio]")].map(node=>node.textContent)'), ['Codex', 'Claude'])
+    const unchanged = (await run('read()')).changes.length
+    await click(agent('Claude', 'Cloud'))
+    assert.equal((await run('read()')).changes.length, unchanged, 'Reselecting a current endpoint does not reconfigure it')
+    await click(agent('Backup worker', 'Hosted'))
+    assert.equal((await run('read()')).providerId, 'managed-remote')
+    assert.deepEqual((await run('read()')).changes.at(-1), ['provider', 'managed-remote', { configId: 'agent', value: 'worker-b' }], 'A provider and named child apply in one action')
+    assert.equal((await run('read()')).agentConfig.find(option => option.category === 'agent').currentValue, 'worker-b')
+    assert.equal(await run('document.querySelector(".composer-model-trigger").textContent.includes("Backup worker")'), false, 'The closed trigger remains compact with model and reasoning only')
+    assert.equal(await run('document.querySelector(".composer-model-trigger").title.includes("Backup worker")&&document.querySelector(".composer-model-trigger").title.includes("Hosted")'), true, 'Full agent and location context remains in the trigger tooltip')
+    assert.deepEqual((await run('read()')).agents.filter(option => option.selected === 'true').map(option => option.name), ['Backup worker · Hosted'], 'The bound child wins over the provider default')
+    assert.equal(await run('!!'+button('Managed agent')), false, 'Named agents do not need a separate managed-agent control')
+    await click(button('Low', '[aria-label="Reasoning"]'))
+    await run('holdNextAgent()')
+    await click(agent('Primary worker', 'Hosted'))
+    assert.equal(await run('[...document.querySelectorAll("[data-composer-agents] [role=option]")].every(node=>node.disabled)'), true)
+    assert.equal((await run('read()')).agentConfig.find(option => option.category === 'agent').currentValue, 'worker-b')
+    await run("rejectAgent('Agent change was refused')")
+    await until('[...document.querySelectorAll(".composer-model-picker [role=alert]")].some(node=>node.textContent.includes("Agent change was refused"))')
+    assert.equal((await run('read()')).agentConfig.find(option => option.category === 'agent').currentValue, 'worker-b')
+    await click(agent('Primary worker', 'Hosted'))
+    assert.equal((await run('read()')).effort, 'low', 'Changing a child agent keeps the chosen reasoning')
+    assert.equal((await run('read()')).model, 'managed-reasoner')
+    assert.equal((await run('read()')).agentConfig.find(option => option.category === 'agent').currentValue, 'worker-a')
+    assert.equal((await run('read()')).open, true)
+    await retained()
+    await capture('picker-managed')
+    await run('holdNextAgent()')
+    await click(agent('Backup worker', 'Hosted'))
     await key('Escape')
-    await run('patch({threadId:"saved-chat",activities:[{id:"prompt",kind:"user",content:"Saved prompt"}],turn:{tag:"idle"}})')
+    await run("rejectAgent('A dismissed agent change failed')")
     await open()
-    assert.equal(await run(button('Agent') + '.disabled'), true, 'A chat with messages cannot switch agents')
+    assert.equal(await run('[...document.querySelectorAll("[data-composer-agents] [role=option]")].every(node=>!node.disabled)'), true)
+    assert.equal(await run('!!document.querySelector(".composer-model-picker [role=alert]")'), false, 'Dismissed child requests cannot disable or poison a reopened picker')
+
+    await run('chooseProvider("codex");hostedUnavailable()')
+    assert.equal(await run('[...document.querySelectorAll("[data-composer-agents] [role=option]")].filter(node=>node.getAttribute("aria-label").endsWith(" · Hosted")).length'), 0, 'Unavailable providers are explanatory context, not phantom choices')
+    assert.equal(await run('[...document.querySelectorAll(".composer-model-picker [role=status]")].some(node=>node.textContent.includes("Sign in to Hosted in Settings first."))'), true)
+    assert.equal((await run('read()')).providerId, 'codex')
+    await capture('picker-unavailable')
+    await run('restoreHostedAgents();emptyHostedAgents()')
+    assert.equal(await run('[...document.querySelectorAll("[data-composer-agents] [role=option]")].filter(node=>node.getAttribute("aria-label").endsWith(" · Hosted")).length'), 0)
+    assert.equal(await run('[...document.querySelectorAll(".composer-picker-note")].some(node=>node.textContent.includes("No agents available"))'), true)
+    await run('restoreHostedAgents()')
+    await run('patch({threadId:"saved-chat",activities:[{id:"prompt",kind:"user",content:"Saved prompt"}],turn:{tag:"idle"}})')
+    assert.equal(await run('[...document.querySelectorAll("[data-composer-agents] [role=option]")].every(node=>node.disabled)'), true, 'Existing chats cannot retarget their agent')
+    assert.equal(await run('document.querySelector("select[aria-label=Agent]")?.disabled??true'), true)
+    assert.equal(await run('(()=>{const name=document.querySelector(".composer-picker-agent-select .composer-picker-current-agent");return name?.getBoundingClientRect().width>0&&name.textContent.includes("Codex")&&name.textContent.includes("Local")})()'), true, 'Readonly conversations keep their bound agent and source visible')
+    assert.equal(await run('[...document.querySelectorAll("[data-composer-models] [role=option]")].every(node=>!node.disabled)'), true, 'Locked agent identity does not disable model choices')
+    assert.equal(await run('document.querySelector(".composer-location-control > button").disabled'), true)
     await key('Escape')
-    await click('document.querySelector(".composer-location-control > button")')
-    assert.equal(await run('[...document.querySelectorAll(".composer-location-control [role=menuitemradio]")].every(node=>node.disabled)'), true)
-    await outside()
     await run('patch({threadId:undefined,activities:[],turn:{tag:"running"}})')
     await open()
-    assert.equal(await run(button('Agent') + '.disabled'), true, 'An active turn cannot switch agents before any history arrives')
+    assert.equal(await run('[...document.querySelectorAll("[data-composer-agents] [role=option]")].every(node=>node.disabled)'), true, 'An active turn cannot switch agents before history arrives')
     await key('Escape')
     await run('patch({threadId:undefined,activities:[],turn:{tag:"idle"}});emptyCodex()')
     await open()
-    assert.equal(await run('!!document.activeElement.closest(".composer-model-picker")&&!document.activeElement.disabled'), true, 'An empty picker focuses an available action')
-    assert.equal(await run('modelRequests'), 0, 'An empty catalog also requires explicit loading')
+    assert.equal(await run('!!document.activeElement.closest(".composer-model-picker")&&!document.activeElement.disabled'), true, 'An empty catalog focuses an available control')
+    assert.equal(await run('modelRequests'), 0)
     await click(button('Load models'))
     assert.equal(await run('modelRequests'), 1)
-    assert.equal(await run('document.querySelector("[role=status]").textContent'), 'Loading models…')
     await run("finishLoad('Catalog unavailable')")
-    await until('document.querySelector(".composer-model-picker [role=alert]")')
-    assert.equal(await run('document.querySelector("[role=alert]").textContent'), 'Catalog unavailable')
-    await click(button('Retry'))
+    await until('[...document.querySelectorAll(".composer-model-picker [role=alert]")].some(node=>node.textContent.includes("Catalog unavailable"))')
+    await click(button('Load models'))
     assert.equal(await run('modelRequests'), 2)
     await run('finishLoad()')
-    await until('document.activeElement.getAttribute("aria-selected")==="true"')
-    assert.equal(await run('document.activeElement.textContent'), 'Balanced', 'Loaded models receive focus without reopening')
-    await click('document.querySelector("[aria-label=\\"Refresh models\\"]")')
-    assert.equal(await run('modelRequests'), 3, 'Populated catalogs refresh only on explicit request')
+    await until('document.querySelector("[data-composer-models] [aria-selected=true]")')
+    assert.equal((await run('read()')).models.filter(option => option.selected === 'true')[0].name, 'Balanced')
+    await showOptions()
+    await click(button('Refresh models'))
+    assert.equal(await run('modelRequests'), 3)
     await run('finishLoad()')
-    await until('!document.querySelector("[aria-label=\\"Refresh models\\"]").disabled')
-    await key('Escape'); await run('emptyCodex()'); await open(); await click(button('Load models'))
-    await click(button('Agent')); await click(button('Claude'))
+    await until('!'+button('Refresh models')+'.disabled')
+    await click(button('Reset to default'))
+    assert.equal((await run('read()')).model, undefined)
+    assert.equal((await run('read()')).effort, undefined)
+    assert.equal((await run('read()')).open, true, 'Reset leaves the unified picker open')
+    await key('Escape')
+    await run('emptyCodex()')
+    await open(); await click(button('Load models'))
+    await click(agent('Claude', 'Local'))
     await run("finishLoad('Old Codex request failed')")
-    assert.equal((await run('read()')).open, true)
     assert.equal((await run('read()')).providerId, 'claude')
-    assert.equal((await run('read()')).models[0].name, 'Opus')
-    assert.equal(await run('!!document.querySelector(".composer-model-picker [role=alert]")'), false, 'A previous provider request cannot leak an error into this provider')
-    assert.equal(await run('!!document.querySelector(".composer-model-picker [role=status]")'), false)
+    assert.equal(await run('!!document.querySelector(".composer-model-picker [role=alert]")'), false)
     await key('Escape')
     await retained()
 
@@ -389,103 +478,146 @@ async function check() {
         await run(`document.documentElement.dataset.altoTheme=${JSON.stringify(theme)}`)
         await frames(); await open()
         const geometry = await run('geometry()')
-        assert.ok(geometry.popup.width > 200 && geometry.popup.height > 200, JSON.stringify(geometry))
-        assert.ok(geometry.popup.width <= 322, 'The compact picker is at most 320px wide: ' + JSON.stringify(geometry))
+        assert.ok(geometry.popup.width > 200 && geometry.popup.height > 180, JSON.stringify(geometry))
+        assert.ok(geometry.popup.width <= 560, JSON.stringify(geometry))
         assert.ok(geometry.popup.left >= 0 && geometry.popup.right <= width + 1 && geometry.popup.top >= 0 && geometry.popup.bottom <= geometry.height, JSON.stringify(geometry))
         assert.ok(geometry.page <= width + 1, JSON.stringify(geometry))
-        assert.ok(geometry.list.scroll > geometry.list.visible && geometry.list.visible > 80, JSON.stringify(geometry))
+        assert.ok(geometry.list.scroll > geometry.list.visible && geometry.list.visible > 60, JSON.stringify(geometry))
         assert.ok(geometry.controls.every(control => control.left >= geometry.popup.left && control.right <= geometry.popup.right + 1 && control.top >= geometry.popup.top && control.bottom <= geometry.popup.bottom + 1), JSON.stringify(geometry))
-        assert.ok(geometry.models.filter(model => ['Swift', 'Balanced', 'Automatic'].includes(model.name)).every(model => model.height <= 34), 'Short model rows use compact spacing: ' + JSON.stringify(geometry))
-        assert.equal(geometry.reasoning.length, 6, 'All six supported reasoning levels are rendered')
-        assert.ok(geometry.reasoning.every(control => control.height <= 30), 'Reasoning controls use compact spacing: ' + JSON.stringify(geometry))
-        assert.ok(geometry.reasoning.every((control, index) => geometry.reasoning.slice(index + 1).every(other => control.right <= other.left + 1 || other.right <= control.left + 1 || control.bottom <= other.top + 1 || other.bottom <= control.top + 1)), 'Wrapped reasoning controls cannot overlap')
-        if (width === 320) {
-          assert.ok(new Set(geometry.reasoning.map(control => Math.round(control.top))).size >= 2, 'Six reasoning levels wrap within a narrow picker')
-          await click(button('XHigh', '[aria-label="Reasoning"]'))
-          assert.equal((await run('read()')).effort, 'xhigh', 'A wrapped reasoning level receives native pointer clicks')
-          assert.equal((await run('read()')).open, true)
+        assert.ok(geometry.models.filter(model => ['Swift', 'Balanced', 'Automatic'].includes(model.name)).every(model => model.height <= 34), JSON.stringify(geometry))
+        assert.equal(geometry.reasoning.length, 6)
+        assert.ok(geometry.reasoning.every(control => control.height <= 32), JSON.stringify(geometry))
+        assert.ok(geometry.reasoning.every((control, index) => geometry.reasoning.slice(index + 1).every(other => control.right <= other.left + 1 || other.right <= control.left + 1 || control.bottom <= other.top + 1 || other.bottom <= control.top + 1)), 'Reasoning controls cannot overlap')
+        if (width > 520) {
+          assert.ok(geometry.rail.width > 100 && geometry.nativeAgent.width === 0, 'Wide pickers expose agents and models together: ' + JSON.stringify(geometry))
+          assert.ok(geometry.agents.right < geometry.list.left + 1, 'Agent and model lists are side by side: ' + JSON.stringify(geometry))
+        } else {
+          if (width === 320) {
+            const compactPositions = await run('[...document.querySelectorAll("[data-composer-models] [role=option]")].map(node=>({name:node.textContent,top:node.getBoundingClientRect().top,height:node.getBoundingClientRect().height}))')
+            await run('holdNextModel()')
+            await click(button('Swift', '[data-composer-models]'))
+            assert.deepEqual(await run('[...document.querySelectorAll("[data-composer-models] [role=option]")].map(node=>({name:node.textContent,top:node.getBoundingClientRect().top,height:node.getBoundingClientRect().height}))'), compactPositions, 'Pending model feedback also keeps compact model rows stationary')
+            await run('ackModel()')
+            await click(button('Balanced', '[data-composer-models]'))
+          }
+          assert.equal(geometry.rail.width, 0, 'Compact panes replace the rail with a native agent selector')
+          assert.ok(geometry.nativeAgent.width > 100, JSON.stringify(geometry))
+          assert.equal((await run('read()')).models.map(option => option.name).join('|'), nativeOrder.join('|'))
+          await chooseAgent('Backup worker', 'Hosted')
+          assert.equal((await run('read()')).providerId, 'managed-remote')
+          assert.equal((await run('read()')).agentConfig.find(option => option.category === 'agent').currentValue, 'worker-b')
+          await chooseAgent('Codex', 'Local')
         }
-        await capture('model-picker-' + theme + '-' + width)
+        await capture('picker-' + theme + '-' + width)
         await key('Escape')
+        await click('document.querySelector(".composer-location-control > button")')
+        if (width > 520) assert.equal(await run('document.activeElement.getAttribute("aria-label")'), 'Codex · Local')
+        else assert.equal(await run('document.activeElement===document.querySelector("select[aria-label=Agent]")'), true)
+        await key('Escape')
+        assert.equal(await run('document.activeElement===document.querySelector(".composer-location-control > button")'), true)
       }
     }
-    await retained()
+    await run('manyHostedAgents()')
+    win.setContentSize(1000, 360)
+    await frames(); await open()
+    const initialScroll = await run('document.querySelector("[data-composer-models]").scrollTop')
+    await run(agent('Codex', 'Local') + '.focus()')
+    await key('End')
+    const scrolling = await run(`(()=>{const list=document.querySelector('[data-composer-agents]'),active=document.activeElement;
+      const r=list.getBoundingClientRect(),a=active.getBoundingClientRect();return {top:r.top,bottom:r.bottom,activeTop:a.top,activeBottom:a.bottom,scroll:list.scrollHeight,visible:list.clientHeight,modelScroll:document.querySelector('[data-composer-models]').scrollTop}})()`)
+    assert.ok(scrolling.scroll > scrolling.visible && scrolling.visible > 20, JSON.stringify(scrolling))
+    assert.ok(scrolling.activeTop >= scrolling.top && scrolling.activeBottom <= scrolling.bottom + 1, 'Last agent remains reachable on short windows: ' + JSON.stringify(scrolling))
+    assert.equal(scrolling.modelScroll, initialScroll, 'Scrolling the agent list does not move the model list')
+    await capture('picker-short-wide')
+    await key('Escape')
+    win.setContentSize(320, 360)
+    await frames(); await open()
+    const short = await run('geometry()')
+    assert.ok(short.popup.top >= 0 && short.popup.bottom <= 360 && short.popup.right <= 321, JSON.stringify(short))
+    assert.ok(short.list.visible >= 32, 'A short compact window still exposes a full model row: ' + JSON.stringify(short))
+    assert.ok(await run('document.querySelector("select[aria-label=Agent]").options.length') > 20)
+    await chooseAgent('Backup worker', 'Hosted')
+    assert.equal((await run('read()')).providerId, 'managed-remote')
+    assert.equal((await run('read()')).open, true)
+    await capture('picker-short-compact')
+    await key('Escape')
+    await run('restoreHostedAgents();chooseProvider("codex")')
+    win.setContentSize(320, 800)
+    await frames()
     for (const [anchor, focus, model] of [[7, 7, 'Swift'], [6, 11, 'Balanced'], [11, 6, 'Swift']]) {
       await run(`selectDraft(${anchor},${focus})`)
       assert.deepEqual(await run('draftSelection()'), { focused: true, original: true, anchor, focus })
       await open()
-      await click(button(model))
+      await click(button(model, '[data-composer-models]'))
       await click(button('Medium', '[aria-label="Reasoning"]'))
-      assert.equal((await run('read()')).open, true)
       if (anchor === 11 && focus === 6) {
-        await click(button('Agent')); await click(button('Claude'))
-        await click(button('Sonnet')); await click(button('Medium', '[aria-label="Reasoning"]'))
-        assert.equal((await run('read()')).open, true)
-        assert.equal((await run('read()')).providerId, 'claude')
-        assert.equal((await run('read()')).model, 'sonnet')
-        assert.equal((await run('read()')).effort, 'medium')
-        await click(button('Agent')); await click(button('Codex'))
-        await click(button('Reset to default'))
-        assert.equal((await run('read()')).open, true)
+        await run('window.caretPicker=document.querySelector(".composer-model-picker")')
+        await click('document.querySelector(".composer-location-control > button")')
+        assert.equal(await run('document.querySelector(".composer-model-picker")===caretPicker'), true)
+        await chooseAgent('Claude', 'Local')
+        await click(button('Sonnet', '[data-composer-models]'))
+        await click(button('Medium', '[aria-label="Reasoning"]'))
+        await chooseAgent('Codex', 'Local')
+        await showOptions(); await click(button('Reset to default'))
       }
-      assert.equal(await run('focusDraft()'), true, 'The actual composer service can restore editor focus')
+      assert.equal((await run('read()')).open, true)
+      assert.equal(await run('focusDraft()'), true)
       await frames()
-      assert.deepEqual(await run('draftSelection()'), { focused: true, original: true, anchor, focus }, 'Agent, model, and reasoning choices preserve the draft caret and selected range')
+      assert.deepEqual(await run('draftSelection()'), { focused: true, original: true, anchor, focus }, 'Agent, model, and reasoning controls preserve draft caret and selected ranges')
       await retained()
     }
     await run('selectDraft(9,9)')
-    await open()
-    await click(button('Balanced'))
-    assert.equal((await run('read()')).open, true)
+    await open(); await click(button('Balanced', '[data-composer-models]'))
     assert.equal(await run('focusDraft()'), true)
     await frames()
-    assert.equal((await run('read()')).open, false, 'Explicit composer focus closes a model-only selection')
+    assert.equal((await run('read()')).open, false)
     assert.deepEqual(await run('draftSelection()'), { focused: true, original: true, anchor: 9, focus: 9 })
 
     win.setContentSize(1000, 800)
     await frames()
     await run('selectDraft(5,5)')
     await open()
-    const placement = await run(`(()=>{
-      const range=document.createRange();range.setStart(originalDraftNode,17);range.setEnd(originalDraftNode,18);
+    const placement = await run(`(()=>{const range=document.createRange();range.setStart(originalDraftNode,17);range.setEnd(originalDraftNode,18);
       const r=range.getBoundingClientRect(),point={x:Math.round(r.left+1),y:Math.round(r.top+r.height/2)};
-      if(!editor().contains(document.elementFromPoint(point.x,point.y)))throw new Error('The pointer target is obscured by the picker');
-      return point;
-    })()`)
+      if(!editor().contains(document.elementFromPoint(point.x,point.y)))throw new Error('The pointer target is obscured by the picker');return point})()`)
     await pointer(placement)
-    assert.equal((await run('read()')).open, false, 'Clicking the editor dismisses the picker')
+    assert.equal((await run('read()')).open, false)
     const placed = await run('draftSelection()')
     assert.equal(placed.focused && placed.original, true)
     assert.equal(placed.anchor, placed.focus)
-    assert.notEqual(placed.focus, 5, 'A native pointer click chooses a new caret position')
-    await outside()
-    assert.equal(await run('focusDraft()'), true)
-    await frames()
-    assert.deepEqual(await run('draftSelection()'), placed, 'Later composer focus preserves the new pointer placement')
+    assert.notEqual(placed.focus, 5)
+    await outside(); await run('focusDraft()'); await frames()
+    assert.deepEqual(await run('draftSelection()'), placed, 'Native pointer caret placement survives later composer focus')
     await retained()
-
     await open()
-    const overlap = await run(`(()=>{
-      const model=[...document.querySelectorAll('[data-composer-models] [role=option]')].find(node=>node.textContent==='Automatic');
-      model.scrollIntoView({block:'nearest'});
-      const r=model.getBoundingClientRect(),point={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};
+    const overlap = await run(`(()=>{const model=[...document.querySelectorAll('[data-composer-models] [role=option]')].find(node=>node.textContent==='Automatic');
+      model.scrollIntoView({block:'nearest'});const r=model.getBoundingClientRect(),point={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};
       const surface=document.getElementById('activity-overlay');surface.hidden=false;
       const control=surface.querySelector('.turn-progress-control'),origin=surface.getBoundingClientRect();
-      Object.assign(control.style,{left:(point.x-origin.left)+'px',top:(point.y-origin.top)+'px',bottom:'auto',transition:'none',transform:'translate(-50%,-50%)'});
-      return point;
-    })()`)
+      Object.assign(control.style,{left:(point.x-origin.left)+'px',top:(point.y-origin.top)+'px',bottom:'auto',transition:'none',transform:'translate(-50%,-50%)'});return point})()`)
     await frames()
-    assert.equal(await run(`(()=>{const r=document.getElementById('activity-button').getBoundingClientRect();return r.left<=${overlap.x}&&r.right>=${overlap.x}&&r.top<=${overlap.y}&&r.bottom>=${overlap.y}})()`), true, 'The real turn-progress styles place an activity control beneath the tested model row')
-    assert.equal(await run(`document.elementFromPoint(${overlap.x},${overlap.y})?.closest('[data-composer-models] [role=option]')?.textContent`), 'Automatic', 'An open picker remains above the overlapping activity pill')
+    assert.equal(await run(`document.elementFromPoint(${overlap.x},${overlap.y})?.closest('[data-composer-models] [role=option]')?.textContent`), 'Automatic')
     await pointer(overlap)
-    assert.equal((await run('read()')).model, 'automatic', 'The overlapping model row still receives native clicks')
-    assert.equal(await run('activityClicks'), 0)
+    assert.equal((await run('read()')).model, 'automatic')
+    assert.equal(await run('activityClicks'), 0, 'The picker stays above overlapping activity controls')
     await key('Escape')
-    assert.equal(await run(`document.elementFromPoint(${overlap.x},${overlap.y})?.closest('#activity-button')?.id`), 'activity-button', 'Closing the picker exposes the underlying activity control')
+    assert.equal(await run(`document.elementFromPoint(${overlap.x},${overlap.y})?.closest('#activity-button')?.id`), 'activity-button')
     await pointer(overlap)
-    assert.equal(await run('activityClicks'), 1, 'The activity control remains clickable after dismissal')
+    assert.equal(await run('activityClicks'), 1)
     await run('document.getElementById("activity-overlay").hidden=true')
     await retained()
+    await open()
+    const beforeExpansion = await run('editor().closest(".composer").getBoundingClientRect().height')
+    await run('expandComposer()')
+    await frames()
+    const expanded = await run('geometry()')
+    assert.equal((await run('read()')).open, true, 'Expanding the composer preserves the open picker')
+    const expandedComposerHeight = await run('editor().closest(".composer").getBoundingClientRect().height')
+    assert.ok(expandedComposerHeight > beforeExpansion + 20, 'The fixture exercises an actual composer-height change: ' + JSON.stringify({ beforeExpansion, expandedComposerHeight }))
+    assert.ok(expanded.popup.top >= 0 && expanded.popup.bottom <= expanded.height && expanded.popup.left >= 0, 'The picker follows the expanded composer anchor: ' + JSON.stringify(expanded))
+    assert.ok(expanded.list.visible >= 32, JSON.stringify(expanded))
+    await capture('picker-expanded-composer')
+    await key('Escape')
     await run('teardown()')
     console.log('Composer model picker browser checks passed')
   } catch (error) {

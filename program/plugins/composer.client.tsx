@@ -290,6 +290,7 @@ export function ComposerSurface({
     ? 'No workspace'
     : composerWorkspaceLabel(activeProject?.name, state.session.workspace)
   const workspaceLocked = Boolean(lockWorkspace) || Boolean(state.threadId) || state.turn.tag !== 'idle'
+  const activeProvider = state.providers?.find((provider) => provider.id === (state.providerId ?? 'codex'))
 
   useEffect(() => {
     draftStore?.write({ message: message.current, images, attachments })
@@ -368,13 +369,14 @@ export function ComposerSurface({
       providers={state.providers}
       providerId={state.providerId}
       providerLocked={Boolean(state.threadId && state.activities.length) || state.turn.tag !== 'idle'}
-      onProviderChange={(id) => session.setProvider?.(id)}
+      onProviderChange={(id, selection) => session.setProvider?.(id, selection)}
       {...((!state.providerId || state.providerId === 'codex') && session.loadModels
         ? { onModelsRequest: async () => { await session.loadModels?.() } }
         : {})}
       model={state.session.model}
       effort={state.session.effort}
       permissionMode={state.session.permissionMode}
+      permissionModesAvailable={activeProvider?.capabilities?.permissionModes !== false}
       workspaceId={state.activeProjectId}
       workspaceLabel={workspaceLabel}
       workspaceOptions={[

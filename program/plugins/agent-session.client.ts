@@ -1,7 +1,7 @@
 import type { AgentConfigOption, AgentProviderSnapshot } from '../../src/server/services/agent-registry.js'
 import type { ClientDraft, ClientHostService, ClientHostSnapshot } from '../../src/client/plugin-api.js'
 import { isRecord, type LocalProject, type LocalProjectInput, type PermissionMode, type ThreadSummary } from '../../src/shared/protocol.js'
-import type { ClientSessionService, ClientSessionSnapshot } from './session-api.js'
+import type { AgentConfigSelection, ClientSessionService, ClientSessionSnapshot } from './session-api.js'
 import { AGENT_CHATS_STATE, agentChatStateKey, isAgentChatId, type AgentChat, type AgentChatCatalog, agentPromptInput } from './agent-chats-api.js'
 import { configuredDefaults } from './session-defaults.js'
 import type { ModelDefaultsUpdate } from './model-defaults-api.js'
@@ -147,9 +147,14 @@ export class AgentSessionService implements ClientSessionService {
     const provider = catalog.providers.find((candidate) => candidate.id === this.providerId)
     if (catalog.providers !== this.providerSnapshots) {
       this.providerSnapshots = catalog.providers
-      const choices = catalog.providers.map(({ id, label, agentId, location }) => ({
-        id, label, ...(agentId ? { agentId } : {}), ...(location ? { location } : {}),
-      }))
+      const choices = catalog.providers.map(({ id, label, agentId, location, status, error, capabilities, configOptions }) => {
+        const agentChoices = configOptions?.filter((option) => option.category === 'agent') ?? []
+        return { id, label, ...(agentId ? { agentId } : {}), ...(location ? { location } : {}),
+          ...(status === undefined ? {} : { status }), ...(error === undefined ? {} : { error }),
+          ...(capabilities.permissionModes === undefined ? {} : { capabilities: { permissionModes: capabilities.permissionModes } }),
+          ...(agentChoices.length ? { configOptions: agentChoices } : {}),
+        }
+      })
       const providersKey = JSON.stringify(choices)
       if (!this.providers.length || providersKey !== this.providersKey) {
         this.providersKey = providersKey
@@ -332,14 +337,15 @@ export class AgentSessionService implements ClientSessionService {
     this.configurationKey = configurationKey
     let config = chat?.configOptions ?? []
     if (!chat && !this.threadId) {
-      config = (provider?.configOptions ?? []).filter((option) => option.category === 'model' || option.category === 'thought_level')
+      config = (provider?.configOptions ?? []).filter((option) => option.category === 'agent' || option.category === 'model' || option.category === 'thought_level')
       const modelId = config.find((option) => option.category === 'model')?.id
       config = draftAgentConfig(provider?.agentId ?? provider?.id ?? '', config, (modelId ? this.draftConfig.get(modelId) : undefined) ?? defaults.model)
       if (remoteCodex && nativeModels.length) {
         const selected = nativeModels.find((model) => model.id === this.draftConfig.get('model'))
           ?? nativeModels.find((model) => model.id === defaults?.model)
           ?? nativeModels.find((model) => model.isDefault) ?? nativeModels[0]!
-        config = [{ id: 'model', name: 'Model', category: 'model', currentValue: selected.id,
+        config = [...config.filter((option) => option.category === 'agent'),
+        { id: 'model', name: 'Model', category: 'model', currentValue: selected.id,
           options: nativeModels.map((model) => ({ value: model.id, name: model.displayName })) },
         { id: 'effort', name: 'Reasoning', category: 'thought_level', currentValue: selected.defaultReasoningEffort ?? '',
           options: (selected.supportedReasoningEfforts ?? []).map((effort) => ({ value: effort.reasoningEffort, name: effort.description ?? effort.reasoningEffort })) }]
@@ -348,8 +354,8 @@ export class AgentSessionService implements ClientSessionService {
         const agentDefault = modelId && this.draftConfig.get(modelId) === 'default'
           && config.find((candidate) => candidate.id === modelId)?.options.some((candidate) => candidate.value === 'default' && candidate.name === 'Agent default')
         const value = this.draftConfig.get(option.id)
-          ?? (option.category === 'thought_level' && agentDefault ? undefined
-            : option.category === 'model' ? defaults.model : defaults.effort)
+          ?? (option.category === 'model' ? defaults.model
+            : option.category === 'thought_level' && !agentDefault ? defaults.effort : undefined)
         const selected = value && resolveDraftConfigValue(provider?.agentId ?? provider?.id ?? '', option, value)
         return selected ? { ...option, currentValue: selected } : option
       })
@@ -364,8 +370,24 @@ export class AgentSessionService implements ClientSessionService {
 
   // Provider selection only edits the draft. Creating a session can provision a
   // remote workstation, so send() starts it after the first prompt is submitted.
-  setProvider(id: string): void {
-    if ((this.state.threadId && this.state.activities.length > 0) || this.state.turn.tag !== 'idle' || !this.state.providers?.some((provider) => provider.id === id)) return
+  setProvider(id: string, selection?: AgentConfigSelection): void | Promise<void> {
+    const provider = this.catalog().providers.find((provider) => provider.id === id)
+    if (selection) {
+      const option = provider?.configOptions?.find((option) => option.category === 'agent' && option.id === selection.configId)
+      if (!option?.options.some((option) => option.value === selection.value)) throw new Error('This agent is no longer available. Choose another agent.')
+    }
+    const sameProvider = id === this.providerId
+    if (sameProvider && (!selection || this.configuration.some((option) => option.id === selection.configId && option.currentValue === selection.value))) {
+      this.providerSelectionChanged = true
+      return
+    }
+    if (selection && (this.creating || this.sending)) throw new Error('Wait for this chat to finish starting, then choose the agent again.')
+    if ((this.state.threadId && this.state.activities.length > 0) || this.state.turn.tag !== 'idle') {
+      if (selection) throw new Error('Start a new chat to change agent.')
+      return
+    }
+    if (!this.state.providers?.some((provider) => provider.id === id)) return
+    if (sameProvider && selection) return this.setAgentConfig(selection.configId, selection.value)
     this.cancelChatOpen()
     this.generation++
     this.pendingRestore = undefined
@@ -376,6 +398,7 @@ export class AgentSessionService implements ClientSessionService {
     this.pendingPrompt = undefined
     this.providerId = id
     this.draftConfig.clear()
+    if (selection) this.draftConfig.set(selection.configId, selection.value)
     this.configuring = Promise.resolve()
     this.problem = undefined
     this.sync()
@@ -467,7 +490,7 @@ export class AgentSessionService implements ClientSessionService {
         : option.category === 'thought_level' && inheritEffort ? saved?.effort : undefined
       // Concrete values shown in a draft must also configure its first session.
       // Agent default leaves the CLI's model and unselected reasoning unchanged.
-      const displayed = remoteCodex || option.category === 'model' || (modelOption && !defaultModel)
+      const displayed = remoteCodex || option.category === 'agent' || option.category === 'model' || (modelOption && !defaultModel)
         ? option.currentValue || undefined : undefined
       const displayedDefault = displayed === 'default'
         && option.options.some((choice) => choice.value === displayed && choice.name === 'Agent default')
@@ -483,9 +506,10 @@ export class AgentSessionService implements ClientSessionService {
         selections.push({ id: category, category, name, currentValue: value, options: [{ value, name: value }] })
       }
     }
-    // A model change can replace its reasoning choices. Configure it first,
-    // regardless of the order in which the agent advertises its controls.
-    selections.sort((a, b) => Number(b.category === 'model') - Number(a.category === 'model'))
+    // Agent changes can replace the model catalog, and model changes can replace
+    // reasoning choices. Configure them in that order regardless of display order.
+    const selectionOrder = (option: AgentConfigOption): number => option.category === 'agent' ? 0 : option.category === 'model' ? 1 : 2
+    selections.sort((a, b) => selectionOrder(a) - selectionOrder(b))
     const operation = this.host.call('agent-chats.create', { providerId,
       cwd: workspace ?? this.state.session.workspace, permissionMode: this.state.session.permissionMode,
     }).then(async (value) => {

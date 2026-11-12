@@ -11,6 +11,8 @@ export interface AgentProviderCapabilities {
   sessionHistory: boolean
   sessionList?: boolean
   sessionModes: boolean
+  /** Whether users can choose permission modes. Defaults to true when omitted. */
+  permissionModes?: boolean
   steering?: boolean
   durableSession?: boolean
   subagents?: boolean
