@@ -4,6 +4,8 @@ import {
   isSearchShortcut,
   searchThreads,
   openSearchThread,
+  searchTabs,
+  openSearchTab,
   type SearchItem,
 } from '../program/plugins/search.client.js'
 import type { ThreadSummary } from '../src/shared/protocol.js'
@@ -51,6 +53,60 @@ describe('command palette filtering', () => {
       onSelect: vi.fn(),
     }))
     expect(filterSearchItems(many, '')).toHaveLength(24)
+  })
+})
+
+describe('current tab search navigation', () => {
+  const thread = (id: string, updatedAt: number): ThreadSummary => ({ id, title: `Conversation ${id}`, cwd: '/repo', preview: '', createdAt: 1, updatedAt })
+
+  it('lists each current tab once, including split conversations, terminal-only tabs, and unsent chats', () => {
+    const tabs: WorkspaceTabTarget[] = [
+      { id: 'current', title: 'Current work', active: true, threadIds: ['current'], threads: [thread('current', 100)] },
+      { id: 'read', title: 'Read work', active: false, threadIds: ['read'], threads: [thread('read', 90)] },
+      { id: 'split', title: 'Release review', active: false, threadIds: ['first', 'new-unread'], threads: [thread('first', 80), thread('new-unread', 1)] },
+      { id: 'older', title: 'Older work', active: false, threadIds: ['old-unread'], threads: [thread('old-unread', 70)] },
+      { id: 'terminal', title: 'Deploy terminal', active: false, threadIds: [], paneKinds: ['terminal'] },
+      { id: 'draft', title: 'Scratch plan', active: false, threadIds: [], paneKinds: ['chat'] },
+    ]
+    const before = structuredClone(tabs)
+    const results = searchTabs(tabs, { revision: 1, running: [], finished: ['current', 'new-unread', 'old-unread'] }, 'current')
+    expect(results.slice(0, 2).map(tab => tab.id)).toEqual(['split', 'older'])
+    expect(results).toHaveLength(tabs.length)
+    expect(new Set(results.map(tab => tab.id)).size).toBe(tabs.length)
+    expect(results).toContain(tabs[4])
+    expect(results).toContain(tabs[5])
+    expect(tabs).toEqual(before)
+  })
+
+  it('keeps separate tabs that happen to contain the same conversation', () => {
+    const shared = thread('shared', 10)
+    const tabs: WorkspaceTabTarget[] = [
+      { id: 'first-tab', title: 'First workspace', active: true, threadIds: [shared.id], threads: [shared] },
+      { id: 'second-tab', title: 'Second workspace', active: false, threadIds: [shared.id], threads: [shared] },
+    ]
+    expect(searchTabs(tabs, { revision: 0, running: [], finished: [] }).map(tab => tab.id).sort()).toEqual(['first-tab', 'second-tab'])
+  })
+
+  it('selects the existing tab by its current index without changing its focused split pane or creating a chat', () => {
+    const target: WorkspaceTabTarget = { id: 'target', title: 'Read work', active: false, threadIds: ['one', 'two'] }
+    const other: WorkspaceTabTarget = { id: 'other', title: 'Other work', active: true, threadIds: [] }
+    let tabs = [target, other]
+    const layout = { tabs: vi.fn(() => tabs), selectTab: vi.fn(), focusThread: vi.fn(), focusPane: vi.fn(), newTab: vi.fn() }
+    expect(openSearchTab(layout as unknown as ClientWorkspaceLayoutService, target.id)).toBe(true)
+    expect(layout.selectTab).toHaveBeenLastCalledWith(0)
+    tabs = [other, target]
+    expect(openSearchTab(layout as unknown as ClientWorkspaceLayoutService, target.id)).toBe(true)
+    expect(layout.selectTab).toHaveBeenLastCalledWith(1)
+    expect(layout.focusThread).not.toHaveBeenCalled()
+    expect(layout.focusPane).not.toHaveBeenCalled()
+    expect(layout.newTab).not.toHaveBeenCalled()
+  })
+
+  it('leaves the workspace unchanged if the selected tab has closed', () => {
+    const layout = { tabs: vi.fn(() => []), selectTab: vi.fn(), newTab: vi.fn() }
+    expect(openSearchTab(layout as unknown as ClientWorkspaceLayoutService, 'closed-tab')).toBe(false)
+    expect(layout.selectTab).not.toHaveBeenCalled()
+    expect(layout.newTab).not.toHaveBeenCalled()
   })
 })
 

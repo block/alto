@@ -29,7 +29,7 @@ import type {
 } from './thread-status-api.js'
 import {
   OptionalThreadStatusService,
-  threadWorkStatus,
+  aggregateThreadWorkStatus,
 } from './thread-status-api.js'
 import { ConversationPaneOverlay } from './ui/conversation-overlay.js'
 import { uiStyles } from './ui/appearance.js'
@@ -90,6 +90,29 @@ export function searchThreads(
 
 export function openSearchThread(layout: ClientWorkspaceLayoutService, thread: ThreadSummary): void {
   if (!layout.focusThread(thread.id)) layout.newTab(undefined, thread)
+}
+
+export function searchTabs(
+  tabs: readonly WorkspaceTabTarget[],
+  status: ClientThreadStatusSnapshot,
+  currentThreadId?: string,
+): WorkspaceTabTarget[] {
+  const unread = new Map(status.finished.filter((id) => id !== currentThreadId).map((id, index) => [id, index]))
+  const unreadRank = (tab: WorkspaceTabTarget): number => Math.min(Infinity, ...tab.threadIds.map((id) => unread.get(id) ?? Infinity))
+  const recency = (tab: WorkspaceTabTarget): number => Math.max(0, ...(tab.threads ?? []).map(threadRecencyAt))
+  return [...tabs].sort((left, right) => {
+    const leftUnread = unreadRank(left), rightUnread = unreadRank(right)
+    return leftUnread !== rightUnread ? leftUnread - rightUnread : recency(right) - recency(left)
+  })
+}
+
+export function openSearchTab(layout: ClientWorkspaceLayoutService, tabId: string): boolean {
+  // Resolve the current index at selection time: tabs can move or close while
+  // the palette is open. Preserve the tab's focused pane and unsent drafts.
+  const index = layout.tabs().findIndex((tab) => tab.id === tabId)
+  if (index < 0) return false
+  layout.selectTab(index)
+  return true
 }
 
 const noSubscription = (): (() => void) => () => {}
@@ -241,7 +264,7 @@ function SearchPalette({
               </span>
             </button>
           ))}
-          {!results.length && <div className="search-empty">No matching conversations.</div>}
+          {!results.length && <div className="search-empty">No matching tabs.</div>}
         </div>
       </section>
     </ConversationPaneOverlay>
@@ -286,39 +309,30 @@ function OpenSearchSurface({
   const statusState = useSyncExternalStore(threadStatus.subscribe, threadStatus.snapshot)
   useSyncExternalStore(layout.subscribe, layout.snapshot)
   const tabs = layout.tabs()
-  const threads = searchThreads([], tabs, statusState, state.threadId)
   const panes = layout.paneTargets()
-  const threadItems = threads.map((thread): SearchItem => {
-    const tab = tabs.find((tab) => tab.threadIds.includes(thread.id))
-    const conversationTitle = thread.title.trim()
-    const title = conversationTitle && conversationTitle !== 'Untitled conversation'
-      ? conversationTitle
-      : tab?.title || conversationTitle || 'Untitled conversation'
+  const tabItems = searchTabs(tabs, statusState, state.threadId).map((tab): SearchItem => {
+    const thread = searchThreads([], [tab], statusState, state.threadId)[0]
     return {
-      id: `thread:${thread.id}`,
-      label: title,
-      detail: thread.preview || thread.cwd,
-      preview: <ChatPreview thread={thread} host={host} session={panes.find((pane) => pane.session.snapshot().threadId === thread.id)?.session} />,
-      keywords: `${thread.cwd} ${thread.title}`,
-      active: thread.id === state.threadId,
-      status: threadWorkStatus(statusState, thread.id),
-      onSelect: () => {
-        openSearchThread(layout, thread)
-        threadStatus.acknowledge(thread.id)
-      },
+      id: `tab:${tab.id}`,
+      label: tab.title,
+      ...(thread ? { detail: thread.preview || thread.cwd, preview: <ChatPreview thread={thread} host={host} session={panes.find((pane) => pane.session.snapshot().threadId === thread.id)?.session} /> } : {}),
+      keywords: (tab.threads ?? []).map((thread) => `${thread.cwd} ${thread.title}`).join(' '),
+      active: tab.active,
+      status: aggregateThreadWorkStatus(statusState, tab.threadIds),
+      onSelect: () => { openSearchTab(layout, tab.id) },
     }
   })
-  // Chats that are waiting, failed, or finished unseen are listed first.
+  // Tabs with chats waiting, failed, or finished unseen are listed first.
   const unread = (item: SearchItem): boolean => (
     item.status === 'finished' || item.status === 'failed' || item.status === 'blocked'
   ) && !item.active
   const label = surface.label ?? 'Search'
   const placeholder = surface.kind === 'search'
-    ? surface.placeholder ?? 'Search conversations…'
-    : 'Search conversations…'
+    ? surface.placeholder ?? 'Search tabs…'
+    : 'Search tabs…'
   const items: SearchItem[] = [
-    ...threadItems.filter(unread),
-    ...threadItems.filter((item) => !unread(item)),
+    ...tabItems.filter(unread),
+    ...tabItems.filter((item) => !unread(item)),
   ]
 
   return (

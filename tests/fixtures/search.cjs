@@ -15,7 +15,10 @@ async function check() {
       const current=thread('current',100,'Current conversation'),newest=thread('newest-unread',1,'Newest unread conversation'),older=thread('older-unread',90,'Older unread conversation'),read=thread('read',95,'Read conversation'),closed=thread('closed',200,'Closed conversation');
       const extras=Array.from({length:14},(_,index)=>thread('extra-'+index,80-index,'Extra conversation '+index));
       const view=(id,name,t)=>({id,name,workspace:'/repo',focusedPaneId:'pane-'+id,root:{type:'pane',id:'pane-'+id,workspace:'/repo',thread:t}});
-      let saved={version:2,activeViewId:'current-tab',views:[view('current-tab','Current work',current),view('unread-tab','Unread work',newest),view('read-tab','Read work',read),view('older-tab','Older work',older),...extras.map((item,index)=>view('extra-tab-'+index,'Extra tab '+index,item))]};
+      const readView=view('read-tab','Review notes',read);
+      readView.root={type:'split',id:'read-split',direction:'horizontal',ratio:0.5,first:readView.root,second:{type:'pane',id:'read-draft-pane',workspace:'/repo'}};readView.focusedPaneId='read-draft-pane';
+      const terminal=view('terminal-tab','Deploy terminal');terminal.root.kind='terminal';
+      let saved={version:2,activeViewId:'current-tab',views:[view('current-tab','Current work',current),view('unread-tab','Unread work',newest),readView,view('older-tab','Older work',older),terminal,view('unsent-tab','Scratch plan'),...extras.map((item,index)=>view('extra-tab-'+index,'Extra tab '+index,item))]};
       localStorage.setItem('codex-cordis.workspace-layout',JSON.stringify(saved));
       let statuses={revision:0,running:[],finished:['current','newest-unread','older-unread']};
       const statusListeners=new Set(),layoutListeners=new Set(),overlayListeners=new Set();let overlay;
@@ -31,17 +34,19 @@ async function check() {
       const ui={subscribe:()=>()=>{},snapshot:()=>0,overlays,component:()=>Placeholder,renderer:()=>()=>null,contributionRenderer:()=>undefined,
         registerSurface:(_owner,_id,component)=>{Surface=component},registerRoot:(_owner,_id,component)=>{SearchRoot=component},registerStyle:(_owner,_id,css)=>{const e=document.createElement('style');e.textContent=css;document.head.append(e)}};
       const ctx={effect:fn=>{const cleanup=fn();effects.push(cleanup);return cleanup},provide:(_name,value)=>{registry=value},clientUi:ui,clientSession:session,clientHost:host,
-        clientSessionRouter:{setActive:()=>{},clearActive:()=>{}},clientSessionFactory:{create:()=>{let snap={...state,threadId:undefined};const listeners=new Set();return {session:{snapshot:()=>snap,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},openThread:async thread=>{snap={...snap,threadId:thread.id,threads:[thread],activities:activities(thread.id)};paneUpdates.set(thread.id,content=>{snap={...snap,activities:[...snap.activities,{kind:'agent',content}]};for(const fn of listeners)fn()});for(const fn of listeners)fn()},selectProject:()=>{}},dispose:()=>listeners.clear()}}},
+        clientSessionRouter:{setActive:(_key,focused)=>{const id=focused.snapshot().threadId;if(id)status.acknowledge(id)},clearActive:()=>{}},clientSessionFactory:{create:()=>{let snap={...state,threadId:undefined};const listeners=new Set();return {session:{snapshot:()=>snap,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},openThread:async thread=>{snap={...snap,threadId:thread.id,threads:[thread],activities:activities(thread.id)};paneUpdates.set(thread.id,content=>{snap={...snap,activities:[...snap.activities,{kind:'agent',content}]};for(const fn of listeners)fn()});for(const fn of listeners)fn()},selectProject:()=>{}},dispose:()=>listeners.clear()}}},
         get:name=>name==='clientThreadStatus'?status:undefined,on:()=>()=>{}};
-      layoutPlugin(ctx);searchPlugin({...ctx,clientWorkspaceLayout:registry});
+      layoutPlugin(ctx);registry.registerPaneKind(ctx,{id:'terminal',label:'Terminal',renderer:()=> <pre>Existing terminal</pre>});searchPlugin({...ctx,clientWorkspaceLayout:registry});
       const root=createRoot(document.getElementById('root'));flushSync(()=>root.render(<><Surface surface={{id:'workspace-layout',kind:'workspace-layout'}}/><SearchRoot/></>));
       window.frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
       window.cmdK=()=>flushSync(()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'k',metaKey:true,bubbles:true,cancelable:true})));
       window.key=key=>flushSync(()=>document.querySelector('.search-palette input').dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true})));
       window.query=value=>flushSync(()=>{const e=document.querySelector('.search-palette input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}))});
       window.updatePreview=(id,text)=>flushSync(()=>paneUpdates.get(id)(text));
-      window.inspect=()=>{const list=document.querySelector('.search-results'),selected=list?.querySelector('.search-result[aria-selected="true"]');const listRect=list?.getBoundingClientRect(),selectedRect=selected?.getBoundingClientRect();return {previewRequests,tabs:registry.tabs(),saved,overlay,finished:statuses.finished,scrollTop:list?.scrollTop??0,listBounds:listRect&&{top:listRect.top,bottom:listRect.bottom},selectedBounds:selectedRect&&{top:selectedRect.top,bottom:selectedRect.bottom},results:[...document.querySelectorAll('.search-result')].map(e=>({label:e.querySelector('strong').textContent,preview:e.querySelector('.search-result-copy > span')?.textContent,selected:e.getAttribute('aria-selected'),disabled:e.disabled}))}};
+      window.markUnread=id=>flushSync(()=>{statuses={...statuses,revision:statuses.revision+1,finished:[id,...statuses.finished.filter(thread=>thread!==id)]};for(const fn of statusListeners)fn()});
+      window.inspect=()=>{const list=document.querySelector('.search-results'),selected=list?.querySelector('.search-result[aria-selected="true"]');const listRect=list?.getBoundingClientRect(),selectedRect=selected?.getBoundingClientRect();return {previewRequests,tabs:registry.tabs(),focusedPane:document.querySelector('.workspace-view:not([hidden]) .workspace-chat-pane.is-focused')?.dataset.workspacePaneId,saved,overlay,finished:statuses.finished,scrollTop:list?.scrollTop??0,listBounds:listRect&&{top:listRect.top,bottom:listRect.bottom},selectedBounds:selectedRect&&{top:selectedRect.top,bottom:selectedRect.bottom},results:[...document.querySelectorAll('.search-result')].map(e=>({label:e.querySelector('strong').textContent,preview:e.querySelector('.search-result-copy > span')?.textContent,selected:e.getAttribute('aria-selected'),disabled:e.disabled}))}};
       window.select=id=>flushSync(()=>registry.selectTab(registry.tabs().findIndex(tab=>tab.id===id)));
+      window.renameActiveTab=value=>{flushSync(()=>registry.renameActiveTab());const e=document.querySelector('.workspace-tab-name-input');if(!e)throw Error('Missing tab rename input');flushSync(()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}))});flushSync(()=>e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true})))};
       window.teardown=()=>{flushSync(()=>root.unmount());for(const cleanup of effects.reverse())cleanup?.()};
     ` }, bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',loader:{'.css':'text'},define:{'process.env.NODE_ENV':'"production"'},
   })
@@ -53,24 +58,24 @@ async function check() {
   const until=async expression=>{for(let i=0;i<100;i++){if(await run(expression))return;await run('frame()')}throw Error('Timed out: '+expression)}
   try {
     await win.loadURL('http://127.0.0.1:'+server.address().port);await run(bundle.outputFiles[0].text)
-    await until('inspect().tabs.length===18')
+    await until('inspect().tabs.length===20')
     await run('window.originalDraft=document.querySelector(".workspace-view:not([hidden]) textarea");cmdK()');await run('frame()')
-    let result=await run('inspect()');assert.equal(await run('document.querySelector(".search-palette input").placeholder'),'Search conversations…');assert.equal(result.results[0].label,'Newest unread conversation');assert.equal(result.results[1].label,'Older unread conversation');assert.equal(result.results[0].selected,'true');assert.equal(result.results[0].disabled,false,'Navigation remains enabled while the current agent works')
+    let result=await run('inspect()');assert.equal(await run('document.querySelector(".search-palette input").placeholder'),'Search tabs…');assert.equal(result.results[0].label,'Unread work');assert.equal(result.results[1].label,'Older work');assert.equal(result.results[0].selected,'true');assert.equal(result.results[0].disabled,false,'Navigation remains enabled while the current agent works')
     assert.equal(result.results.some((item)=>item.label==='Closed conversation'),false,'Closed conversations are excluded')
-    assert.equal(result.results.some((item)=>item.label==='Unread work'),false,'Conversation titles replace tab names')
+    assert.equal(result.results.some((item)=>item.label==='Newest unread conversation'),false,'Result labels use current tab titles');assert.equal(result.results.length,20,'Each tab appears once, including split, terminal-only and unsent tabs')
     assert.equal(await run('document.querySelectorAll(".search-result-icon").length'),0,'Result rows do not repeat a chat icon')
     assert.equal(await run('document.querySelectorAll(".search-palette kbd, .search-footer").length'),0,'Visible hotkey hints are removed')
     assert.equal(await run('document.activeElement===document.querySelector(".search-palette input")'),true)
-    await until('inspect().results.some(r=>r.label==="Older unread conversation"&&r.preview==="Latest reply for older-unread")')
+    await until('inspect().results.some(r=>r.label==="Older work"&&r.preview==="Latest reply for older-unread")')
     result=await run('inspect()')
     assert.equal(result.results[0].preview,'Latest reply for newest-unread','Preview uses the latest chat message, not the first prompt or tool output')
     assert.equal(result.previewRequests.includes('newest-unread'),false,'Open pane history is reused')
-    assert.equal(result.results.find(r=>r.label==='Read conversation').preview,'/repo','A failed history read keeps the picker usable without an opening-message preview')
-    assert.equal(result.tabs.length,18,'Reading saved previews does not open chats')
+    assert.equal(result.results.find(r=>r.label==='Review notes').preview,'/repo','A failed history read keeps the picker usable without an opening-message preview')
+    assert.equal(result.tabs.length,20,'Reading saved previews does not open chats')
     await run('updatePreview("newest-unread","A newer reply arrives while the picker is open")')
     await until('inspect().results[0].preview==="A newer reply arrives while the picker is open"')
     assert.equal((await run('inspect()')).results[0].selected,'true','Live previews keep the selected unread stable')
-    for(let index=0;index<12;index+=1)await run('key("ArrowDown")')
+    for(let index=1;index<(await run('inspect()')).results.length;index+=1)await run('key("ArrowDown")')
     await run('frame()')
     result=await run('inspect()');assert.ok(result.scrollTop>0,'Arrow navigation scrolls the result list');assert.ok(result.selectedBounds.top>=result.listBounds.top&&result.selectedBounds.bottom<=result.listBounds.bottom,'The active result stays visible')
     await run('key("Escape")');assert.equal((await run('inspect()')).overlay,undefined);await run('cmdK()');await run('frame()')
@@ -83,18 +88,34 @@ async function check() {
     win.setSize(1100,760)
 
     await run('key("Enter")');await until('inspect().tabs.find(t=>t.active)?.id==="unread-tab"')
-    result=await run('inspect()');assert.equal(result.tabs.length,18,'Existing tab is reused');assert.equal(result.finished.includes('newest-unread'),false);assert.equal(result.overlay,undefined)
+    result=await run('inspect()');assert.equal(result.tabs.length,20,'Existing tab is reused');assert.equal(result.finished.includes('newest-unread'),false);assert.equal(result.overlay,undefined)
     assert.ok(await run('originalDraft.isConnected && originalDraft.value==="Keep my draft"'))
     assert.equal(result.tabs.find(t=>t.id==='current-tab').threadIds[0],'current')
-    await run('cmdK()');await run('frame()');assert.equal((await run('inspect()')).results[0].label,'Older unread conversation');await run('key("Enter")')
-    await until('inspect().tabs.find(t=>t.active)?.id==="older-tab"');assert.equal((await run('inspect()')).tabs.length,18)
+    await run('cmdK()');await run('frame()');assert.equal((await run('inspect()')).results[0].label,'Older work');await run('key("Enter")')
+    await until('inspect().tabs.find(t=>t.active)?.id==="older-tab"');assert.equal((await run('inspect()')).tabs.length,20)
     assert.ok(await run('originalDraft.isConnected && originalDraft.value==="Keep my draft"'))
-    await run('cmdK();query("Read work")');await run('frame()');assert.equal((await run('inspect()')).results.length,0,'Tab names are not searched');assert.equal(await run('document.querySelector(".search-empty").textContent'),'No matching conversations.')
-    await run('query("Read conversation")');await run('frame()');assert.equal((await run('inspect()')).results[0].label,'Read conversation');await run('key("Enter")');await until('inspect().tabs.find(t=>t.active)?.id==="read-tab"')
-    assert.equal((await run('inspect()')).tabs.length,18,'Read chats also switch to their existing tabs')
-    await run('cmdK();query("New chat")');await run('frame()');assert.equal((await run('inspect()')).results.length,0,'Conversation-only search has no new-chat action');await run('key("Enter")');assert.equal((await run('inspect()')).tabs.length,18);await run('key("Escape")')
+    await run('markUnread("read");cmdK();query("Review notes")');await run('frame()')
+    result=await run('inspect()');assert.equal(result.results.length,1);assert.equal(result.results[0].label,'Review notes');await run('key("Enter")')
+    await until('inspect().tabs.find(t=>t.active)?.id==="read-tab"')
+    result=await run('inspect()');assert.equal(result.tabs.length,20,'Tab title navigation reuses the existing tab');assert.equal(result.focusedPane,'read-draft-pane','Selecting a tab preserves its focused split pane')
+    assert.equal(result.finished.includes('read'),true,'Selecting the tab leaves its unfocused conversation unread')
+    assert.deepEqual(result.tabs.find(t=>t.id==='read-tab').threadIds,['read'],'Selecting the tab creates no extra conversation')
+    await run('cmdK();query("Review notes");renameActiveTab("Release review")')
+    await until('inspect().tabs.find(t=>t.id==="read-tab")?.title==="Release review"')
+    result=await run('inspect()');assert.equal(result.overlay,'search');assert.equal(result.results.length,0,'Renaming removes the former tab title from the open picker');assert.equal(await run('document.querySelector(".search-empty").textContent'),'No matching tabs.')
+    assert.equal(result.tabs.find(t=>t.id==='read-tab').threads[0].title,'Read conversation','Renaming a tab leaves its conversation title unchanged')
+    await run('query("Release review")');await run('frame()');assert.equal((await run('inspect()')).results[0].label,'Release review');await run('key("Enter")')
+    result=await run('inspect()');assert.equal(result.tabs.find(t=>t.active)?.id,'read-tab');assert.equal(result.focusedPane,'read-draft-pane');assert.equal(result.tabs.length,20)
+    await run('cmdK();query("Read conversation")');await run('frame()');assert.equal((await run('inspect()')).results[0].label,'Release review','A child conversation title remains a supplementary search keyword');await run('key("Escape")')
+    for(const [title,id,pane] of [['Deploy terminal','terminal-tab','pane-terminal-tab'],['Scratch plan','unsent-tab','pane-unsent-tab']]) {
+      await run('cmdK();query('+JSON.stringify(title)+')');await run('frame()')
+      result=await run('inspect()');assert.equal(result.results.length,1);assert.equal(result.results[0].label,title);await run('key("Enter")')
+      await until('inspect().tabs.find(t=>t.active)?.id==='+JSON.stringify(id))
+      result=await run('inspect()');assert.equal(result.focusedPane,pane);assert.equal(result.tabs.length,20,'Terminal-only and unsent tabs are selected without creating a chat');assert.deepEqual(result.tabs.find(t=>t.id===id).threadIds,[])
+    }
+    await run('cmdK();query("New chat")');await run('frame()');assert.equal((await run('inspect()')).results.length,0,'Tab search has no new-chat action');await run('key("Enter")');assert.equal((await run('inspect()')).tabs.length,20);await run('key("Escape")')
     assert.ok(await run('originalDraft.isConnected && originalDraft.value==="Keep my draft"'))
-    await run('teardown()');console.log('Search browser checks passed: titles, open-tab scope, scrolling, keyboard navigation, composer styling inputs, and preserved draft')
+    await run('teardown()');console.log('Search browser checks passed: current tab titles, live renames, split-pane focus, terminal and unsent tabs, previews, scrolling, and preserved draft')
   } finally {win.destroy();await new Promise(resolve=>server.close(resolve))}
 }
 check().then(()=>app.quit()).catch(error=>{console.error(error);app.exit(1)})
