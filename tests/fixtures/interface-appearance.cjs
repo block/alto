@@ -123,7 +123,12 @@ async function check() {
       window.outerPreferences=()=>({stored:JSON.parse(localStorage.getItem(THEME_STORAGE_KEY)),restored:new ThemeController().snapshot(),
         material:document.documentElement.dataset.altoOuterMaterial,background:document.documentElement.dataset.altoOuterBackground,text:document.documentElement.dataset.altoOuterText,
         texture:document.documentElement.dataset.altoOuterTexture,
-        backgroundColor:document.documentElement.style.getPropertyValue('--alto-outer-background'),textColor:document.documentElement.style.getPropertyValue('--alto-outer-text')});
+        backgroundColor:document.documentElement.style.getPropertyValue('--alto-outer-background'),defaultBackground:document.documentElement.style.getPropertyValue('--alto-outer-default-background'),textColor:document.documentElement.style.getPropertyValue('--alto-outer-text')});
+      window.accentRoles=()=>{
+        const canvas=document.createElement('canvas'),context=canvas.getContext('2d');canvas.width=canvas.height=1;
+        const rgba=color=>{context.clearRect(0,0,1,1);context.fillStyle=color;context.fillRect(0,0,1,1);const result=[...context.getImageData(0,0,1,1).data];result[3]/=255;return result};
+        return [['.send-button','color','--ui-action'],['.send-button','backgroundColor','color-mix(in srgb, var(--ui-action) 12%, transparent)'],['#accent-body-portal a','color','--markdown-link-ink'],['#accent-body-portal button','color','--ui-on-action'],['#accent-body-portal button','backgroundColor','--ui-action']].map(([selector,property,token])=>{const element=document.querySelector(selector),probe=document.createElement('i');probe.hidden=true;probe.style.color=token.startsWith('--')?'var('+token+')':token;element.append(probe);const result={selector,property,token,actual:rgba(getComputedStyle(element)[property]),expected:rgba(getComputedStyle(probe).color)};probe.remove();return result});
+      };
       window.samples=selectors=>{
         const canvas=document.createElement('canvas'),context=canvas.getContext('2d');canvas.width=canvas.height=1;
         const rgba=color=>{context.clearRect(0,0,1,1);context.fillStyle=color;context.fillRect(0,0,1,1);const value=[...context.getImageData(0,0,1,1).data];value[3]/=255;return value};
@@ -319,7 +324,23 @@ async function check() {
       assert.deepEqual([values.stored.chrome, values.restored.chrome], [palette, palette], 'A fresh controller restores the selected theme palette')
       assert.deepEqual([values.restored.mode, values.restored.accent, values.restored.code],
         [originalTheme.mode, originalTheme.accent, originalTheme.code], 'Outer controls preserve mode, accent, and syntax preferences')
-      assert.deepEqual(innerPaint(await sample(innerSelectors)), originalInnerPaint, 'Outer appearance leaves Composer glass, controls, text, and portal content unchanged')
+      const measured = await sample(innerSelectors)
+      if (expected.material === 'glass') {
+        assert.deepEqual(innerPaint(measured), originalInnerPaint, 'Glass outer choices preserve the original content accent and material')
+      } else {
+        for (const selector of innerSelectors) for (const property of ['backdrop', 'radius', 'font', 'size', 'width']) {
+          assert.deepEqual(measured[selector][property], originalInnerPaint[selector][property], selector + ': Solid color preserves ' + property)
+        }
+        assert.deepEqual(innerPaint(measured)['[data-cordis-composer-editor]'], originalInnerPaint['[data-cordis-composer-editor]'], 'Solid color preserves editor text and paint')
+        assert.deepEqual(measured['.composer'].color, originalInnerPaint['.composer'].color, 'Solid color preserves ordinary Composer text')
+        for (const role of await run('accentRoles()')) assert.deepEqual(role.actual, role.expected, role.selector + ': Solid uses ' + role.token)
+        const accent = await run('accentValues()')
+        assert.notEqual(accent.published, originalTheme.accent, 'Solid derives the app accent from its background')
+        assert.equal(accent.runtime, values.restored.mode + '|' + accent.published, 'Solid publishes the derived accent to subscribed renderers')
+        assert.ok(measured['#accent-body-portal a'].contrast >= 4.5, 'Solid keeps portal links readable')
+        assert.ok(measured['.send-button'].contrast >= 3, 'Solid keeps the send glyph readable')
+        assert.equal(measured['.composer'].fill[3], originalInnerPaint['.composer'].fill[3], 'Solid retains the independent Composer glass opacity')
+      }
       assert.ok((await run('accentValues()')).caret && await run(`preserved('[data-cordis-composer-editor]','originalEditor')`), 'Outer appearance preserves the mounted Composer, draft, and selection')
       return values
     }
@@ -341,19 +362,20 @@ async function check() {
     assert.deepEqual([blackPaint.chrome, blackPaint.material], [[0, 0, 0, 1], [0, 0, 0, 1]], 'Black theme with a solid surface supplies opaque black chrome and material colors')
     await artifact('settings-outer-solid-black')
 
-    await run(`input('input[aria-label="Outer pane text color"]','#cceeff');input('input[aria-label="Outer pane background color"]','#234456')`)
+    await run(`input('input[aria-label="Background and accent color"]','#234456');input('input[aria-label="Outer pane text color"]','#cceeff')`)
     await settleGeometry()
     outer = await assertOuterStored({ ...defaultOuter, material: 'solid', background: '#234456', text: '#cceeff' })
     assert.equal(outer.textColor, '#cceeff', 'The custom outer text color is published')
     await run(`selectTheme('alto')`)
     await settleGeometry()
     outer = await assertOuterStored({ ...defaultOuter, material: 'solid', text: '#cceeff' }, 'alto')
-    assert.equal(outer.background, undefined, 'Selecting another theme clears a custom background override')
+    assert.equal(outer.restored.outerPane.background, null, 'Selecting another theme clears the saved custom background override')
+    assert.equal(outer.backgroundColor, outer.defaultBackground, 'Automatic Solid paints the shared default color')
     await run(`selectTheme('black');key('.program-modal-search input','Escape');openSettings();nav('Appearance');rememberAccentCaret()`)
     await settleGeometry()
     await assertOuterStored({ ...defaultOuter, material: 'solid', text: '#cceeff' })
     assert.equal(await run(`document.querySelector('select[aria-label="Theme palette"]').value`), 'black', 'Reopening Settings retains Black as the selected theme')
-    assert.equal(await run(`document.querySelector('input[aria-label="Outer pane background color"]').value`), '#000000', 'The background picker displays the resolved theme color')
+    assert.equal(await run(`document.querySelector('input[aria-label="Background and accent color"]').value`), '#000000', 'The unified color picker displays the resolved theme color')
     assert.equal(await run(`document.querySelector('input[aria-label="Outer pane text color"]').value`), '#cceeff', 'Reopening Settings retains the custom outer text color')
     assert.equal(await run(`document.querySelector('[aria-label="Outer pane surface"] button:nth-child(2)').getAttribute('aria-checked')`), 'true', 'Reopening Settings retains the solid surface selection')
 

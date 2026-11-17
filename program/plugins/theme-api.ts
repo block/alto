@@ -80,25 +80,68 @@ export function parseOuterPanePreference(
   }
 }
 
+function luminance(color: string): number {
+  const channelLuminance = (offset: number): number => {
+    const channel = Number.parseInt(color.slice(offset, offset + 2), 16) / 255
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * channelLuminance(1) + 0.7152 * channelLuminance(3) + 0.0722 * channelLuminance(5)
+}
+
+function contrast(left: string, right: string): number {
+  const a = luminance(left), b = luminance(right)
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
+
 export function resolveOuterPaneTextColor(preference: Pick<OuterPanePreference, 'background' | 'text'>): string | null {
   if (preference.text !== null) return preference.text
   const background = preference.background
   if (background === null) return null
-  const channelLuminance = (offset: number): number => {
-    const channel = Number.parseInt(background.slice(offset, offset + 2), 16) / 255
-    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
-  }
-  const luminance = 0.2126 * channelLuminance(1) + 0.7152 * channelLuminance(3) + 0.0722 * channelLuminance(5)
-  const blackContrast = (luminance + 0.05) / 0.05
-  const whiteContrast = 1.05 / (luminance + 0.05)
+  const blackContrast = contrast(background, '#000000')
+  const whiteContrast = contrast(background, '#ffffff')
   return blackContrast >= whiteContrast ? '#000000' : '#ffffff'
 }
 
-export function resolveOuterPaneColors(preference: Pick<ThemePreference, 'chrome' | 'outerPane'>): {
+/** Keep the selected hue, moving toward contrasting ink only as far as needed.
+ * Outer chrome and content can have different backgrounds, so derive each
+ * accent against the surface where it is actually used. */
+export function resolveAccentColor(color: string, surface: string): string {
+  if (contrast(color, surface) >= 4.5) return color
+  const ink = resolveOuterPaneTextColor({ background: surface, text: null })!
+  const mix = (amount: number): string => '#' + [1, 3, 5].map(offset => {
+    const source = Number.parseInt(color.slice(offset, offset + 2), 16)
+    const target = Number.parseInt(ink.slice(offset, offset + 2), 16)
+    return Math.round(source + (target - source) * amount).toString(16).padStart(2, '0')
+  }).join('')
+  let low = 0, high = 1
+  for (let step = 0; step < 20; step++) {
+    const middle = (low + high) / 2
+    if (contrast(mix(middle), surface) >= 4.5) high = middle
+    else low = middle
+  }
+  return mix(high)
+}
+
+/** The opaque color of the glass tint, shared by both materials. Use the
+ * saved accent rather than a derived solid accent so switching cannot drift. */
+export function resolveDefaultOuterPaneBackground(accent: string, mode: ResolvedThemeMode, background: string, canvas: string, panel: string): string {
+  const channel = (color: string, offset: number): number => Number.parseInt(color.slice(offset, offset + 2), 16)
+  return '#' + [1, 3, 5].map(offset => {
+    const neutral = mode === 'dark'
+      ? channel(canvas, offset) * 0.55 + channel(background, offset) * 0.45
+      : channel(panel, offset)
+    // Light glass is 12% accent plus 61.6% panel (73.6% total opacity).
+    const wash = mode === 'dark' ? 0.1 : 0.12 / 0.736
+    return Math.round(channel(accent, offset) * wash + neutral * (1 - wash)).toString(16).padStart(2, '0')
+  }).join('')
+}
+
+export function resolveOuterPaneColors(preference: Pick<ThemePreference, 'chrome' | 'outerPane'>, automaticBackground: string | null = null): {
   background: string | null
   text: string | null
 } {
-  const background = preference.outerPane.background ?? (preference.chrome === 'black' ? '#000000' : null)
+  const background = preference.outerPane.background
+    ?? (preference.chrome === 'black' ? '#000000' : preference.outerPane.material === 'solid' ? automaticBackground : null)
   return {
     background,
     text: resolveOuterPaneTextColor({ ...preference.outerPane, background }),

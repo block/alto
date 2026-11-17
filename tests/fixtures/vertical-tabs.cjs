@@ -1066,6 +1066,21 @@ async function check() {
         type:[style.fontFamily,style.fontSize,style.fontWeight],radius:style.borderRadius}});
       })()`)
     }
+    const stableInnerAppearance = appearance => appearance.map(({selector,paint,...rest}) => ({selector,...rest,
+      paint:paint.filter((_value,index) => selector === '.composer' ? [0,3,5].includes(index) : selector === '.send-button' ? [2,4,5].includes(index) : true),
+    }))
+    const assertSolidInner = async (baseline, label) => {
+      const current = await innerAppearance()
+      assert.deepEqual(stableInnerAppearance(current), stableInnerAppearance(baseline), label + ': Solid preserves ordinary text, typography, shape, and independent blur')
+      const roles = await run(`(() => {
+        const canvas=document.createElement('canvas'),context=canvas.getContext('2d');canvas.width=canvas.height=1;
+        const rgba=color=>{context.clearRect(0,0,1,1);context.fillStyle=color;context.fillRect(0,0,1,1);return [...context.getImageData(0,0,1,1).data]};
+        return [['.composer','backgroundColor',matchMedia('(prefers-reduced-transparency: reduce)').matches?'--ui-composer-glass-tone':'--ui-composer-glass-fill'],['.send-button','color','--ui-action'],['.send-button','backgroundColor','color-mix(in srgb, var(--ui-action) 12%, transparent)']].map(([selector,property,token])=>{const element=document.querySelector(selector),probe=document.createElement('i');probe.hidden=true;probe.style.color=token.startsWith('--')?'var('+token+')':token;element.append(probe);const result={selector,token,actual:rgba(getComputedStyle(element)[property]),expected:rgba(getComputedStyle(probe).color)};probe.remove();return result});
+      })()`)
+      for (const role of roles) assert.deepEqual(role.actual, role.expected, label + ': ' + role.selector + ' consumes ' + role.token)
+      assert.notDeepEqual(current.find(item=>item.selector==='.send-button').paint.slice(0,2), baseline.find(item=>item.selector==='.send-button').paint.slice(0,2), label + ': Solid derives control colors from the background')
+      return current
+    }
     const assertOuterInk = async (theme, orientation, color, label) => {
       const measured = await readTabsContrast(theme, orientation)
       for (const name of ['normal', 'selected', 'group', 'tool', 'icon']) {
@@ -1100,10 +1115,11 @@ async function check() {
           await settle()
           await assertSolidOuterPixels(orientation, label + ' over ' + backdrop)
         }
+        const solidInner = await assertSolidInner(baseline, label)
         await run("outerTheme.setOuterPane({text:'#cceeff'})")
         await finishMotion()
         await assertOuterInk(theme, orientation, [204, 238, 255, 1], label + ' custom')
-        assert.deepEqual(await innerAppearance(), baseline, label + ': solid/custom text leaves inner glass, fills, text, and shape unchanged')
+        assert.deepEqual(await innerAppearance(), solidInner, label + ': custom outer text preserves the derived Solid accent and inner material')
         assert.equal(await run("outerEditor===document.querySelector('[data-cordis-composer-editor]')&&outerEditor.textContent===outerDraftText&&getSelection().anchorNode===outerTextNode&&getSelection().anchorOffset===3&&getSelection().focusNode===outerTextNode&&getSelection().focusOffset===8"), true, label + ': the draft and editor selection survive outer changes')
         await capture(label + '-solid-black')
         await run("outerTheme.setOuterPane({material:'glass',background:'#234456'})")
@@ -1126,7 +1142,7 @@ async function check() {
       await settle()
       assert.deepEqual((await material()).root.rgba, [0, 0, 0, 255], label + ': fallback retains the exact configured color')
       await assertSolidOuterPixels('vertical', label)
-      assert.deepEqual(await innerAppearance(), baseline, label + ': outer setting preserves the existing accessibility treatment of inner elements')
+      await assertSolidInner(baseline, label)
     }
     await transparencyPreference('no-preference')
     await run("document.documentElement.dataset.desktopPlatform='darwin';outerTheme.setChrome('alto');outerTheme.resetOuterPane();unmountPreview();click('[data-workspace-tab=c]');window.outerSplit=document.querySelector('.workspace-view:not([hidden]) > .workspace-split');outerSplit.classList.replace('workspace-split-horizontal','workspace-split-vertical');mountPreview(true)")
@@ -1152,7 +1168,10 @@ async function check() {
     const automaticDots = await material()
     assert.notEqual(automaticDots.root.image, 'none', 'Automatic puts visible dots on a solid frame')
     assert.equal(await run('outerTheme.snapshot().outerPane.texture'), 'auto', 'Changing material preserves the raw Automatic preference')
-    assert.deepEqual(await textureContent(), autoContent, 'Automatic textures preserve the inner surfaces')
+    const automaticContent = await textureContent()
+    assert.deepEqual(stableInnerAppearance(automaticContent.inner), stableInnerAppearance(autoContent.inner), 'Automatic Solid preserves inner text, shape, typography, and blur')
+    assert.deepEqual(automaticContent.lowerHeaders, autoContent.lowerHeaders, 'Automatic Solid preserves lower content headers')
+    await assertSolidInner(autoContent.inner, 'Automatic Solid')
     await run("outerTheme.setOuterPane({material:'glass'})")
     await finishMotion()
     const restoredGlass = await material()

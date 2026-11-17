@@ -6,6 +6,8 @@ import {
   normalizeCodeTheme,
   parseOuterPanePreference,
   parseThemePreference,
+  resolveAccentColor,
+  resolveDefaultOuterPaneBackground,
   resolveOuterPaneColors,
   resolveOuterPaneTexture,
   resolveOuterPaneTextColor,
@@ -131,5 +133,36 @@ describe('theme preferences', () => {
     expect(resolveThemeMode('system', false)).toBe('light')
     expect(resolveThemeMode('light', true)).toBe('light')
     expect(resolveThemeMode('dark', false)).toBe('dark')
+  })
+
+  it('derives readable accents from black, white, gray, and colored surfaces', () => {
+    const lightness = (hex: string): number => {
+      const rgb = [1, 3, 5].map(offset => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255)
+        .map(channel => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+      return rgb[0]! * 0.2126 + rgb[1]! * 0.7152 + rgb[2]! * 0.0722
+    }
+    const ratio = (a: string, b: string): number => (Math.max(lightness(a), lightness(b)) + 0.05) / (Math.min(lightness(a), lightness(b)) + 0.05)
+    for (const source of ['#000000', '#ffffff', '#777777', '#0000ff', '#ffff00', '#00ff00', '#12101a', '#eee8ff']) {
+      for (const surface of [source, '#f2f3f6', '#181a20', '#ffffff', '#000000']) {
+        const accent = resolveAccentColor(source, surface)
+        expect(ratio(accent, surface), `${source} accent ${accent} on ${surface}`).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+    expect(resolveAccentColor('#1234ab', '#ffffff')).toBe('#1234ab')
+    expect(resolveAccentColor('#000000', '#000000')).not.toBe('#000000')
+    expect(resolveAccentColor('#ffffff', '#ffffff')).not.toBe('#ffffff')
+  })
+
+  it('shares the opaque glass tint with the default solid background', () => {
+    expect(resolveDefaultOuterPaneBackground('#7c3aed', 'light', '#eef0f3', '#f2f3f6', '#f8f9fb')).toBe('#e4daf9')
+    expect(resolveDefaultOuterPaneBackground('#7c3aed', 'dark', '#181a20', '#1d2027', '#262931')).toBe('#242038')
+  })
+
+  it('uses the shared default for automatic solid colors while preserving explicit choices', () => {
+    const preference = { ...DEFAULT_THEME, outerPane: { ...DEFAULT_THEME.outerPane, material: 'solid' as const } }
+    expect(resolveOuterPaneColors(preference, '#eeeeee')).toEqual({ background: '#eeeeee', text: '#000000' })
+    expect(resolveOuterPaneColors({ ...preference, outerPane: { ...preference.outerPane, background: '#000000', text: '#000000' } }, '#eeeeee'))
+      .toEqual({ background: '#000000', text: '#000000' })
+    expect(preference.outerPane.background).toBeNull()
   })
 })

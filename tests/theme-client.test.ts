@@ -115,7 +115,7 @@ describe('theme client lifecycle', () => {
       controller.setOuterPane({ background: '#ffffff' })
       controller.setChrome('ink')
       expect(controller.snapshot().outerPane).toEqual({ material: 'solid', background: null, text: '#cceeff', texture: 'auto' })
-      expect(properties.has('--alto-outer-background')).toBe(false)
+      expect(properties.get('--alto-outer-background')).toBe(properties.get('--alto-outer-default-background'))
       expect(properties.get('--alto-outer-text')).toBe('#cceeff')
       controller.setChrome('black')
       expect(properties.get('--alto-outer-background')).toBe('#000000')
@@ -126,10 +126,10 @@ describe('theme client lifecycle', () => {
       expect(properties.get('--alto-outer-background')).toBe('#000000')
       expect(properties.get('--alto-outer-text')).toBe('#ffffff')
       controller.setChrome('alto')
-      expect(properties.has('--alto-outer-background')).toBe(false)
-      expect(properties.has('--alto-outer-text')).toBe(false)
-      expect(root.dataset.altoOuterBackground).toBeUndefined()
-      expect(root.dataset.altoOuterText).toBeUndefined()
+      expect(properties.get('--alto-outer-background')).toBe('#e4daf9')
+      expect(properties.get('--alto-outer-text')).toBe('#000000')
+      expect(root.dataset.altoOuterBackground).toBe('custom')
+      expect(root.dataset.altoOuterText).toBe('custom')
 
       controller.reset()
       expect(controller.snapshot()).toMatchObject(DEFAULT_THEME)
@@ -162,12 +162,58 @@ describe('theme client lifecycle', () => {
       expect(controller.snapshot().outerPane.texture).toBe('grid')
       expect(new ThemeController().snapshot().outerPane.texture).toBe('grid')
 
+      controller.setChrome('alto')
+      controller.setAccent('#2563eb')
+      controller.setOuterPane({ texture: 'auto' })
+      for (const mode of ['light', 'dark'] as const) {
+        controller.setMode(mode)
+        const glassBackground = properties.get('--alto-outer-default-background')
+        expect(glassBackground).toMatch(/^#[0-9a-f]{6}$/)
+        for (let toggle = 0; toggle < 3; toggle++) {
+          controller.setOuterPane({ material: 'solid' })
+          expect(properties.get('--alto-outer-background')).toBe(glassBackground)
+          expect(properties.get('--alto-outer-default-background')).toBe(glassBackground)
+          expect(controller.snapshot().outerPane.background).toBeNull()
+          controller.setOuterPane({ material: 'glass' })
+          expect(properties.has('--alto-outer-background')).toBe(false)
+          expect(properties.get('--alto-theme-accent')).toBe('#2563eb')
+          expect(properties.get('--alto-outer-default-background')).toBe(glassBackground)
+        }
+      }
+      for (const mode of ['light', 'dark'] as const) {
+        controller.setMode(mode)
+        for (const background of ['#000000', '#ffffff', '#777777', '#0000ff', '#ffff00']) {
+          controller.setOuterPane({ material: 'solid', background, text: '#000000' })
+          expect(root.dataset.altoOuterTexture).toBe('dots')
+          expect(properties.get('--alto-outer-background')).toBe(background)
+          expect(properties.get('--alto-theme-accent')).not.toBe('#2563eb')
+          expect(properties.get('--alto-outer-accent')).not.toBe(background)
+          if (background === '#000000') expect(properties.get('--alto-outer-pattern-color')).toBe('#ffffff')
+          if (background === '#ffffff') expect(properties.get('--alto-outer-pattern-color')).toBe('#000000')
+        }
+      }
+      controller.setOuterPane({ material: 'glass' })
+      expect(properties.get('--alto-theme-accent')).toBe('#2563eb')
+      controller.setOuterPane({ material: 'solid', background: '#000000', text: null })
+      expect(JSON.parse(storage.get(THEME_STORAGE_KEY)!))
+        .toMatchObject({ accent: '#2563eb', outerPane: { material: 'solid', background: '#000000' } })
+
       deactivate()
       expect(root.dataset).toEqual({})
       expect(properties.has('--alto-theme-accent')).toBe(false)
       expect(properties.has('--alto-outer-background')).toBe(false)
       expect(properties.has('--alto-outer-text')).toBe(false)
+      expect(properties.has('--alto-outer-default-background')).toBe(false)
+      expect(properties.has('--alto-outer-accent')).toBe(false)
+      expect(properties.has('--alto-outer-pattern-color')).toBe(false)
       expect(listeners.size).toBe(0)
+
+      const restored = new ThemeController()
+      const deactivateRestored = restored.activate()
+      expect(properties.get('--alto-outer-background')).toBe('#000000')
+      expect(properties.get('--alto-outer-pattern-color')).toBe('#ffffff')
+      expect(restored.snapshot().outerPane.background).toBe('#000000')
+      deactivateRestored()
 
       storage.clear()
       const configured = new ThemeController({

@@ -3,7 +3,7 @@
 .workspace-layout-root {
   --workspace-surface-sheet: var(--canvas);
   --workspace-chrome-neutral: color-mix(in srgb, var(--workspace-surface-sheet) 97%, black);
-  --workspace-surface-chrome: color-mix(in srgb, var(--accent) 22%, var(--workspace-chrome-neutral));
+  --workspace-surface-chrome: var(--alto-outer-default-background, color-mix(in srgb, var(--accent) 22%, var(--workspace-chrome-neutral)));
   --workspace-chrome-ink: color-mix(in srgb, var(--text-strong) 75%, light-dark(black, white));
   --workspace-surface-raised: var(--panel-solid);
   --workspace-surface-recessed: var(--panel-soft);
@@ -15,9 +15,8 @@
   --workspace-chrome: var(--workspace-surface-chrome);
   /* Keep the accent wash stable while the neutral backing softens dark
      backdrops. About 26% of the native material remains visible. */
-  --workspace-material-tint: color-mix(in srgb, var(--accent) 12%,
-    color-mix(in srgb, var(--workspace-surface-raised) 70%, transparent));
-  --workspace-outer-texture-ink: color-mix(in srgb, var(--workspace-chrome-ink) 6%, transparent);
+  --workspace-material-tint: color-mix(in srgb, var(--workspace-surface-chrome) 73.6%, transparent);
+  --workspace-outer-texture-ink: color-mix(in srgb, var(--alto-outer-pattern-color, var(--workspace-chrome-ink)) 6%, transparent);
   --workspace-outer-texture-image: none;
   --workspace-outer-texture-size: var(--space-4) var(--space-4);
   --workspace-chrome-texture-image: var(--workspace-outer-texture-image);
@@ -37,7 +36,7 @@
    the app's theme differs from macOS or a light window sits behind it. */
 html[data-alto-theme='dark'] .workspace-layout-root {
   --workspace-chrome-neutral: color-mix(in srgb, var(--workspace-surface-sheet) 55%, var(--bg));
-  --workspace-surface-chrome: color-mix(in srgb, var(--accent) 10%, var(--workspace-chrome-neutral));
+  --workspace-surface-chrome: var(--alto-outer-default-background, color-mix(in srgb, var(--accent) 10%, var(--workspace-chrome-neutral)));
   --workspace-material-tint: color-mix(in srgb, var(--workspace-surface-chrome) 95%, transparent);
   --workspace-chrome-ink: var(--text);
   --workspace-control-hover: color-mix(in srgb, var(--text) 7%, transparent);
@@ -64,6 +63,19 @@ html[data-alto-outer-material='solid'] .workspace-layout-root {
   --workspace-material-tint: var(--workspace-surface-chrome);
 }
 
+html[data-alto-outer-material='solid'] :is(.workspace-tabbar, .vertical-tab-rail),
+html[data-alto-outer-material='solid'] .workspace-body[data-tab-orientation='vertical'] :is(.workspace-pane-header, .alto-pane-header):not(.workspace-split-vertical:not(.is-fullscreen-second) > .workspace-split-second *) {
+  --accent: var(--alto-outer-accent, var(--alto-theme-accent));
+}
+
+html[data-alto-outer-material='solid'] .workspace-layout-root .thread-status-indicator.finished > i {
+  opacity: 1;
+}
+
+html[data-alto-outer-material='solid'] :is(.workspace-tabbar, .vertical-tab-rail, .workspace-pane-header, .alto-pane-header) :is([role='menu'], [role='dialog'], .alto-floating-panel) {
+  --accent: var(--alto-theme-accent);
+}
+
 html[data-alto-outer-text='custom'] .workspace-layout-root {
   --workspace-chrome-ink: var(--alto-outer-text);
   /* Floating menus can be children of a title bar. Preserve their content
@@ -85,7 +97,7 @@ html[data-alto-outer-text='custom'] .workspace-layout-root {
    same paint; native transparent chrome exposes the root's single layer. */
 @media (forced-colors: none) {
   html[data-alto-outer-texture='dots'] .workspace-layout-root {
-    --workspace-outer-texture-ink: color-mix(in srgb, var(--workspace-chrome-ink) 14%, transparent);
+    --workspace-outer-texture-ink: color-mix(in srgb, var(--alto-outer-pattern-color, var(--workspace-chrome-ink)) 14%, transparent);
     --workspace-outer-texture-image: radial-gradient(circle,
       var(--workspace-outer-texture-ink) calc(var(--space-1) / 4),
       transparent calc(var(--space-1) / 3));
