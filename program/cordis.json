@@ -73,16 +73,11 @@
           "id": "pi-acp",
           "name": "Pi",
           "description": "Runs local Pi sessions through Agent Client Protocol.",
-          "module": "plugins/acp-provider.ts",
+          "module": "plugins/pi-provider.ts",
           "enabled": true,
           "config": {
             "id": "pi",
             "label": "Pi",
-            "command": "npx",
-            "args": [
-              "--yes",
-              "pi-acp@0.0.33"
-            ],
             "initialConfig": [
               {
                 "id": "model",
