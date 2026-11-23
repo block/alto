@@ -1,0 +1,54 @@
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1,4 +1,5 @@
+ #!/usr/bin/env node
++import { mcpEnvironment } from "./mcp-extension.js";
+ 
+ // src/index.ts
+ import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
+@@ -130,11 +131,15 @@
+     const cmd = getPiCommand(params.piCommand);
+     const args = ["--mode", "rpc", "--no-themes"];
+     if (params.sessionPath) args.push("--session", params.sessionPath);
++    const env = { ...process.env, ...mcpEnvironment(params.mcpServers ?? []) };
++    if (params.mcpServers?.length) {
++      args.push("--extension", fileURLToPath(new URL("./mcp-extension.js", import.meta.url)));
++    }
+     const start = shouldUseShellForPiCommand(cmd) ? crossSpawn : spawn;
+     const child = start(cmd, args, {
+       cwd: params.cwd,
+       stdio: "pipe",
+-      env: process.env
++      env
+     });
+     try {
+       await new Promise((resolve4, reject) => {
+@@ -754,7 +759,8 @@
+     try {
+       proc = await PiRpcProcess.spawn({
+         cwd: params.cwd,
+-        piCommand: params.piCommand
++        piCommand: params.piCommand,
++        mcpServers: params.mcpServers
+       });
+     } catch (e) {
+       if (e instanceof PiRpcSpawnError) {
+@@ -2013,7 +2019,8 @@
+         proc = await PiRpcProcess.spawn({
+           cwd,
+           sessionPath: stored.sessionFile,
+-          piCommand: process.env.PI_ACP_PI_COMMAND
++          piCommand: process.env.PI_ACP_PI_COMMAND,
++          mcpServers: opts?.mcpServers ?? []
+         });
+       } catch (e) {
+         if (e?.name === "PiRpcSpawnError") {
+@@ -2059,7 +2066,7 @@
+       }),
+       agentCapabilities: {
+         loadSession: true,
+-        mcpCapabilities: { http: false, sse: false },
++        mcpCapabilities: { http: true, sse: false },
+         promptCapabilities: {
+           image: true,
+           audio: false,

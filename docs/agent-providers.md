@@ -1,3 +1,8 @@
+---
+read_when:
+  - Configuring local agents or debugging their tools, sessions, and packaging
+---
+
 # Agent providers
 
 Alto can open Codex, Claude, Gemini, and Pi chats from the Agent row in the composer's model picker. An agent is fixed after the first message. Select a workspace before choosing the agent: its local process runs in that checkout. Codex continues to use App Server; ACP conversations use the same composer, transcript, approvals, file review, progress, and history components.
@@ -34,7 +39,7 @@ Selecting another agent and chatting with it does not start Codex. To use
 Codex, install its CLI on your `PATH` and run `codex login`. If startup fails,
 you can fix the installation and retry without restarting Alto.
 
-The default profile runs `npx --yes @agentclientprotocol/claude-agent-acp@0.81.0` for Claude and `npx --yes pi-acp@0.0.33` for Pi. These versions are pinned: an older Claude adapter can advertise models that its bundled Claude runtime cannot use. The first launch may download the adapter; subsequent launches can reuse npm's cache, but npm may still consult the registry. Claude's adapter also starts to discover saved history when Alto opens; discovery does not create a session or send a prompt. Other ACP providers start when their first session is needed.
+The default profile runs `npx --yes @agentclientprotocol/claude-agent-acp@0.81.0` for Claude. Pi uses Alto’s bundled `pi-acp@0.0.35` with an Alto-owned MCP patch; its adapter never downloads at launch. `npm run build:pi-adapter` builds it, and the normal build and development commands include that step. The Pi provider resolves the bundle relative to Alto’s application root and uses the current Node/Electron executable, so no user-specific path or separate adapter checkout is needed. Claude’s first launch may download its pinned adapter; subsequent launches can reuse npm’s cache. Claude’s adapter also starts to discover saved history when Alto opens; discovery does not create a session or send a prompt. Other ACP providers start when their first session is needed.
 
 Authenticate the local agent using its own CLI before selecting it in Alto. Pi additionally requires a local `pi` executable; the adapter starts it in RPC mode. Configure another ACP executable with a separate `plugins/acp-provider.ts` entry in `program/cordis.json`, using a unique `config.id`, label, command, and optional args, cwd, or env.
 
@@ -50,7 +55,7 @@ A live check with Gemini CLI `0.62.0-preview.0` completed a prompt and stopped t
 
 To use DeepSeek through Pi, start a new chat and choose **Agent → Pi**, then **DeepSeek V4.1 Flash 1017 (Databricks)**. The model must also be configured in Pi's local `~/.pi/agent/models.json` as `system.ai.deepseek-v4-1-flash-1017`, using the `openai-responses` API and the production Databricks AI Gateway at `https://block-lakehouse-production.cloud.databricks.com/ai-gateway/mlflow/v1`. The Alto model value includes the provider prefix: `databricks/system.ai.deepseek-v4-1-flash-1017`. Authentication stays in Pi's existing Databricks configuration, including its OAuth refresh helper.
 
-Responses API compatibility does not imply support for OpenAI-specific features. Pi extensions must avoid adding `service_tier: "priority"` or OpenAI-hosted `web_search` tools to this model. Alto preserves enabled Pi extensions; an extension requiring unsupported RPC interactions can still prevent a session from working. The current Pi adapter does not connect ACP-supplied MCP servers, so Alto's Cordis tools are unavailable in Pi chats.
+Responses API compatibility does not imply support for OpenAI-specific features. Pi extensions must avoid adding `service_tier: "priority"` or OpenAI-hosted `web_search` tools to this model. Alto preserves enabled Pi extensions; an extension requiring unsupported RPC interactions can still prevent a session from working. The bundled Pi adapter forwards ACP-supplied MCP servers through Pi 1.6.0+ built-in MCP support. A bundled extension registers each chat’s connections with direct tool exposure. Credentials stay in the individual Pi process environment; the patch does not write user or project MCP configuration. Restored chats receive fresh connection details from Alto. Keep built-in MCP support enabled. The pinned upstream `pi-acp@0.0.35` accepts these descriptors but does not connect them without Alto’s patch.
 
 Claude was tested with the real local adapter.
 
@@ -72,7 +77,7 @@ Claude was tested with the real local adapter.
 | Queue | Saved, editable, reorderable messages appear in the usual queue and move into chat once when started. The server releases them after normal completion, even when the pane is closed. Stop, failure, and a server restart pause delivery. |
 | Live steering | Claude advertises its steering extension. The existing queue's Steer button injects the message into the active turn. If the turn has just finished, Alto starts an ordinary next turn and records the message once. |
 | Subagents | Claude's negotiated child-session events populate Alto's Agents panel, including nested transcripts, current status, and parent-scoped approvals. Background tasks advertise individual Stop support. |
-| Cordis tools | ACP agents with MCP support receive an authenticated loopback MCP server exposing the existing Cordis dispatcher. List/describe/invoke resolve the current tool owners. Pi's current adapter does not connect this server. |
+| Cordis tools | ACP agents with MCP support receive an authenticated loopback MCP server exposing the existing Cordis dispatcher. List/describe/invoke resolve the current tool owners. The bundled Pi adapter connects this server through Pi’s built-in MCP support. |
 | History | Persists the complete transcript and the exact provider/session/workspace identity. Reopening uses ACP `session/load`; unsupported resumption reports an error rather than silently starting another conversation. |
 | Connection failures | End streaming, clear pending decisions, retain the draft or transcript, and show an error in the affected chat. A later send can reconnect and resume. |
 
@@ -113,3 +118,19 @@ Pi checks cover configured choices before process startup, snapshot isolation, l
 At the starting revision, four existing checks fail in `client-styles.test.ts`, `program-profile.test.ts`, and `turn-intervention-browser.test.ts`. The same failures were reproduced from an archive of the unchanged HEAD. They concern old shimmer expectations and profile outlet metadata, not ACP behavior.
 
 Protocol references: [Gemini ACP](https://geminicli.com/docs/cli/acp-mode/), [session configuration](https://agentclientprotocol.com/protocol/v1/session-config-options), [Claude adapter](https://github.com/agentclientprotocol/claude-agent-acp), and [Pi adapter](https://github.com/svkozak/pi-acp).
+
+## Bundled Pi adapter
+
+The patch, extension, upstream version/hash, and maintenance instructions live in
+[`vendor/pi-acp`](../vendor/pi-acp/README.md). The build applies the patch in memory
+and bundles dependencies and license notices into `dist/node/adapters/pi-acp`.
+Portable app packaging already includes that directory. Upstream package files
+and global Pi configuration stay unchanged. An upstream version or content change
+fails the build until its patch is reviewed.
+
+Regression coverage builds and relocates the bundle outside the repository, then
+exercises actual ACP new/load requests against a fake Pi subprocess. It checks
+fresh session credentials, extension loading, empty configurations, and the
+upstream hash guard. A live Inkling/Cordis probe also verifies tool execution with
+Alto’s server-assigned chat identity and Ask permissions. Thinking already uses
+`agent_thought_chunk`; no thought-stream patch is needed.
