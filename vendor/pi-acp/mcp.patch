@@ -1,11 +1,8 @@
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -1,4 +1,5 @@
+@@ -1 +1,2 @@
  #!/usr/bin/env node
 +import { mcpEnvironment } from "./mcp-extension.js";
- 
- // src/index.ts
- import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
 @@ -130,11 +131,15 @@
      const cmd = getPiCommand(params.piCommand);
      const args = ["--mode", "rpc", "--no-themes"];
